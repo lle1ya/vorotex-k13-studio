@@ -41,19 +41,13 @@ public sealed class TrayIcon : IDisposable
 
     private static Icon MakeIcon()
     {
-        using var bmp = new Bitmap(32, 32);
-        using (var g = Graphics.FromImage(bmp))
+        try
         {
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent);
-            using var bg = new SolidBrush(Color.FromArgb(61, 139, 253));
-            g.FillEllipse(bg, 1, 1, 30, 30);
-            using var f = new Font("Segoe UI", 13, System.Drawing.FontStyle.Bold, GraphicsUnit.Pixel);
-            using var fg = new SolidBrush(Color.White);
-            var sz = g.MeasureString("K", f);
-            g.DrawString("K", f, fg, (32 - sz.Width) / 2, (32 - sz.Height) / 2);
+            var res = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/VorotexK13Studio;component/Assets/app.ico"));
+            if (res != null) using (res.Stream) return new Icon(res.Stream, SystemInformation.SmallIconSize);
         }
-        return Icon.FromHandle(bmp.GetHicon());
+        catch { }
+        return SystemIcons.Application;
     }
 
     public void Dispose() { _icon.Visible = false; _icon.Dispose(); }

@@ -18,11 +18,9 @@
         <ColumnDefinition Width="Auto"/>
       </Grid.ColumnDefinitions>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-        <Border Width="34" Height="34" CornerRadius="9" Background="{DynamicResource AccentBrush}" Margin="0,0,12,0">
-          <TextBlock Text="K13" Foreground="White" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-        </Border>
+        <Image Source="pack://application:,,,/VorotexK13Studio;component/Assets/app.ico" Width="36" Height="36" Margin="0,0,12,0" RenderOptions.BitmapScalingMode="HighQuality"/>
         <StackPanel VerticalAlignment="Center">
-          <TextBlock Text="VOROTEX K13" FontSize="17" FontWeight="SemiBold"/>
+          <TextBlock Text="VOROTEX K13" FontSize="16" FontWeight="SemiBold"/>
           <StackPanel Orientation="Horizontal" Margin="0,1,0,0">
             <Ellipse x:Name="ConnDot" Width="7" Height="7" Fill="{DynamicResource ErrBrush}" VerticalAlignment="Center" Margin="0,1,6,0"/>
             <TextBlock x:Name="ConnText" Text="Клавиатура не найдена" Style="{StaticResource Muted}" FontSize="12"/>
@@ -76,7 +74,7 @@
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
           </Grid.RowDefinitions>
-          <TextBlock x:Name="LayoutHint" Text="Нажмите на кнопку, которую хотите настроить" FontSize="19" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,14,0,0"/>
+          <TextBlock x:Name="LayoutHint" Text="Нажмите на кнопку, которую хотите настроить" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,14,0,0"/>
           <ContentControl x:Name="LayoutKbHost" Grid.Row="1" Margin="24,18,24,10" MaxWidth="980" VerticalAlignment="Center"/>
           <StackPanel Grid.Row="2" HorizontalAlignment="Center" Margin="0,0,0,14">
             <TextBlock x:Name="HoverCaption" Style="{StaticResource Muted}" FontSize="13" HorizontalAlignment="Center" MinHeight="18"/>
@@ -179,10 +177,10 @@
             <StackPanel>
               <DockPanel Margin="0,0,0,8">
                 <TextBlock x:Name="MemPct" DockPanel.Dock="Right" FontWeight="SemiBold" FontSize="12"/>
-                <TextBlock Text="Память клавиатуры для макросов" FontSize="12.5" FontWeight="SemiBold"/>
+                <TextBlock Text="Память клавиатуры для макросов" FontSize="13" FontWeight="SemiBold"/>
               </DockPanel>
               <ProgressBar x:Name="MemBar" Height="8" Minimum="0" Maximum="1"/>
-              <TextBlock x:Name="MemText" Style="{StaticResource Muted}" FontSize="11.5" Margin="0,7,0,0" TextWrapping="Wrap"/>
+              <TextBlock x:Name="MemText" Style="{StaticResource Muted}" FontSize="12" Margin="0,7,0,0" TextWrapping="Wrap"/>
             </StackPanel>
           </Border>
           <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -231,10 +229,10 @@
                 <DockPanel>
                   <CheckBox x:Name="AutoSwitchBox" Style="{StaticResource Switch}" DockPanel.Dock="Right" Checked="AutoSwitch_Changed" Unchecked="AutoSwitch_Changed"/>
                   <Border Width="34" Height="34" CornerRadius="10" Background="{DynamicResource AccentSoftBrush}" Margin="0,0,12,0">
-                    <TextBlock Text="&#xE8AB;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15" Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <TextBlock Text="&#xE8AB;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16" Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                   </Border>
                   <StackPanel VerticalAlignment="Center">
-                    <TextBlock Text="Автопереключение по программе" FontSize="15" FontWeight="SemiBold"/>
+                    <TextBlock Text="Автопереключение по программе" FontSize="16" FontWeight="SemiBold"/>
                     <TextBlock Style="{StaticResource Muted}" FontSize="12" Text="Открыли Photoshop — включился профиль «Фото». Меняются действия на ПК; кнопки в клавиатуре — после «Записать»." TextWrapping="Wrap"/>
                   </StackPanel>
                 </DockPanel>
@@ -246,7 +244,7 @@
                       <TextBlock Text="Добавить правило"/>
                     </StackPanel>
                   </Button>
-                  <TextBlock x:Name="ForegroundText" Style="{StaticResource Muted}" FontSize="11.5" VerticalAlignment="Center" TextAlignment="Right" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Margin="12,0,0,0"/>
+                  <TextBlock x:Name="ForegroundText" Style="{StaticResource Muted}" FontSize="12" VerticalAlignment="Center" TextAlignment="Right" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Margin="12,0,0,0"/>
                 </DockPanel>
               </StackPanel>
             </Border>
@@ -261,7 +259,7 @@
                 <StackPanel>
                   <DockPanel>
                     <CheckBox x:Name="HostEnabledBox" Style="{StaticResource Switch}" DockPanel.Dock="Right" Checked="HostEnabled_Changed" Unchecked="HostEnabled_Changed"/>
-                    <TextBlock Text="Действия на компьютере" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Text="Действия на компьютере" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
                   </DockPanel>
                   <TextBlock x:Name="HostSummary" Style="{StaticResource Muted}" Margin="0,4,0,10" TextWrapping="Wrap"/>
                   <Button Content="Подробные настройки…" HorizontalAlignment="Left" Click="OpenHost_Click" Style="{StaticResource GhostButton}"/>
@@ -269,7 +267,7 @@
               </Border>
               <Border Grid.Column="2" Style="{StaticResource Card}">
                 <StackPanel>
-                  <TextBlock Text="Программа" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                  <TextBlock Text="Программа" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
                   <CheckBox x:Name="TrayBox" Style="{StaticResource Switch}" Content="Сворачивать в трей при закрытии" Checked="Tray_Changed" Unchecked="Tray_Changed"/>
                   <CheckBox x:Name="AutostartBox" Style="{StaticResource Switch}" Content="Запускать вместе с Windows (в трей)" Checked="Autostart_Changed" Unchecked="Autostart_Changed"/>
                   <CheckBox x:Name="DarkBox" Style="{StaticResource Switch}" Content="Тёмная тема" Checked="Dark_Changed" Unchecked="Dark_Changed"/>
@@ -283,8 +281,8 @@
 
     <!-- Footer -->
     <DockPanel Grid.Row="3" Margin="28,0,28,10">
-      <TextBlock DockPanel.Dock="Left" x:Name="SafeText" Text="Перед каждой записью — резервная копия, после — проверка" Style="{StaticResource Muted}" FontSize="11.5"/>
-      <TextBlock x:Name="StatusText" Style="{StaticResource Muted}" FontSize="11.5" TextAlignment="Right" TextTrimming="CharacterEllipsis" Margin="16,0,0,0"/>
+      <TextBlock DockPanel.Dock="Left" x:Name="SafeText" Text="Перед каждой записью — резервная копия, после — проверка" Style="{StaticResource Muted}" FontSize="12"/>
+      <TextBlock x:Name="StatusText" Style="{StaticResource Muted}" FontSize="12" TextAlignment="Right" TextTrimming="CharacterEllipsis" Margin="16,0,0,0"/>
     </DockPanel>
 
     <!-- Welcome overlay -->

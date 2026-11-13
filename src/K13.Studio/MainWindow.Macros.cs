@@ -58,7 +58,7 @@ public partial class MainWindow
             Content = new TextBlock { Text = "\uE70F", FontFamily = Icons, FontSize = Math.Max(11, size * 0.55), Foreground = R("MutedBrush") }, Cursor = Cursors.Hand };
         view.Children.Add(label); view.Children.Add(pencil);
         var box = new TextBox { Text = text, FontSize = size * 0.85, MinWidth = 220, Visibility = Visibility.Collapsed, Padding = new Thickness(8, 3, 8, 3) };
-        var err = new TextBlock { Foreground = R("ErrBrush"), FontSize = 11.5, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 2, 0, 0) };
+        var err = new TextBlock { Foreground = R("ErrBrush"), FontSize = 12, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 2, 0, 0) };
         var stack = new StackPanel();
         stack.Children.Add(view); stack.Children.Add(box); stack.Children.Add(err);
         host.Children.Add(stack);
@@ -141,7 +141,7 @@ public partial class MainWindow
         var groups = StepGroups(m.Events);
         var sp = new StackPanel();
         var top = new DockPanel();
-        var count = new TextBlock { Text = m.IsUsed ? $"{groups.Count} {StepsWord(groups.Count)} · {MacroSeconds(m):0.0} с" : "пустой", FontSize = 11.5, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center };
+        var count = new TextBlock { Text = m.IsUsed ? $"{groups.Count} {StepsWord(groups.Count)} · {MacroSeconds(m):0.0} с" : "пустой", FontSize = 12, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center };
         DockPanel.SetDock(count, Dock.Right);
         top.Children.Add(count);
         var icon = new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(8), Margin = new Thickness(0, 0, 10, 0), Background = sel ? R("AccentBrush") : R("AccentSoftBrush"),
@@ -155,12 +155,12 @@ public partial class MainWindow
         var prev = new WrapPanel { Margin = new Thickness(38, 8, 0, 0) };
         foreach (var g in groups.Take(5)) prev.Children.Add(MiniCap(GroupShort(m.Events, g)));
         if (groups.Count > 5) prev.Children.Add(new TextBlock { Text = $"+{groups.Count - 5}", FontSize = 11, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 0, 4) });
-        if (groups.Count == 0) prev.Children.Add(new TextBlock { Text = "нет шагов — нажмите «Записать»", FontSize = 11.5, Foreground = R("MutedBrush") });
+        if (groups.Count == 0) prev.Children.Add(new TextBlock { Text = "нет шагов — нажмите «Записать»", FontSize = 12, Foreground = R("MutedBrush") });
         sp.Children.Add(prev);
 
         // bound keys
         var kp = new WrapPanel { Margin = new Thickness(38, 4, 0, 0) };
-        if (keys.Count == 0) kp.Children.Add(new TextBlock { Text = "не назначен на кнопку", FontSize = 11.5, Foreground = R("MutedBrush") });
+        if (keys.Count == 0) kp.Children.Add(new TextBlock { Text = "не назначен на кнопку", FontSize = 12, Foreground = R("MutedBrush") });
         foreach (var k in keys) kp.Children.Add(Pill("\uE765", k));
         sp.Children.Add(kp);
 
@@ -183,7 +183,7 @@ public partial class MainWindow
     {
         var sp = new StackPanel { Orientation = Orientation.Horizontal };
         if (glyph.Length > 0) sp.Children.Add(new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 10, Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center, Foreground = accent ? R("AccentBrush") : R("MutedBrush") });
-        sp.Children.Add(new TextBlock { Text = text, FontSize = 11.5, Foreground = accent ? R("AccentBrush") : R("MutedBrush") });
+        sp.Children.Add(new TextBlock { Text = text, FontSize = 12, Foreground = accent ? R("AccentBrush") : R("MutedBrush") });
         return new Border { Child = sp, Background = accent ? R("AccentSoftBrush") : R("Panel2Brush"), CornerRadius = new CornerRadius(10), Padding = new Thickness(8, 2, 8, 3), Margin = new Thickness(0, 0, 5, 4) };
     }
 
@@ -274,7 +274,7 @@ public partial class MainWindow
             run.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             var lbl = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, labelTop, 12, 0) };
             if (icon != null) lbl.Children.Add(new TextBlock { Text = icon, FontFamily = Icons, FontSize = 12, Foreground = R("MutedBrush"), Margin = new Thickness(0, 1, 8, 0) });
-            lbl.Children.Add(T(label, 12.5, muted: true).With(t => t.FontWeight = FontWeights.SemiBold));
+            lbl.Children.Add(T(label, 13, muted: true).With(t => t.FontWeight = FontWeights.SemiBold));
             Grid.SetRow(lbl, r); run.Children.Add(lbl);
             Grid.SetRow(content, r); Grid.SetColumn(content, 1); run.Children.Add(content);
         }
@@ -310,7 +310,7 @@ public partial class MainWindow
         runWrap.Children.Add(runCard);
         MacroHeader.Children.Add(runWrap);
         if (slot.Unsupported)
-            MacroHeader.Children.Add(T("Этот макрос создан в родной программе и содержит блок текста/подсветки, который мы пока не умеем менять. Его можно только удалить.", 12.5).With(t => { t.Foreground = R("WarnBrush"); t.Margin = new Thickness(0, 0, 0, 12); t.TextWrapping = TextWrapping.Wrap; }));
+            MacroHeader.Children.Add(T("Этот макрос создан в родной программе и содержит блок текста/подсветки, который мы пока не умеем менять. Его можно только удалить.", 13).With(t => { t.Foreground = R("WarnBrush"); t.Margin = new Thickness(0, 0, 0, 12); t.TextWrapping = TextWrapping.Wrap; }));
         MacroHost.Children.Add(T("Шаги", 13, semi: true).With(t => t.Margin = new Thickness(2, 4, 0, 8)));
 
         // ── steps
@@ -318,9 +318,9 @@ public partial class MainWindow
         {
             var empty = new Border { CornerRadius = new CornerRadius(14), BorderBrush = R("BorderBrush"), BorderThickness = new Thickness(1.5), Padding = new Thickness(24), Margin = new Thickness(0, 10, 0, 0), Background = R("Panel2Brush") };
             var es = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
-            es.Children.Add(new TextBlock { Text = "\uE7C8", FontFamily = Icons, FontSize = 28, Foreground = R("AccentBrush"), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 8) });
-            es.Children.Add(T("Шагов пока нет", 15, semi: true).With(t => t.HorizontalAlignment = HorizontalAlignment.Center));
-            es.Children.Add(T("Нажмите «Записать» и выполните действия — или соберите макрос кнопками внизу.", 12.5, muted: true).With(t => { t.HorizontalAlignment = HorizontalAlignment.Center; t.TextAlignment = TextAlignment.Center; t.Margin = new Thickness(0, 4, 0, 0); }));
+            es.Children.Add(new TextBlock { Text = "\uE7C8", FontFamily = Icons, FontSize = 24, Foreground = R("AccentBrush"), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 8) });
+            es.Children.Add(T("Шагов пока нет", 16, semi: true).With(t => t.HorizontalAlignment = HorizontalAlignment.Center));
+            es.Children.Add(T("Нажмите «Записать» и выполните действия — или соберите макрос кнопками внизу.", 13, muted: true).With(t => { t.HorizontalAlignment = HorizontalAlignment.Center; t.TextAlignment = TextAlignment.Center; t.Margin = new Thickness(0, 4, 0, 0); }));
             empty.Child = es;
             MacroHost.Children.Add(empty);
         }
@@ -332,7 +332,7 @@ public partial class MainWindow
             var x = new Button { Style = (Style)FindResource("GhostButton"), Padding = new Thickness(6, 2, 6, 2), Content = new TextBlock { Text = "\uE711", FontFamily = Icons, FontSize = 10 }, ToolTip = "Убрать паузу" };
             x.Click += (_, _) => { _pendingPauseMs = 0; BuildMacroEditor(); };
             DockPanel.SetDock(x, Dock.Right); pd.Children.Add(x);
-            pd.Children.Add(T($"⏱  Пауза {_pendingPauseMs} мс — перед следующим добавленным шагом", 12.5).With(t => { t.Foreground = R("AccentBrush"); t.VerticalAlignment = VerticalAlignment.Center; }));
+            pd.Children.Add(T($"⏱  Пауза {_pendingPauseMs} мс — перед следующим добавленным шагом", 13).With(t => { t.Foreground = R("AccentBrush"); t.VerticalAlignment = VerticalAlignment.Center; }));
             pr.Child = pd;
             MacroHost.Children.Add(pr);
         }
@@ -374,7 +374,7 @@ public partial class MainWindow
 
         // main text: verb + keycap / inline values
         var main = new WrapPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 8, 0) };
-        main.Children.Add(new TextBlock { Text = verb, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+        main.Children.Add(new TextBlock { Text = verb, FontSize = 14, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
         if (key.Length > 0)
         {
             var cap = new Border { Child = new TextBlock { Text = key, FontSize = 13, FontWeight = FontWeights.SemiBold }, Background = R("PanelBrush"), BorderBrush = R("BorderBrush"),
@@ -465,7 +465,7 @@ public partial class MainWindow
 
     private TextBox Inline(string value, double width, Func<string, bool> commit, bool ro)
     {
-        var box = new TextBox { Text = value, Width = width, TextAlignment = TextAlignment.Center, Padding = new Thickness(2, 2, 2, 2), VerticalAlignment = VerticalAlignment.Center, IsReadOnly = ro, FontSize = 12.5 };
+        var box = new TextBox { Text = value, Width = width, TextAlignment = TextAlignment.Center, Padding = new Thickness(2, 2, 2, 2), VerticalAlignment = VerticalAlignment.Center, IsReadOnly = ro, FontSize = 13 };
         string orig = value;
         void Commit()
         {
@@ -542,12 +542,12 @@ public partial class MainWindow
                 b.Click += (_, _) => { result = c; w.DialogResult = true; };
                 row.Children.Add(b);
             }
-            sp.Children.Add(T("Какой кнопкой щёлкать:", 12.5, muted: true, bottom: 10));
+            sp.Children.Add(T("Какой кнопкой щёлкать:", 13, muted: true, bottom: 10));
             sp.Children.Add(row);
         }
         else
         {
-            sp.Children.Add(T("Нажмите клавишу или выберите из списка:", 12.5, muted: true, bottom: 8));
+            sp.Children.Add(T("Нажмите клавишу или выберите из списка:", 13, muted: true, bottom: 8));
             var keys = KeyCatalog.All.Where(k => k.Category is not (KeyCategory.Disabled or KeyCategory.Macro or KeyCategory.Unknown or KeyCategory.Lighting) && k.Vk != 0).OrderBy(k => k.Category).ThenBy(k => k.Code).ToList();
             var box = new ComboBox { ItemsSource = keys, DisplayMemberPath = "Name", SelectedItem = keys.FirstOrDefault(k => k.Code == current), MaxDropDownHeight = 320 };
             box.PreviewKeyDown += (_, e) =>
@@ -712,16 +712,18 @@ public partial class MainWindow
     }
 
     /// <summary>Plays the macro on this PC into a test box (keyboard only unless «мышь тоже» is ticked).</summary>
-    private void TestMacro(int sel)
+    private void TestMacro(int sel) => BuildTestWindow(sel).ShowDialog();
+
+    internal Window BuildTestWindow(int sel)
     {
         var m = Cfg.Macros[sel];
         var w = Ui.MakeWindow(this, "Проверка: " + MacroName(sel), 520, 360);
         var sp = new DockPanel { Margin = new Thickness(20) };
-        var head = T("Макрос проиграется здесь, на компьютере (в клавиатуру ничего не записывается). Текст появится в поле ниже.", 12.5, muted: true, bottom: 10);
+        var head = T("Макрос проиграется здесь, на компьютере (в клавиатуру ничего не записывается). Текст появится в поле ниже.", 13, muted: true, bottom: 10);
         DockPanel.SetDock(head, Dock.Top); sp.Children.Add(head);
         var bottom = new DockPanel { Margin = new Thickness(0, 12, 0, 0) };
         DockPanel.SetDock(bottom, Dock.Bottom);
-        var mouse = new CheckBox { Content = "Мышь тоже (щелчки и прокрутка будут настоящими)", VerticalAlignment = VerticalAlignment.Center, IsEnabled = m.Events.Any(e => e.IsMouseButton || e.IsWheel || e.Code == MouseCodes.Move) };
+        var mouse = new CheckBox { Content = new TextBlock { Text = "Мышь тоже (щелчки и прокрутка будут настоящими)", TextWrapping = TextWrapping.Wrap }, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 16, 0), IsEnabled = m.Events.Any(e => e.IsMouseButton || e.IsWheel || e.Code == MouseCodes.Move) };
         var run = new Button { Style = (Style)FindResource("AccentButton"), Content = "▶  Запустить", MinWidth = 120 };
         DockPanel.SetDock(run, Dock.Right);
         bottom.Children.Add(run); bottom.Children.Add(mouse);
@@ -772,7 +774,7 @@ public partial class MainWindow
         };
         w.PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape && busy) { cancel = true; e.Handled = true; } };
         w.Closing += (_, _) => cancel = true;
-        w.ShowDialog();
+        return w;
     }
 
     private void SyncMacro()
@@ -839,7 +841,7 @@ public partial class MainWindow
         var bM = new RadioButton { Style = (Style)FindResource("SubTab"), Content = "Средняя", GroupName = "mb", IsChecked = ev.Code == MouseCodes.Middle && ev.IsMouseButton };
         mb.Children.Add(bL); mb.Children.Add(bR); mb.Children.Add(bM);
         mousePanel.Children.Add(mb);
-        mousePanel.Children.Add(T("Левая кнопка проверена; правая и средняя — по анализу родной программы, проверим при первой записи.", 11.5, muted: true).With(t => t.Margin = new Thickness(0, 6, 0, 0)));
+        mousePanel.Children.Add(T("Левая кнопка проверена; правая и средняя — по анализу родной программы, проверим при первой записи.", 12, muted: true).With(t => t.Margin = new Thickness(0, 6, 0, 0)));
         sp.Children.Add(mousePanel);
 
         // wheel
@@ -849,9 +851,9 @@ public partial class MainWindow
         var wUp = new RadioButton { Style = (Style)FindResource("SubTab"), Content = "Вверх", GroupName = "wd", IsChecked = ev.WheelAmount >= 0 };
         var wDn = new RadioButton { Style = (Style)FindResource("SubTab"), Content = "Вниз", GroupName = "wd", IsChecked = ev.WheelAmount < 0 };
         var amt = new TextBox { Text = Math.Max(1, Math.Abs(ev.WheelAmount)).ToString(), Width = 50, Margin = new Thickness(12, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
-        wr.Children.Add(wUp); wr.Children.Add(wDn); wr.Children.Add(amt); wr.Children.Add(T("щелчков колеса", 12.5).With(t => t.VerticalAlignment = VerticalAlignment.Center));
+        wr.Children.Add(wUp); wr.Children.Add(wDn); wr.Children.Add(amt); wr.Children.Add(T("щелчков колеса", 13).With(t => t.VerticalAlignment = VerticalAlignment.Center));
         wheelPanel.Children.Add(wr);
-        wheelPanel.Children.Add(T("Формат прокрутки взят из родной программы — проверим при первой записи.", 11.5, muted: true).With(t => t.Margin = new Thickness(0, 6, 0, 0)));
+        wheelPanel.Children.Add(T("Формат прокрутки взят из родной программы — проверим при первой записи.", 12, muted: true).With(t => t.Margin = new Thickness(0, 6, 0, 0)));
         sp.Children.Add(wheelPanel);
 
         void Show()

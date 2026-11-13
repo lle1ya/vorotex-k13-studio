@@ -2,12 +2,122 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   
 
+  <!-- v5.0: embedded Inter (OFL) – same look on every PC and in the Wine screenshots -->
+  <FontFamily x:Key="UiFont">pack://application:,,,/VorotexK13Studio;component/Assets/Fonts/#Inter</FontFamily>
+
+  <!-- caption buttons of the custom title bar -->
+  <Style x:Key="CaptionButton" TargetType="Button">
+    <Setter Property="Width" Value="46"/>
+    <Setter Property="Height" Value="34"/>
+    <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+    <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets"/>
+    <Setter Property="FontSize" Value="10"/>
+    <Setter Property="Focusable" Value="False"/>
+    <Setter Property="IsTabStop" Value="False"/>
+    <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Bg" Background="Transparent">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Bg" Property="Background" Value="{DynamicResource HoverBrush}"/>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Bg" Property="Opacity" Value="0.7"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <Style x:Key="CaptionCloseButton" TargetType="Button" BasedOn="{StaticResource CaptionButton}">
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Bg" Background="Transparent">
+            <ContentPresenter x:Name="Cp" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Bg" Property="Background" Value="#C42B1C"/>
+              <Setter Property="Foreground" Value="White"/>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Bg" Property="Background" Value="#A4261A"/>
+              <Setter Property="Foreground" Value="White"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- every app window: themed title bar (icon · title · min/max/close), resize borders, snap -->
   <Style TargetType="Window" x:Key="DarkWindow">
     <Setter Property="Background" Value="{DynamicResource BgBrush}"/>
     <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-    <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI"/>
+    <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
     <Setter Property="FontSize" Value="13"/>
     <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+    <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+    <Setter Property="TextOptions.TextHintingMode" Value="Fixed"/>
+    <Setter Property="UseLayoutRounding" Value="True"/>
+    <Setter Property="Icon" Value="pack://application:,,,/VorotexK13Studio;component/Assets/app.ico"/>
+    <Setter Property="WindowChrome.WindowChrome">
+      <Setter.Value>
+        <WindowChrome CaptionHeight="34" ResizeBorderThickness="6" CornerRadius="0" GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
+      </Setter.Value>
+    </Setter>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Window">
+          <Border x:Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+            <DockPanel>
+              <Grid x:Name="TitleBar" DockPanel.Dock="Top" Height="34" Background="{TemplateBinding Background}">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Image x:Name="TitleIcon" Source="{TemplateBinding Icon}" Width="16" Height="16" Margin="12,0,10,0" VerticalAlignment="Center"
+                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                <TextBlock Grid.Column="1" Text="{TemplateBinding Title}" VerticalAlignment="Center" FontSize="12" FontWeight="Medium"
+                           Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis"/>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top">
+                  <Button x:Name="PART_Min" Style="{StaticResource CaptionButton}" Content="&#xE921;" ToolTip="Свернуть"/>
+                  <Button x:Name="PART_Max" Style="{StaticResource CaptionButton}" Content="&#xE922;" ToolTip="Развернуть"/>
+                  <Button x:Name="PART_Close" Style="{StaticResource CaptionCloseButton}" Content="&#xE8BB;" ToolTip="Закрыть"/>
+                </StackPanel>
+              </Grid>
+              <AdornerDecorator>
+                <ContentPresenter/>
+              </AdornerDecorator>
+            </DockPanel>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="WindowState" Value="Maximized">
+              <Setter TargetName="Frame" Property="BorderThickness" Value="0"/>
+              <Setter TargetName="Frame" Property="Margin" Value="7"/>
+              <Setter TargetName="PART_Max" Property="Content" Value="&#xE923;"/>
+              <Setter TargetName="PART_Max" Property="ToolTip" Value="Восстановить"/>
+            </Trigger>
+            <Trigger Property="ResizeMode" Value="NoResize">
+              <Setter TargetName="PART_Max" Property="Visibility" Value="Collapsed"/>
+              <Setter TargetName="PART_Min" Property="Visibility" Value="Collapsed"/>
+            </Trigger>
+            <Trigger Property="ResizeMode" Value="CanMinimize">
+              <Setter TargetName="PART_Max" Property="Visibility" Value="Collapsed"/>
+            </Trigger>
+            <Trigger Property="IsActive" Value="False">
+              <Setter TargetName="TitleIcon" Property="Opacity" Value="0.6"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
   </Style>
 
   <Style TargetType="TextBlock" x:Key="Muted">
@@ -15,7 +125,7 @@
     <Setter Property="TextWrapping" Value="Wrap"/>
   </Style>
   <Style TargetType="TextBlock" x:Key="H2">
-    <Setter Property="FontSize" Value="15"/>
+    <Setter Property="FontSize" Value="16"/>
     <Setter Property="FontWeight" Value="SemiBold"/>
     <Setter Property="Margin" Value="0,0,0,8"/>
   </Style>
@@ -199,7 +309,7 @@
   <!-- Menu / tooltip -->
   <Style TargetType="ContextMenu">
     <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-    <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI"/>
+    <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
     <Setter Property="FontSize" Value="13"/>
     <Setter Property="Template">
       <Setter.Value>
@@ -241,6 +351,8 @@
     </Setter>
   </Style>
   <Style TargetType="ToolTip">
+    <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
+    <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
     <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
     <Setter Property="Template">
       <Setter.Value>
@@ -343,7 +455,7 @@
   <Style TargetType="RadioButton" x:Key="PillTab">
     <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
     <Setter Property="Cursor" Value="Hand"/>
-    <Setter Property="FontSize" Value="13.5"/>
+    <Setter Property="FontSize" Value="14"/>
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="RadioButton">

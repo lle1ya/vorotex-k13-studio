@@ -43,6 +43,7 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        Chrome.Register();
         DispatcherUnhandledException += OnUnhandled;
         Exit += (_, _) => FlushLog();
         AppDomain.CurrentDomain.UnhandledException += (_, a) => Log("FATAL " + a.ExceptionObject);
@@ -79,6 +80,13 @@ public partial class App : Application
             return;
         }
 
+        int r50 = Array.IndexOf(e.Args, "--render-v50");
+        if (r50 >= 0)
+        {
+            int code = Screenshots.RenderV50(r50 + 1 < e.Args.Length ? e.Args[r50 + 1] : Path.Combine(DataFolder, "screens-v5.0"));
+            Shutdown(code);
+            return;
+        }
         int r49 = Array.IndexOf(e.Args, "--render-v49");
         if (r49 >= 0)
         {
@@ -144,6 +152,7 @@ public partial class App : Application
         if (dicts.Count > 0 && dicts[0].Source == uri) return;
         var d = new ResourceDictionary { Source = uri };
         if (dicts.Count > 0) dicts[0] = d; else dicts.Insert(0, d);
+        Chrome.RefreshAll();
     }
 
     private static int RunHeadlessBackup(string? folder)

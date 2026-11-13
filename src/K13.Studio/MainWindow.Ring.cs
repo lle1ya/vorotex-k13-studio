@@ -36,7 +36,7 @@ public partial class MainWindow
         var ring = _profile.Host.Ring;
         if (ring.Slots.Count == 0) ring.Slots = RingSettings.CreateDefault().Slots;
         _ringSel = Math.Clamp(_ringSel, 0, ring.Slots.Count - 1);
-        EditorHost.Children.Add(T("Кольцо действий", 17, semi: true).With(t => { t.Margin = new Thickness(0, 14, 0, 4); t.Foreground = R("AccentBrush"); }));
+        EditorHost.Children.Add(T("Кольцо действий", 16, semi: true).With(t => { t.Margin = new Thickness(0, 14, 0, 4); t.Foreground = R("AccentBrush"); }));
         EditorHost.Children.Add(T("Зажмите кнопку — у курсора появится кольцо. Наведите мышь (или наклоните стик) и отпустите — действие выполнится. " +
                                   "Короткое нажатие (до 0,25 с, без движения) оставит кольцо открытым — выберите щелчком. Esc, × или щелчок мимо — отмена.", 12.5, muted: true, bottom: 6));
 
@@ -55,7 +55,7 @@ public partial class MainWindow
         var countRow = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 10) };
         Button Small(string text, bool enabled, Action a)
         {
-            var b = new Button { Style = (Style)FindResource("GhostButton"), Content = text, IsEnabled = enabled, Margin = new Thickness(3, 0, 3, 0), Padding = new Thickness(10, 4, 10, 4), FontSize = 12.5 };
+            var b = new Button { Style = (Style)FindResource("GhostButton"), Content = text, IsEnabled = enabled, Margin = new Thickness(3, 0, 3, 0), Padding = new Thickness(10, 4, 10, 4), FontSize = 13 };
             b.Click += (_, _) => a();
             return b;
         }
@@ -85,7 +85,7 @@ public partial class MainWindow
             bool on = slot.Glyph == g;
             var b = new Border { Width = 34, Height = 34, Margin = new Thickness(0, 0, 4, 4), CornerRadius = new CornerRadius(9), Cursor = Cursors.Hand,
                 Background = on ? R("AccentBrush") : R("Panel2Brush"), BorderBrush = R("BorderBrush"), BorderThickness = new Thickness(on ? 0 : 1),
-                Child = new TextBlock { Text = g, FontFamily = Icons, FontSize = 15, Foreground = on ? Brushes.White : R("TextBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+                Child = new TextBlock { Text = g, FontFamily = Icons, FontSize = 16, Foreground = on ? Brushes.White : R("TextBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
             b.MouseLeftButtonUp += (_, e) => { e.Handled = true; slot.Glyph = glyph; Changed(false); BuildEditor(); };
             icons.Children.Add(b);
         }
@@ -180,7 +180,7 @@ public partial class MainWindow
         h.Children.Add(T(head, 13, semi: true));
         sp.Children.Add(h);
         sp.Children.Add(T(body, 12, muted: true).With(t => t.Margin = new Thickness(22, 2, 0, 0)));
-        var probe = new Button { Style = (Style)FindResource("LinkButton"), Content = "Проверить, что посылает кнопка…", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(22, 6, 0, 0), FontSize = 12.5 };
+        var probe = new Button { Style = (Style)FindResource("LinkButton"), Content = "Проверить, что посылает кнопка…", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(22, 6, 0, 0), FontSize = 13 };
         probe.Click += (_, _) => ProbeKey(_selCol);
         sp.Children.Add(probe);
         return Card(sp, 8);
@@ -269,7 +269,7 @@ public partial class MainWindow
         void Paint()
         {
             host.Children.Clear();
-            host.Children.Add(T("Какая кнопка:", 12.5, muted: true, bottom: 6));
+            host.Children.Add(T("Какая кнопка:", 13, muted: true, bottom: 6));
             var g = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 12) };
             foreach (var (c, t, sub) in new[] { (MouseCodes.Left, "Левая", "ЛКМ"), (MouseCodes.Right, "Правая", "ПКМ"), (MouseCodes.Middle, "Средняя", "колесо") })
             {
@@ -277,7 +277,7 @@ public partial class MainWindow
                 g.Children.Add(BigOption("\uE962", t, sub, _mouseBtn == c, () => { _mouseBtn = cc; Paint(); }));
             }
             host.Children.Add(g);
-            host.Children.Add(T("Как нажимать:", 12.5, muted: true, bottom: 6));
+            host.Children.Add(T("Как нажимать:", 13, muted: true, bottom: 6));
             var g2 = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3 };
             foreach (var (i, t, sub) in new[] { (0, "Щелчок", "один раз"), (1, "Двойной", "два щелчка"), (2, "Автоклик", "пока зажата") })
             {
@@ -300,8 +300,8 @@ public partial class MainWindow
     {
         var sp = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         sp.Children.Add(new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 20, Foreground = on ? R("AccentBrush") : R("TextBrush"), HorizontalAlignment = HorizontalAlignment.Center });
-        sp.Children.Add(new TextBlock { Text = title, FontSize = 13.5, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 5, 0, 0) });
-        sp.Children.Add(new TextBlock { Text = sub, FontSize = 11.5, Foreground = R("MutedBrush"), HorizontalAlignment = HorizontalAlignment.Center });
+        sp.Children.Add(new TextBlock { Text = title, FontSize = 14, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 5, 0, 0) });
+        sp.Children.Add(new TextBlock { Text = sub, FontSize = 12, Foreground = R("MutedBrush"), HorizontalAlignment = HorizontalAlignment.Center });
         var b = new Border { Child = sp, Height = 84, Margin = new Thickness(0, 0, 6, 6), CornerRadius = new CornerRadius(12), Cursor = Cursors.Hand, BorderThickness = new Thickness(1.5),
             Background = on ? R("AccentSoftBrush") : R("Panel2Brush"), BorderBrush = on ? R("AccentBrush") : Brushes.Transparent };
         b.MouseLeftButtonUp += (_, e) => { e.Handled = true; click(); };

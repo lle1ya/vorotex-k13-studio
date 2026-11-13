@@ -51,7 +51,7 @@ public partial class MainWindow
                 Child = new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 32, Foreground = R("AccentBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } });
         }
         WelcomeHost.Children.Add(new TextBlock { Text = title, FontSize = 24, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 10) });
-        WelcomeHost.Children.Add(new TextBlock { Text = text, FontSize = 14.5, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center, Foreground = R("MutedBrush"), LineHeight = 21, MinHeight = 64 });
+        WelcomeHost.Children.Add(new TextBlock { Text = text, FontSize = 14, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center, Foreground = R("MutedBrush"), LineHeight = 21, MinHeight = 64 });
 
         var dots = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 18, 0, 18) };
         for (int i = 0; i < Slides.Length; i++)

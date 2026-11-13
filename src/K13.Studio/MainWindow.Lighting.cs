@@ -35,7 +35,7 @@ public partial class MainWindow
         var sp = new StackPanel { Orientation = Orientation.Horizontal };
         sp.Children.Add(new Border { Width = 26, Height = 26, CornerRadius = new CornerRadius(13), Background = R("AccentBrush"), Margin = new Thickness(0, 0, 10, 0),
             Child = new TextBlock { Text = n.ToString(), Foreground = Brushes.White, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } });
-        sp.Children.Add(new TextBlock { Text = text, FontSize = 17, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        sp.Children.Add(new TextBlock { Text = text, FontSize = 16, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
         return sp;
     }
 
@@ -190,7 +190,7 @@ public partial class MainWindow
         var led = Cfg.Led;
         ParamsPanel.Children.Clear();
         var gen = new StackPanel();
-        gen.Children.Add(T("Направление эффекта", 12.5, muted: true, bottom: 4));
+        gen.Children.Add(T("Направление эффекта", 13, muted: true, bottom: 4));
         var dir = new ComboBox(); for (int i = 0; i < 4; i++) dir.Items.Add($"Направление {i + 1}"); dir.SelectedIndex = Math.Clamp(led.Direction, 0, 3);
         dir.SelectionChanged += (_, _) => { if (_loading) return; led.Direction = dir.SelectedIndex; Changed(false); };
         gen.Children.Add(dir);
@@ -227,7 +227,7 @@ public partial class MainWindow
         Channel("Красный", sc.R, x => sc.R = x);
         Channel("Зелёный", sc.G, x => sc.G = x);
         Channel("Синий", sc.B, x => sc.B = x);
-        fine.Children.Add(T("Клавиатура хранит 16 уровней на канал.", 11.5, muted: true));
+        fine.Children.Add(T("Клавиатура хранит 16 уровней на канал.", 12, muted: true));
         ParamsPanel.Children.Add(Card(fine));
         ParamsPanel.Children.Add(T($"Память: BASE+0x18 = {(led.Direction << 6 | led.Brightness << 3 | led.Speed):X2}, BASE+0x19 = {((led.Symmetry ? 0x80 : 0) | led.ColorIndex << 4 | led.Mode):X2}, BASE+0x1A = {led.CycleMask:X2}", 11, muted: true));
     }

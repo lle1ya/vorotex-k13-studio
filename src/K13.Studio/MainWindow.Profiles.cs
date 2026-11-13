@@ -47,14 +47,14 @@ public partial class MainWindow
             head.Children.Add(badge);
         }
         var icon = new Border { Width = 40, Height = 40, CornerRadius = new CornerRadius(12), Background = accent, Margin = new Thickness(0, 0, 12, 0), Cursor = Cursors.Hand, ToolTip = "Сменить цвет и значок",
-            Child = new TextBlock { Text = GlyphOf(p, index), FontFamily = Icons, FontSize = 17, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+            Child = new TextBlock { Text = GlyphOf(p, index), FontFamily = Icons, FontSize = 16, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
         icon.MouseLeftButtonUp += (_, e) => { e.Handled = true; CycleLook(p, index); };
         head.Children.Add(icon);
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         titles.Children.Add(EditableTitle(p.Name, 16, n => RenameProfile(p, n), "Переименовать профиль"));
         var rules = _store.Data.AppRules.Where(r => r.ProfileName == p.Name && r.ProcessName.Length > 0).Select(r => r.ProcessName).Distinct().ToList();
         titles.Children.Add(new TextBlock { Text = rules.Count > 0 ? "авто: " + string.Join(", ", rules.Select(x => x + ".exe")) : (p.Comment.Length > 0 ? p.Comment : "включается вручную"),
-            FontSize = 11.5, Foreground = R("MutedBrush"), TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap, Margin = new Thickness(0, 1, 0, 0) });
+            FontSize = 12, Foreground = R("MutedBrush"), TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap, Margin = new Thickness(0, 1, 0, 0) });
         head.Children.Add(titles);
         root.Children.Add(head);
 
@@ -212,7 +212,7 @@ public partial class MainWindow
         RulesHost.Children.Clear();
         var names = _store.Data.Profiles.Select(p => p.Name).ToList();
         if (_store.Data.AppRules.Count == 0)
-            RulesHost.Children.Add(T("Правил пока нет. Добавьте программу — например, photoshop → «Фото».", 12.5, muted: true, bottom: 4));
+            RulesHost.Children.Add(T("Правил пока нет. Добавьте программу — например, photoshop → «Фото».", 13, muted: true, bottom: 4));
         foreach (var r in _store.Data.AppRules.ToList())
         {
             var row = new Grid();
@@ -249,7 +249,7 @@ public partial class MainWindow
     {
         var g = new Grid { VerticalAlignment = VerticalAlignment.Center };
         var box = new TextBox { Text = value, Padding = new Thickness(8, 4, 8, 4) };
-        var ph = new TextBlock { Text = hint, Foreground = R("MutedBrush"), Margin = new Thickness(11, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, FontSize = 12.5,
+        var ph = new TextBlock { Text = hint, Foreground = R("MutedBrush"), Margin = new Thickness(11, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, FontSize = 13,
             Visibility = value.Length == 0 ? Visibility.Visible : Visibility.Collapsed, TextTrimming = TextTrimming.CharacterEllipsis };
         box.TextChanged += (_, _) => ph.Visibility = box.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         string orig = value;

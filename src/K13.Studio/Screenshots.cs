@@ -256,6 +256,78 @@ internal static class Screenshots
         }
     }
 
+    /// <summary>v5.0: custom title bars, Inter font, app icon – main window, test dialog, confirmation dialog.</summary>
+    public static int RenderV50(string folder)
+    {
+        try
+        {
+            Directory.CreateDirectory(folder);
+            var tmp = Path.Combine(Path.GetTempPath(), "vorotex-screens50-" + Environment.ProcessId);
+            var shots = new List<string>();
+            foreach (var dark in new[] { false, true })
+            {
+                App.SetTheme(dark);
+                var w = new MainWindow(offline: true, storeFolder: tmp + (dark ? "d" : "l"), previewImage: null)
+                { Width = 1280, Height = 800, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual };
+                w.Show();
+                int demo = w.DemoMouseMacro();
+                w.DemoV47(demo);
+                string sfx = dark ? "-dark" : "";
+                w.SelectControl(4);
+                shots.Add(Shot(w, 0, Path.Combine(folder, $"01-main-keys-150pct{sfx}.png"), 1.5));
+                if (!dark) shots.Add(Shot(w, 0, Path.Combine(folder, "02-main-keys-100pct.png"), 1.0));
+                int text = w.FirstNamedMacroOtherThan(demo);
+                w.DemoRepeat(text, Vorotex.K13.MacroRepeatMode.Count, 3);
+                shots.Add(Shot(w, 2, Path.Combine(folder, $"03-main-macros-150pct{sfx}.png"), 1.5));
+                if (!dark) shots.Add(Shot(w, 1, Path.Combine(folder, "04-main-lighting-150pct.png"), 1.5));
+                if (!dark) shots.Add(Shot(w, 3, Path.Combine(folder, "05-main-profiles-150pct.png"), 1.5));
+
+                var t = w.BuildTestWindow(text);
+                t.Owner = null; t.Left = -32000; t.Top = -32000; t.ShowActivated = false; t.WindowStartupLocation = WindowStartupLocation.Manual;
+                t.Show();
+                shots.Add(ShotWindow(t, Path.Combine(folder, $"06-dialog-test-150pct{sfx}.png"), 1.5));
+                t.Close();
+
+                var c = MessageBox.Build(w, "Записать изменения в клавиатуру?\n\nПеред записью будет сделана резервная копия, после — проверка чтением. При расхождении всё вернётся как было.",
+                    "Запись в клавиатуру", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes, out _);
+                c.Owner = null; c.Left = -32000; c.Top = -32000; c.ShowActivated = false; c.WindowStartupLocation = WindowStartupLocation.Manual;
+                c.Show();
+                shots.Add(ShotWindow(c, Path.Combine(folder, $"07-dialog-confirm-150pct{sfx}.png"), 1.5));
+                c.Close();
+                if (!dark)
+                {
+                    var e = MessageBox.Build(w, "Удалить макрос «Приветствие»?\n\nКнопка 7 станет пустой. В клавиатуре ничего не изменится, пока вы не нажмёте «Записать».",
+                        "Удаление", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No, out _);
+                    e.Owner = null; e.Left = -32000; e.Top = -32000; e.ShowActivated = false; e.WindowStartupLocation = WindowStartupLocation.Manual;
+                    e.Show();
+                    shots.Add(ShotWindow(e, Path.Combine(folder, "08-dialog-warning-150pct.png"), 1.5));
+                    e.Close();
+                }
+                w.ExitApp();
+            }
+            File.WriteAllText(Path.Combine(folder, "screens.txt"), string.Join(Environment.NewLine, shots));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(Path.Combine(folder, "screens-error.txt"), ex.ToString()); } catch { }
+            return 1;
+        }
+    }
+
+    private static string ShotWindow(Window w, string path, double scale)
+    {
+        Pump(); w.UpdateLayout(); Pump();
+        var root = (FrameworkElement)VisualTreeHelper.GetChild(w, 0);
+        int pw = (int)Math.Ceiling(root.ActualWidth * scale), ph = (int)Math.Ceiling(root.ActualHeight * scale);
+        var rtb = new RenderTargetBitmap(pw, ph, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        rtb.Render(root);
+        var enc = new PngBitmapEncoder();
+        enc.Frames.Add(BitmapFrame.Create(rtb));
+        using (var fs = File.Create(path)) enc.Save(fs);
+        return $"{Path.GetFileName(path)} {pw}x{ph}";
+    }
+
     /// <summary>The actions ring as it appears over the desktop (cursor in the middle, «Скриншот» highlighted).</summary>
     private static string RingShot(string path, bool darkRing, bool lightDesk)
     {
@@ -312,7 +384,7 @@ internal static class Screenshots
         w.RenderFrame(1.3);
         w.UpdateLayout();
         Pump();
-        var root = (FrameworkElement)w.Content;
+        var root = VisualTreeHelper.GetChildrenCount(w) > 0 ? (FrameworkElement)VisualTreeHelper.GetChild(w, 0) : (FrameworkElement)w.Content; // whole window incl. title bar
         int pw = (int)Math.Ceiling(root.ActualWidth * scale), ph = (int)Math.Ceiling(root.ActualHeight * scale);
         var rtb = new RenderTargetBitmap(pw, ph, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
         rtb.Render(root);

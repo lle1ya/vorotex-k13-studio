@@ -37,7 +37,7 @@ public partial class MainWindow
     private Button Chip(string icon, string text, bool selected, Action click, string? sub = null, string? tip = null)
     {
         var sp = new StackPanel { Orientation = Orientation.Horizontal };
-        if (icon.Length > 0) sp.Children.Add(new TextBlock { Text = icon, FontSize = 15, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, FontFamily = Emoji });
+        if (icon.Length > 0) sp.Children.Add(new TextBlock { Text = icon, FontSize = 16, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, FontFamily = Emoji });
         var tx = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         tx.Children.Add(new TextBlock { Text = text });
         if (sub != null) tx.Children.Add(new TextBlock { Text = sub, FontSize = 11, Foreground = R("MutedBrush"), MaxWidth = 240, TextTrimming = TextTrimming.CharacterEllipsis });
@@ -160,8 +160,8 @@ public partial class MainWindow
         else
         {
             var sp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            sp.Children.Add(new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 18, Foreground = fg, VerticalAlignment = VerticalAlignment.Center });
-            if (text != null) sp.Children.Add(new TextBlock { Text = text, FontSize = 13.5, FontWeight = FontWeights.SemiBold, Foreground = fg, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+            sp.Children.Add(new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 20, Foreground = fg, VerticalAlignment = VerticalAlignment.Center });
+            if (text != null) sp.Children.Add(new TextBlock { Text = text, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = fg, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
             content = sp;
         }
         bool changed = DeviceView.Changed(Cfg, id);
@@ -217,7 +217,7 @@ public partial class MainWindow
         h.Children.Add(T(head, 13, semi: true));
         sp.Children.Add(h);
         sp.Children.Add(T(body, 12, muted: true).With(t => t.Margin = new Thickness(22, 0, 0, 0)));
-        var probe = new Button { Style = (Style)FindResource("LinkButton"), Content = "Проверить, что приходит от стика…", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(22, 6, 0, 0), FontSize = 12.5 };
+        var probe = new Button { Style = (Style)FindResource("LinkButton"), Content = "Проверить, что приходит от стика…", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(22, 6, 0, 0), FontSize = 13 };
         probe.Click += (_, _) => ProbeKey(DeviceView.StickPress);
         sp.Children.Add(probe);
         return Card(sp, 4).With(c => c.Margin = new Thickness(0, 10, 0, 0));
@@ -229,12 +229,12 @@ public partial class MainWindow
         cur.Children.Add(T("Сейчас", 12, muted: true, bottom: 2));
         var row = new StackPanel { Orientation = Orientation.Horizontal };
         if (icon.Length > 0) row.Children.Add(new TextBlock { Text = icon, FontSize = 24, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center, FontFamily = Emoji });
-        row.Children.Add(new TextBlock { Text = text, FontSize = 26, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 340 });
+        row.Children.Add(new TextBlock { Text = text, FontSize = 24, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 340 });
         cur.Children.Add(row);
-        if (!string.IsNullOrEmpty(desc) && desc != text) cur.Children.Add(T(desc, 12.5, muted: true));
+        if (!string.IsNullOrEmpty(desc) && desc != text) cur.Children.Add(T(desc, 13, muted: true));
         if (changed && reset != null)
         {
-            var link = new Button { Style = (Style)FindResource("LinkButton"), Content = "Вернуть как было с завода", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 8, 0, 0), FontSize = 12.5 };
+            var link = new Button { Style = (Style)FindResource("LinkButton"), Content = "Вернуть как было с завода", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 8, 0, 0), FontSize = 13 };
             link.Click += (_, _) => reset();
             cur.Children.Add(link);
         }
@@ -298,10 +298,10 @@ public partial class MainWindow
         g.ColumnDefinitions.Add(new ColumnDefinition());
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var ic = new Border { Width = 40, Height = 40, CornerRadius = new CornerRadius(10), Background = current ? R("AccentBrush") : R("AccentSoftBrush"), Margin = new Thickness(0, 0, 14, 0),
-            Child = new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 17, Foreground = current ? Brushes.White : R("AccentBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+            Child = new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 16, Foreground = current ? Brushes.White : R("AccentBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
         var tx = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         var tl = new StackPanel { Orientation = Orientation.Horizontal };
-        tl.Children.Add(new TextBlock { Text = title, FontSize = 14.5, FontWeight = FontWeights.SemiBold });
+        tl.Children.Add(new TextBlock { Text = title, FontSize = 14, FontWeight = FontWeights.SemiBold });
         if (current) tl.Children.Add(new Border { CornerRadius = new CornerRadius(8), Background = R("AccentSoftBrush"), Padding = new Thickness(7, 0, 7, 1), Margin = new Thickness(8, 1, 0, 0),
             Child = new TextBlock { Text = "сейчас", FontSize = 11, Foreground = R("AccentBrush") } });
         else if (tag != null) tl.Children.Add(new Border { CornerRadius = new CornerRadius(8), Background = R("AccentBrush"), Padding = new Thickness(7, 0, 7, 1), Margin = new Thickness(8, 1, 0, 0),
@@ -343,7 +343,7 @@ public partial class MainWindow
         var info = Tiles.FirstOrDefault(t => t.Id == tile);
         string title = tile == "diag" ? "8 направлений (диагонали)" : info.Title;
         if (tile == "ring") { BuildRingTile(); return; }
-        EditorHost.Children.Add(T(title, 17, semi: true, bottom: 12).With(t => { t.Margin = new Thickness(0, 14, 0, 12); t.Foreground = R("AccentBrush"); }));
+        EditorHost.Children.Add(T(title, 16, semi: true, bottom: 12).With(t => { t.Margin = new Thickness(0, 14, 0, 12); t.Foreground = R("AccentBrush"); }));
         byte code = Cfg.GetKey(_selCol);
 
         Action? done = null;
@@ -392,7 +392,7 @@ public partial class MainWindow
         _captureText = new TextBlock { Text = value ?? prompt, FontSize = value != null ? 26 : 14, FontWeight = value != null ? FontWeights.SemiBold : FontWeights.Normal,
             Foreground = value != null ? R("TextBrush") : R("MutedBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center };
         var sp = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        sp.Children.Add(new TextBlock { Text = "\uE765", FontFamily = Icons, FontSize = 22, Foreground = R("AccentBrush"), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 6) });
+        sp.Children.Add(new TextBlock { Text = "\uE765", FontFamily = Icons, FontSize = 20, Foreground = R("AccentBrush"), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 6) });
         sp.Children.Add(_captureText);
         var b = new Border { Height = 120, CornerRadius = new CornerRadius(14), Background = R("AccentSoftBrush"), BorderBrush = R("AccentBrush"), BorderThickness = new Thickness(1.5), Child = sp,
             Focusable = true, Cursor = Cursors.Hand, ToolTip = "Щёлкните здесь и нажмите на клавиатуре" };
@@ -404,7 +404,7 @@ public partial class MainWindow
     private void SetCaptured(string text)
     {
         if (_captureText == null) return;
-        _captureText.Text = text; _captureText.FontSize = 26; _captureText.FontWeight = FontWeights.SemiBold; _captureText.Foreground = R("TextBrush");
+        _captureText.Text = text; _captureText.FontSize = 24; _captureText.FontWeight = FontWeights.SemiBold; _captureText.Foreground = R("TextBrush");
     }
 
     private Action KeyEditor(byte code)
@@ -412,7 +412,7 @@ public partial class MainWindow
         bool isKey = TileOf(code, Cfg, _profile.Host) == "key";
         EditorHost.Children.Add(CaptureBox("Нажмите нужную клавишу\nна обычной клавиатуре", isKey ? Labels.KeyText(code) : null));
         _captureKey = true;
-        EditorHost.Children.Add(T("или найдите в списке:", 12.5, muted: true).With(t => t.Margin = new Thickness(0, 16, 0, 6)));
+        EditorHost.Children.Add(T("или найдите в списке:", 13, muted: true).With(t => t.Margin = new Thickness(0, 16, 0, 6)));
         var search = new TextBox { ToolTip = "Например: F5, Delete, Home, Num 1" };
         search.GotKeyboardFocus += (_, _) => _captureKey = false;
         var list = new ListBox { Height = 200, Margin = new Thickness(0, 6, 0, 0) };
@@ -425,7 +425,7 @@ public partial class MainWindow
             foreach (var k in all.Where(k => q.Length == 0 || k.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || KeyCatalog.CategoryTitle(k.Category).Contains(q, StringComparison.OrdinalIgnoreCase)))
             {
                 var dp = new DockPanel();
-                var cat = new TextBlock { Text = KeyCatalog.CategoryTitle(k.Category), Foreground = R("MutedBrush"), FontSize = 11.5 };
+                var cat = new TextBlock { Text = KeyCatalog.CategoryTitle(k.Category), Foreground = R("MutedBrush"), FontSize = 12 };
                 DockPanel.SetDock(cat, Dock.Right);
                 dp.Children.Add(cat); dp.Children.Add(new TextBlock { Text = k.Name });
                 var it = new ListBoxItem { Content = dp, Tag = k.Code };
@@ -445,7 +445,7 @@ public partial class MainWindow
         var cur = KeyCatalog.IsMacro(code) ? Labels.ComboOf(Cfg.Macros[KeyCatalog.MacroSlotOf(code)]) : null;
         EditorHost.Children.Add(CaptureBox("Зажмите и нажмите сочетание\nна обычной клавиатуре", cur));
         _captureCombo = true;
-        EditorHost.Children.Add(T("Часто используемые:", 12.5, muted: true).With(t => t.Margin = new Thickness(0, 16, 0, 6)));
+        EditorHost.Children.Add(T("Часто используемые:", 13, muted: true).With(t => t.Margin = new Thickness(0, 16, 0, 6)));
         var wp = new WrapPanel();
         foreach (var (c, d) in new[] { ("Ctrl+C", "копировать"), ("Ctrl+V", "вставить"), ("Ctrl+Z", "отменить"), ("Ctrl+S", "сохранить"), ("Alt+Tab", "окна"), ("Win+D", "рабочий стол"), ("Win+Shift+S", "скриншот"), ("Ctrl+Shift+Esc", "диспетчер") })
         {
@@ -459,7 +459,7 @@ public partial class MainWindow
 
     private Action PickGrid(byte code, Func<KeyInfo, bool> filter, string prompt)
     {
-        EditorHost.Children.Add(T(prompt, 12.5, muted: true, bottom: 8));
+        EditorHost.Children.Add(T(prompt, 13, muted: true, bottom: 8));
         var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3 };
         var cells = new List<(byte, Border)>();
         foreach (var k in KeyCatalog.All.Where(filter).OrderBy(k => k.Category).ThenBy(k => k.Code))
@@ -467,7 +467,7 @@ public partial class MainWindow
             var (ic, tx) = Labels.For(k.Code, Cfg, _profile.Host);
             var sp = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             sp.Children.Add(new TextBlock { Text = ic.Length > 0 ? ic : "•", FontFamily = Emoji, FontSize = 20, HorizontalAlignment = HorizontalAlignment.Center });
-            sp.Children.Add(new TextBlock { Text = tx, FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 4, 0, 0) });
+            sp.Children.Add(new TextBlock { Text = tx, FontSize = 12, HorizontalAlignment = HorizontalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 4, 0, 0) });
             var cell = new Border { Child = sp, Height = 72, Margin = new Thickness(0, 0, 6, 6), CornerRadius = new CornerRadius(10), Cursor = Cursors.Hand, ToolTip = k.Name,
                 BorderThickness = new Thickness(1.5) };
             byte c = k.Code;
@@ -512,7 +512,7 @@ public partial class MainWindow
     {
         var used = Enumerable.Range(0, KeyCatalog.MacroCodeCount).Where(i => Cfg.Macros[i].IsUsed).ToList();
         if (used.Count == 0) EditorHost.Children.Add(T("Макросов пока нет.", 13, muted: true, bottom: 8));
-        else EditorHost.Children.Add(T("Выберите готовый макрос:", 12.5, muted: true, bottom: 8));
+        else EditorHost.Children.Add(T("Выберите готовый макрос:", 13, muted: true, bottom: 8));
         var rows = new List<(byte, Border)>();
         foreach (var i in used)
         {
@@ -567,7 +567,7 @@ public partial class MainWindow
                 Changed();
             }));
         }
-        EditorHost.Children.Add(T("Какое направление вращения считается «вверх», уточним на первом тесте записи.", 11.5, muted: true).With(t => t.Margin = new Thickness(0, 8, 0, 0)));
+        EditorHost.Children.Add(T("Какое направление вращения считается «вверх», уточним на первом тесте записи.", 12, muted: true).With(t => t.Margin = new Thickness(0, 8, 0, 0)));
     }
 
     // ───────────────────────────── keyboard capture

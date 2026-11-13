@@ -51,12 +51,12 @@ internal static class HostActionsWindow
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition());
         var bar1 = new WrapPanel { Margin = new Thickness(0, 14, 0, 0) };
-        bar1.Children.Add(new TextBlock { Text = "Триггеры", FontSize = 15, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) });
+        bar1.Children.Add(new TextBlock { Text = "Триггеры", FontSize = 16, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) });
         bar1.Children.Add(Btn("+ Добавить", () => { var b = new HostKeyBinding { TriggerVk = freeVk() }; if (HostBindingEditor.Edit(win, b, names)) host.Keys.Add(b); }));
         bar1.Children.Add(Btn("Изменить…", () => { if (keys.SelectedItem is KeyRow r) HostBindingEditor.Edit(win, r.Src, names); }, true));
         bar1.Children.Add(Btn("Удалить", () => { if (keys.SelectedItem is KeyRow r) host.Keys.Remove(r.Src); }, true));
         var bar2 = new WrapPanel { Margin = new Thickness(0, 16, 0, 0) };
-        bar2.Children.Add(new TextBlock { Text = "Диагонали (аккорды)", FontSize = 15, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) });
+        bar2.Children.Add(new TextBlock { Text = "Диагонали (аккорды)", FontSize = 16, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) });
         bar2.Children.Add(Btn("Настроить диагонали джойстика", setupDiagonals));
         bar2.Children.Add(Btn("+ Аккорд", () => { var c = new HostChordBinding { Title = "Новый аккорд", VkA = 0x7C, VkB = 0x7D }; if (HostBindingEditor.EditChord(win, c, names)) host.Chords.Add(c); }, true));
         bar2.Children.Add(Btn("Изменить…", () => { if (chords.SelectedItem is ChordRow r) HostBindingEditor.EditChord(win, r.Src, names); }, true));

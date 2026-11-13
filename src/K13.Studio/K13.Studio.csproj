@@ -10,7 +10,8 @@
     <RootNamespace>Vorotex.Studio</RootNamespace>
     <AssemblyName>VorotexK13Studio</AssemblyName>
     <Product>VOROTEX K13 Studio</Product>
-    <Version>0.4.9</Version>
+    <Version>0.5.0</Version>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
@@ -24,6 +25,8 @@
     <EmbeddedResource Include="..\..\tests\K13.Core.Tests\data\k13-backup-20261112-171754.bin" LogicalName="DefaultImage.bin" />
   </ItemGroup>
   <ItemGroup>
+    <Resource Include="Assets\app.ico" />
+    <Resource Include="Assets\Fonts\*.ttf" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\K13.Core\K13.Core.csproj" />

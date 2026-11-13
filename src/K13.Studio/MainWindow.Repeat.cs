@@ -46,7 +46,7 @@ public partial class MainWindow
         root.Children.Add(explain);
         var onDevice = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 4, 0, 0) };
         onDevice.Children.Add(new TextBlock { Text = "\uE73E", FontFamily = Icons, FontSize = 11, Foreground = R("OkBrush"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
-        onDevice.Children.Add(T("Работает в самой клавиатуре — программа на ПК для этого не нужна.", 11.5, muted: true));
+        onDevice.Children.Add(T("Работает в самой клавиатуре — программа на ПК для этого не нужна.", 12, muted: true));
         if (choice is RepeatChoice.Hold or RepeatChoice.Toggle) root.Children.Add(onDevice);
 
         void Set(RepeatChoice c)
