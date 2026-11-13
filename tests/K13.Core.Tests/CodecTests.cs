@@ -442,4 +442,22 @@ public class TriggerPolicyTests
         Assert.Equal(new ushort[] { 0x7C }, p.Host.Keys.Select(k => k.TriggerVk).ToArray());
         Assert.Empty(TriggerKeyPolicy.DropUnsafe(data, v => ""));
     }
+
+    [Fact]
+    public void Macro_ToggleMode_RoundTrip_UsesTableBit7AndHeader01()
+    {
+        var img = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "data", "k13-backup-20261112-171754.bin")).Take(0x300).ToArray();
+        var cfg = K13MemoryCodec.Decode(img);
+        cfg.Macros[0].RepeatMode = MacroRepeatMode.Toggle;
+        cfg.Macros[0].Repeat = 7; // ignored for toggle
+        var enc = K13MemoryCodec.Encode(cfg, img);
+        int e = cfg.Base + K13Layout.OffMacroTable;
+        Assert.True((enc[e + 1] & 0x80) != 0);
+        Assert.True((enc[e + 3] & 0x80) == 0);
+        int addr = enc[e + 2] | (enc[e + 3] & 0x3F) << 8;
+        Assert.Equal(0x01, enc[addr]); Assert.Equal(0x00, enc[addr + 1]);
+        var back = K13MemoryCodec.Decode(enc);
+        Assert.Equal(MacroRepeatMode.Toggle, back.Macros[0].RepeatMode);
+        Assert.Equal(cfg.Macros[0].Events.Count, back.Macros[0].Events.Count);
+    }
 }

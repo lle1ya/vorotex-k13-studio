@@ -191,7 +191,8 @@ public static class K13MemoryCodec
             {
                 if (m.Unsupported) throw new K13FormatException($"Макрос {i + 1} содержит блок текста/подсветки родной программы — такой макрос можно только удалить или перезаписать.");
                 var body = new byte[m.BodyLength];
-                body[0] = (byte)m.Repeat; body[1] = (byte)(m.Repeat >> 8);
+                int rep = m.Mode1Bit || m.Mode2Bit ? 1 : m.Repeat; // hold / toggle: header is always 01 00 (vendor)
+                body[0] = (byte)rep; body[1] = (byte)(rep >> 8);
                 int p = 2;
                 for (int k = 0; k < len; k++)
                 {

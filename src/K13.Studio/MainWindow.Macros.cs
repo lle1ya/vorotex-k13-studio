@@ -282,43 +282,9 @@ public partial class MainWindow
             mouse.Checked += (_, _) => _recMouse = true; mouse.Unchecked += (_, _) => _recMouse = false;
             DockPanel.SetDock(mouse, Dock.Left);
             bar.Children.Add(mouse);
-            // repeat (segmented)
-            var rep = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-            rep.Children.Add(T("Повтор:", 12.5, muted: true).With(t => { t.VerticalAlignment = VerticalAlignment.Center; t.Margin = new Thickness(0, 0, 8, 0); }));
-            var mode = slot.RepeatMode;
-            void Opt(string text, bool on, Action set, string tip)
-            {
-                var rb = new RadioButton { Style = (Style)FindResource("SubTab"), Content = text, GroupName = "rep" + sel, IsChecked = on, ToolTip = tip, Margin = new Thickness(0) };
-                rb.Checked += (_, _) => { if (_loading) return; set(); Changed(false); RefreshMacros(); };
-                rep.Children.Add(rb);
-            }
-            rep.Margin = new Thickness(16, 0, 0, 0);
-            Opt("1 раз", mode == MacroRepeatMode.Count && slot.Repeat <= 1, () => { slot.RepeatMode = MacroRepeatMode.Count; slot.Repeat = 1; }, "Один раз на нажатие");
-            Opt("N раз", mode == MacroRepeatMode.Count && slot.Repeat > 1, () => { slot.RepeatMode = MacroRepeatMode.Count; slot.Repeat = Math.Max(2, slot.Repeat); }, "Несколько раз подряд");
-            Opt("пока зажата", mode == MacroRepeatMode.WhileHeld, () => slot.RepeatMode = MacroRepeatMode.WhileHeld, "Повторять, пока кнопка удерживается");
-            if (mode == MacroRepeatMode.Toggle) Opt("до повторного", true, () => slot.RepeatMode = MacroRepeatMode.Toggle, "До повторного нажатия");
-            if (mode == MacroRepeatMode.Count && slot.Repeat > 1)
-            {
-                var box = new TextBox { Text = slot.Repeat.ToString(), Width = 52, Margin = new Thickness(8, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Center };
-                box.TextChanged += (_, _) => { if (int.TryParse(box.Text, out var r) && r is >= 2 and <= 65535) { slot.Repeat = r; Changed(false); } };
-                rep.Children.Add(box);
-                rep.Children.Add(T("раз", 12.5).With(t => t.VerticalAlignment = VerticalAlignment.Center));
-            }
-            bar.Children.Add(rep);
-            // narrow window: the repeat switch moves under the recorder instead of overlapping it
-            var outer = MacroHeader;
-            bar.SizeChanged += (_, e) =>
-            {
-                bool narrow = e.NewSize.Width < 600;
-                if (narrow && rep.Parent == bar)
-                {
-                    bar.Children.Remove(rep);
-                    rep.HorizontalAlignment = HorizontalAlignment.Left; rep.Margin = new Thickness(0, 0, 0, 6);
-                    outer.Children.Insert(outer.Children.IndexOf(bar) + 1, rep);
-                }
-            };
         }
         MacroHeader.Children.Add(bar);
+        if (!_recording) MacroHeader.Children.Add(RepeatSelector(sel, slot));
         if (slot.Unsupported)
             MacroHeader.Children.Add(T("Этот макрос создан в родной программе и содержит блок текста/подсветки, который мы пока не умеем менять. Его можно только удалить.", 12.5).With(t => { t.Foreground = R("WarnBrush"); t.Margin = new Thickness(0, 4, 0, 4); }));
 
@@ -767,7 +733,7 @@ public partial class MainWindow
                 }
                 finally { foreach (var c in held) MacroPlayer.Send(new MacroEvent { Down = false, Code = c }); } // never leave a key stuck
             });
-            status.Text = (repeat > 1 ? $"Готово ({repeat} раза). " : "Готово. ") + (m.RepeatMode != MacroRepeatMode.Count ? "На клавиатуре этот макрос повторяется, пока кнопка зажата / до повторного нажатия." : "");
+            status.Text = (repeat > 1 ? $"Готово ({repeat} раза). " : "Готово. ") + (m.RepeatMode switch { MacroRepeatMode.WhileHeld => "На клавиатуре этот макрос крутится, пока кнопка зажата (здесь показан один проход).", MacroRepeatMode.Toggle => "На клавиатуре: первое нажатие запускает макрос по кругу, второе — останавливает (здесь показан один проход).", _ => "" });
             busy = false; run.IsEnabled = true;
         };
         w.ShowDialog();
@@ -916,6 +882,12 @@ public partial class MainWindow
         w.Content = sp;
         if (w.ShowDialog() == true) { Changed(); RefreshMacros(); }
     }
+    internal void DemoRepeat(int slot, MacroRepeatMode mode, int n)
+    {
+        Cfg.Macros[slot].RepeatMode = mode; Cfg.Macros[slot].Repeat = n;
+        SelectMacro(slot);
+    }
+
     internal int FirstNamedMacroOtherThan(int slot) => _profile.MacroNames.Keys.Where(k => k != slot).DefaultIfEmpty(slot).First();
 
     internal void SelectMacro(int slot) { _selMacro = slot; RefreshMacros(); }
