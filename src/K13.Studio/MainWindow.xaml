@@ -191,10 +191,10 @@
         </DockPanel>
         <Border Grid.Column="1" Background="{DynamicResource PanelBrush}" CornerRadius="18" Margin="0,0,0,6" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
           <DockPanel>
-            <StackPanel x:Name="MacroHeader" DockPanel.Dock="Top" Margin="28,22,28,0"/>
+            <StackPanel x:Name="MacroHeader" DockPanel.Dock="Top" Margin="28,24,28,0" MaxWidth="1040"/>
             <Border x:Name="MacroAddBar" DockPanel.Dock="Bottom" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="28,12,28,14"/>
             <ScrollViewer x:Name="MacroScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-              <StackPanel x:Name="MacroHost" Margin="28,8,28,18"/>
+              <StackPanel x:Name="MacroHost" Margin="28,0,28,16" MaxWidth="1040"/>
             </ScrollViewer>
           </DockPanel>
         </Border>

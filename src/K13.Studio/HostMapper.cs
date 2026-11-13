@@ -281,18 +281,37 @@ public interface IRingHost
 /// <summary>Replays a keypad macro on the PC with SendInput (keys + mouse buttons + wheel).</summary>
 public static class MacroPlayer
 {
+    private static System.Threading.CancellationTokenSource? _playing;
+
+    /// <summary>Plays the macro the full saved number of times (same value as on the keypad).
+    /// Triggering it again while it is still playing stops it.</summary>
     public static void Play(MacroSlot m)
     {
+        var prev = System.Threading.Interlocked.Exchange(ref _playing, null);
+        if (prev != null) { prev.Cancel(); return; }
+        var cts = new System.Threading.CancellationTokenSource();
+        _playing = cts;
         var events = m.Events.Select(e => e.Clone()).ToList();
-        int repeat = m.RepeatMode == MacroRepeatMode.Count ? Math.Clamp(m.Repeat, 1, 50) : 1;
+        int repeat = m.RepeatMode == MacroRepeatMode.Count ? Math.Max(1, m.Repeat) : 1;
         System.Threading.Tasks.Task.Run(() =>
         {
-            for (int r = 0; r < repeat; r++)
-                foreach (var e in events)
-                {
-                    if (e.DelayMs > 0) System.Threading.Thread.Sleep(e.DelayMs);
-                    Send(e);
-                }
+            var held = new HashSet<byte>();
+            try
+            {
+                for (int r = 0; r < repeat && !cts.IsCancellationRequested; r++)
+                    foreach (var e in events)
+                    {
+                        if (cts.IsCancellationRequested) break;
+                        if (e.DelayMs > 0) System.Threading.Thread.Sleep(e.DelayMs);
+                        Send(e);
+                        if (!e.IsWheel && e.Code != MouseCodes.Move) { if (e.Down) held.Add(e.Code); else held.Remove(e.Code); }
+                    }
+            }
+            finally
+            {
+                foreach (var c in held) Send(new MacroEvent { Down = false, Code = c });
+                System.Threading.Interlocked.CompareExchange(ref _playing, null, cts);
+            }
         });
     }
 

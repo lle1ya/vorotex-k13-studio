@@ -209,6 +209,53 @@ internal static class Screenshots
         }
     }
 
+    /// <summary>v4.9: «N раз» = 10 (stepper / plural wording), light 150 %, narrow, dark.</summary>
+    public static int RenderV49(string folder)
+    {
+        try
+        {
+            Directory.CreateDirectory(folder);
+            var tmp = Path.Combine(Path.GetTempPath(), "vorotex-screens49-" + Environment.ProcessId);
+            var shots = new List<string>();
+            foreach (var dark in new[] { false, true })
+            {
+                App.SetTheme(dark);
+                var w = new MainWindow(offline: true, storeFolder: tmp + (dark ? "d" : "l"), previewImage: null)
+                { Width = 1280, Height = 800, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual };
+                w.Show();
+                int demo = w.DemoMouseMacro();
+                w.DemoV47(demo);
+                int text = w.FirstNamedMacroOtherThan(demo);
+                w.DemoRepeat(text, MacroRepeatMode.Count, 10);
+                if (!dark)
+                {
+                    // the user's real screen: 1920 px wide window at 100 % (1920 DIP) and at 150 % (1280 DIP)
+                    w.Width = 1920; w.Height = 1040;
+                    shots.Add(Shot(w, 2, Path.Combine(folder, "01-macros-1920px-100pct.png"), 1.0));
+                    w.Width = 1280; w.Height = 693;
+                    shots.Add(Shot(w, 2, Path.Combine(folder, "02-macros-1920px-150pct.png"), 1.5));
+                    w.DemoRepeat(text, MacroRepeatMode.Count, 22);
+                    w.Width = 1600; w.Height = 900;
+                    shots.Add(Shot(w, 2, Path.Combine(folder, "03-macros-1600x900-100pct-22.png"), 1.0));
+                    w.Width = 960; w.Height = 640;
+                    w.DemoRepeat(text, MacroRepeatMode.Count, 10);
+                    shots.Add(Shot(w, 2, Path.Combine(folder, "04-macros-960x640-150pct.png"), 1.5));
+                    w.DemoRepeat(demo, MacroRepeatMode.Toggle, 1);
+                    shots.Add(Shot(w, 2, Path.Combine(folder, "05-macros-toggle-960x640-150pct.png"), 1.5));
+                }
+                else { w.Width = 1280; w.Height = 693; shots.Add(Shot(w, 2, Path.Combine(folder, "06-macros-1920px-150pct-dark.png"), 1.5)); }
+                w.ExitApp();
+            }
+            File.WriteAllText(Path.Combine(folder, "screens.txt"), string.Join(Environment.NewLine, shots));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(Path.Combine(folder, "screens-error.txt"), ex.ToString()); } catch { }
+            return 1;
+        }
+    }
+
     /// <summary>The actions ring as it appears over the desktop (cursor in the middle, «Скриншот» highlighted).</summary>
     private static string RingShot(string path, bool darkRing, bool lightDesk)
     {

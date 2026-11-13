@@ -221,30 +221,17 @@ public partial class MainWindow
         var keys = AssignedTo(sel);
         var groups = StepGroups(slot.Events);
 
-        // ── header: icon · editable name · actions
-        var head = new DockPanel();
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top };
-        DockPanel.SetDock(actions, Dock.Right);
-        Button Act(string glyph, string tip, Action a, bool enabled = true, string? text = null)
-        {
-            var c = new StackPanel { Orientation = Orientation.Horizontal };
-            c.Children.Add(new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
-            if (text != null) c.Children.Add(new TextBlock { Text = text, Margin = new Thickness(7, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
-            var b = new Button { Style = (Style)FindResource("GhostButton"), Content = c, ToolTip = tip, Padding = text == null ? new Thickness(9, 6, 9, 6) : new Thickness(12, 6, 12, 6), Margin = new Thickness(6, 0, 0, 0), IsEnabled = enabled && !_recording };
-            b.Click += (_, _) => a();
-            actions.Children.Add(b);
-            return b;
-        }
-        Act("\uE768", "Проверить: проиграть макрос в тестовом окне на этом компьютере", () => TestMacro(sel), slot.IsUsed && !slot.Unsupported, "Проверить");
-        Act("\uE8C8", "Дублировать в свободное место", () => DuplicateMacro(sel), slot.IsUsed && !slot.Unsupported);
-        Act("\uE74D", "Удалить макрос", () => DeleteMacro(sel), slot.IsUsed || keys.Count > 0);
-        head.Children.Add(actions);
-        var tile = new Border { Width = 44, Height = 44, CornerRadius = new CornerRadius(12), Background = R("AccentSoftBrush"), Margin = new Thickness(0, 0, 14, 0), VerticalAlignment = VerticalAlignment.Top,
-            Child = new TextBlock { Text = "\uE765", FontFamily = Icons, FontSize = 19, Foreground = R("AccentBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+        // ── header (v4.9): icon · name · meta/assign on the left, a tight action group next to it
+        var head = new Grid { Margin = new Thickness(0, 0, 0, 16) };
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var tile = new Border { Width = 48, Height = 48, CornerRadius = new CornerRadius(12), Background = R("AccentSoftBrush"), Margin = new Thickness(0, 0, 16, 0), VerticalAlignment = VerticalAlignment.Top,
+            Child = new TextBlock { Text = "\uE765", FontFamily = Icons, FontSize = 20, Foreground = R("AccentBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
         head.Children.Add(tile);
-        var titleCol = new StackPanel();
+        var titleCol = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         titleCol.Children.Add(EditableTitle(MacroName(sel), 22, n => RenameMacro(sel, n), "Переименовать макрос"));
-        var sub = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+        var sub = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
         if (keys.Count == 0) sub.Children.Add(Pill("\uE7BA", "не назначен на кнопку", false));
         foreach (var k in keys) sub.Children.Add(Pill("\uE765", k));
         if (slot.IsUsed) sub.Children.Add(Pill("\uE916", $"{groups.Count} {StepsWord(groups.Count)} · {MacroSeconds(slot):0.0} с", false));
@@ -252,12 +239,47 @@ public partial class MainWindow
         assign.Click += (_, _) => AssignMacro();
         sub.Children.Add(assign);
         titleCol.Children.Add(sub);
-        head.Children.Add(titleCol);
+        Grid.SetColumn(titleCol, 1); head.Children.Add(titleCol);
+
+        // action group: [▶ Проверить | ⧉ | 🗑] in one rounded outline
+        var actions = new StackPanel { Orientation = Orientation.Horizontal };
+        var actBox = new Border { Child = actions, BorderBrush = R("BorderBrush"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Background = R("PanelBrush"),
+            VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(16, 4, 0, 0), Padding = new Thickness(2), SnapsToDevicePixels = true };
+        void Act(string glyph, string tip, Action a, bool enabled = true, string? text = null, bool danger = false)
+        {
+            if (actions.Children.Count > 0) actions.Children.Add(new Border { Width = 1, Margin = new Thickness(2, 6, 2, 6), Background = R("BorderBrush") });
+            var c = new StackPanel { Orientation = Orientation.Horizontal };
+            c.Children.Add(new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 13, VerticalAlignment = VerticalAlignment.Center, Foreground = text != null ? R("AccentBrush") : danger ? R("MutedBrush") : R("TextBrush") });
+            if (text != null) c.Children.Add(new TextBlock { Text = text, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold });
+            var b = new Button { Style = (Style)FindResource("GhostButton"), Content = c, ToolTip = tip, BorderThickness = new Thickness(0), MinHeight = 32,
+                Padding = text == null ? new Thickness(10, 6, 10, 6) : new Thickness(12, 6, 14, 6), Margin = new Thickness(0), IsEnabled = enabled && !_recording };
+            b.Click += (_, _) => a();
+            actions.Children.Add(b);
+        }
+        Act("\uE768", "Проверить: проиграть макрос в тестовом окне на этом компьютере", () => TestMacro(sel), slot.IsUsed && !slot.Unsupported, "Проверить");
+        Act("\uE8C8", "Дублировать в свободное место", () => DuplicateMacro(sel), slot.IsUsed && !slot.Unsupported);
+        Act("\uE74D", "Удалить макрос", () => DeleteMacro(sel), slot.IsUsed || keys.Count > 0, danger: true);
+        Grid.SetColumn(actBox, 2); head.Children.Add(actBox);
         MacroHeader.Children.Add(head);
 
-        // ── recorder + repeat
-        var bar = new DockPanel { Margin = new Thickness(0, 16, 0, 6) };
-        var rec = new Button { Style = (Style)FindResource("AccentButton"), MinWidth = 132, Padding = new Thickness(16, 7, 16, 7) };
+        // ── «Запуск» card: recorder + repeat, label column for alignment
+        var run = new Grid();
+        run.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
+        run.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var runCard = new Border { Background = R("Panel2Brush"), CornerRadius = new CornerRadius(16), Padding = new Thickness(16), Margin = new Thickness(0, 0, 0, 12), Child = run };
+        void Row(string label, FrameworkElement content, string? icon = null, double labelTop = 9)
+        {
+            if (run.RowDefinitions.Count > 0) run.RowDefinitions.Add(new RowDefinition { Height = new GridLength(16) });
+            int r = run.RowDefinitions.Count;
+            run.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var lbl = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, labelTop, 12, 0) };
+            if (icon != null) lbl.Children.Add(new TextBlock { Text = icon, FontFamily = Icons, FontSize = 12, Foreground = R("MutedBrush"), Margin = new Thickness(0, 1, 8, 0) });
+            lbl.Children.Add(T(label, 12.5, muted: true).With(t => t.FontWeight = FontWeights.SemiBold));
+            Grid.SetRow(lbl, r); run.Children.Add(lbl);
+            Grid.SetRow(content, r); Grid.SetColumn(content, 1); run.Children.Add(content);
+        }
+        var recRow = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
+        var rec = new Button { Style = (Style)FindResource("AccentButton"), MinWidth = 132, MinHeight = 36, Padding = new Thickness(16, 7, 16, 7) };
         var rc = new StackPanel { Orientation = Orientation.Horizontal };
         rc.Children.Add(new TextBlock { Text = _recording ? "■" : "●", Foreground = _recording ? Brushes.White : new SolidColorBrush(Color.FromRgb(0xFF, 0xE2, 0xD6)), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center });
         rc.Children.Add(new TextBlock { Text = _recording ? "Стоп" : "Записать", FontWeight = FontWeights.SemiBold });
@@ -266,27 +288,30 @@ public partial class MainWindow
         rec.IsEnabled = !slot.Unsupported;
         rec.ToolTip = "Запишет нажатия клавиш" + (_recMouse ? ", щелчки и колесо мыши" : "") + " с паузами между ними. Запись заменит текущие шаги.";
         _recBtn = rec;
-        DockPanel.SetDock(rec, Dock.Left);
-        bar.Children.Add(rec);
+        recRow.Children.Add(rec);
         if (_recording)
         {
-            var live = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0) };
-            live.Children.Add(new System.Windows.Shapes.Ellipse { Width = 9, Height = 9, Fill = R("ErrBrush"), Margin = new Thickness(0, 1, 8, 0) });
-            live.Children.Add(T(_recMouse ? "Идёт запись: клавиши, щелчки и колесо мыши. Шагов: " + slot.Events.Count : "Идёт запись: нажимайте клавиши. Шагов: " + slot.Events.Count, 13).With(t => t.Foreground = R("AccentBrush")));
-            bar.Children.Add(live);
+            var live = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0) };
+            live.Children.Add(new System.Windows.Shapes.Ellipse { Width = 8, Height = 8, Fill = R("ErrBrush"), Margin = new Thickness(0, 1, 8, 0), VerticalAlignment = VerticalAlignment.Center });
+            live.Children.Add(T(_recMouse ? "Идёт запись: клавиши, щелчки и колесо мыши. Шагов: " + slot.Events.Count : "Идёт запись: нажимайте клавиши. Шагов: " + slot.Events.Count, 13).With(t => { t.Foreground = R("AccentBrush"); t.VerticalAlignment = VerticalAlignment.Center; }));
+            recRow.Children.Add(live);
         }
         else
         {
-            var mouse = new CheckBox { Content = "мышь тоже", IsChecked = _recMouse, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0),
+            var mouse = new CheckBox { Content = "записывать и мышь", IsChecked = _recMouse, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0),
                 ToolTip = "Записывать щелчки левой, правой, средней кнопкой и прокрутку. Щелчок по «Стоп» не записывается." };
             mouse.Checked += (_, _) => _recMouse = true; mouse.Unchecked += (_, _) => _recMouse = false;
-            DockPanel.SetDock(mouse, Dock.Left);
-            bar.Children.Add(mouse);
+            recRow.Children.Add(mouse);
         }
-        MacroHeader.Children.Add(bar);
-        if (!_recording) MacroHeader.Children.Add(RepeatSelector(sel, slot));
+        Row("Запись", recRow, "\uE7C8");
+        if (!_recording) Row("Повтор", RepeatSelector(sel, slot), "\uE8EE", 14);
+        var runWrap = new StackPanel();
+        runWrap.Children.Add(T("Запуск", 13, semi: true).With(t => t.Margin = new Thickness(2, 0, 0, 8)));
+        runWrap.Children.Add(runCard);
+        MacroHeader.Children.Add(runWrap);
         if (slot.Unsupported)
-            MacroHeader.Children.Add(T("Этот макрос создан в родной программе и содержит блок текста/подсветки, который мы пока не умеем менять. Его можно только удалить.", 12.5).With(t => { t.Foreground = R("WarnBrush"); t.Margin = new Thickness(0, 4, 0, 4); }));
+            MacroHeader.Children.Add(T("Этот макрос создан в родной программе и содержит блок текста/подсветки, который мы пока не умеем менять. Его можно только удалить.", 12.5).With(t => { t.Foreground = R("WarnBrush"); t.Margin = new Thickness(0, 0, 0, 12); t.TextWrapping = TextWrapping.Wrap; }));
+        MacroHost.Children.Add(T("Шаги", 13, semi: true).With(t => t.Margin = new Thickness(2, 4, 0, 8)));
 
         // ── steps
         if (groups.Count == 0 && !_recording)
@@ -580,6 +605,7 @@ public partial class MainWindow
             AddEvents(new() { e });
         });
         Add("\uE70D", "Прокрутка", "Прокрутка колесом мыши", () => EditStep(-1, presetType: 2));
+        wp.MaxWidth = 1040;
         MacroAddBar.Child = wp;
     }
 
@@ -706,36 +732,46 @@ public partial class MainWindow
         sp.Children.Add(box);
         w.Content = sp;
         bool busy = false;
+        bool cancel = false; int done = 0;
         run.Click += async (_, _) =>
         {
-            if (busy) return;
+            if (busy) { cancel = true; return; }
             busy = true; run.IsEnabled = false;
             box.Focus();
             bool withMouse = mouse.IsChecked == true;
             var events = m.Events.Select(e => e.Clone()).ToList();
-            int repeat = m.RepeatMode == MacroRepeatMode.Count ? Math.Clamp(m.Repeat, 1, 5) : 1;
-            status.Text = "Играет…";
+            // the same number that is saved and written to the keypad (v4.8 capped this at 5 – bug)
+            int repeat = m.RepeatMode == MacroRepeatMode.Count ? Math.Max(1, m.Repeat) : 1;
+            cancel = false;
+            run.Content = "■  Стоп"; run.IsEnabled = true;
+            status.Text = repeat > 1 ? $"Играет: {RepeatCount.Format(repeat)}… (Стоп или Esc — прервать)" : "Играет…";
             await Task.Delay(300);
             await Task.Run(() =>
             {
                 var held = new HashSet<byte>();
                 try
                 {
-                    for (int r = 0; r < repeat; r++)
+                    for (int r = 0; r < repeat && !cancel; r++)
+                    {
+                        done = r + 1;
                         foreach (var e in events)
                         {
+                            if (cancel) break;
                             if (e.DelayMs > 0) Thread.Sleep(e.DelayMs);
                             bool isMouse = e.IsMouseButton || e.IsWheel || e.Code == MouseCodes.Move;
                             if (isMouse && !withMouse) continue;
                             MacroPlayer.Send(e);
                             if (!e.IsWheel && e.Code != MouseCodes.Move) { if (e.Down) held.Add(e.Code); else held.Remove(e.Code); }
                         }
+                    }
                 }
                 finally { foreach (var c in held) MacroPlayer.Send(new MacroEvent { Down = false, Code = c }); } // never leave a key stuck
             });
-            status.Text = (repeat > 1 ? $"Готово ({repeat} раза). " : "Готово. ") + (m.RepeatMode switch { MacroRepeatMode.WhileHeld => "На клавиатуре этот макрос крутится, пока кнопка зажата (здесь показан один проход).", MacroRepeatMode.Toggle => "На клавиатуре: первое нажатие запускает макрос по кругу, второе — останавливает (здесь показан один проход).", _ => "" });
-            busy = false; run.IsEnabled = true;
+            status.Text = (cancel ? $"Остановлено после {done} из {repeat}. " : repeat > 1 ? $"Готово: {RepeatCount.Format(repeat)}. " : "Готово. ") + (m.RepeatMode switch { MacroRepeatMode.WhileHeld => "На клавиатуре этот макрос крутится, пока кнопка зажата (здесь показан один проход).", MacroRepeatMode.Toggle => "На клавиатуре: первое нажатие запускает макрос по кругу, второе — останавливает (здесь показан один проход).", _ => "" });
+            busy = false; run.IsEnabled = true; run.Content = "▶  Запустить";
         };
+        w.PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape && busy) { cancel = true; e.Handled = true; } };
+        w.Closing += (_, _) => cancel = true;
         w.ShowDialog();
     }
 

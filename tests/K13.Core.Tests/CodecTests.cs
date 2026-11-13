@@ -461,3 +461,44 @@ public class TriggerPolicyTests
         Assert.Equal(cfg.Macros[0].Events.Count, back.Macros[0].Events.Count);
     }
 }
+
+public class RepeatCountTests
+{
+    [Theory]
+    [InlineData(1, "1 раз")] [InlineData(2, "2 раза")] [InlineData(4, "4 раза")] [InlineData(5, "5 раз")]
+    [InlineData(10, "10 раз")] [InlineData(11, "11 раз")] [InlineData(12, "12 раз")] [InlineData(14, "14 раз")]
+    [InlineData(21, "21 раз")] [InlineData(22, "22 раза")] [InlineData(25, "25 раз")] [InlineData(101, "101 раз")] [InlineData(112, "112 раз")]
+    public void Plural(int n, string expected) => Assert.Equal(expected, RepeatCount.Format(n));
+
+    [Theory]
+    [InlineData("10", true, 10)] [InlineData(" 7 ", true, 7)] [InlineData("1", true, 2)] [InlineData("0", true, 2)]
+    [InlineData("70000", true, 65535)] [InlineData("99999999999", true, 65535)] [InlineData("", false, 0)] [InlineData("1a", false, 0)] [InlineData("-3", false, 0)]
+    public void Parse_ClampsToRange(string text, bool ok, int value)
+    {
+        Assert.Equal(ok, RepeatCount.TryParse(text, out var v));
+        if (ok) Assert.Equal(value, v);
+    }
+
+    /// <summary>The count typed in the editor (10) must be what profiles.json stores and what the keypad gets (body header 0A 00).</summary>
+    [Fact]
+    public void Count10_SameInJsonAndDeviceImage()
+    {
+        var img = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "data", "k13-backup-20261112-171754.bin")).Take(0x300).ToArray();
+        var cfg = K13MemoryCodec.Decode(img);
+        Assert.True(RepeatCount.TryParse("10", out var n));
+        cfg.Macros[0].RepeatMode = MacroRepeatMode.Count;
+        cfg.Macros[0].Repeat = n;
+
+        var profile = new AppProfile { Name = "t", Device = cfg };
+        var json = System.Text.Json.JsonSerializer.Serialize(profile, ProfileStore.JsonOptions);
+        var loaded = System.Text.Json.JsonSerializer.Deserialize<AppProfile>(json, ProfileStore.JsonOptions)!;
+        Assert.Equal(10, loaded.Device!.Macros[0].Repeat);
+        Assert.Equal(MacroRepeatMode.Count, loaded.Device.Macros[0].RepeatMode);
+
+        var enc = K13MemoryCodec.Encode(loaded.Device, img);
+        int e = cfg.Base + K13Layout.OffMacroTable;
+        int addr = enc[e + 2] | (enc[e + 3] & 0x3F) << 8;
+        Assert.Equal(0x0A, enc[addr]); Assert.Equal(0x00, enc[addr + 1]);
+        Assert.Equal(10, K13MemoryCodec.Decode(enc).Macros[0].Repeat);
+    }
+}

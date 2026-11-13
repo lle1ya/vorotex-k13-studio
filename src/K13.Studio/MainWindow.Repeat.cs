@@ -27,13 +27,12 @@ public partial class MainWindow
         _ => "Первое нажатие запускает макрос по кругу, второе нажатие той же кнопки — останавливает.",
     };
 
-    private static string TimesWord(int n) => (n % 100 is >= 11 and <= 14) ? "раз" : (n % 10) switch { 2 or 3 or 4 => "раза", _ => "раз" };
+    private static string TimesWord(int n) => RepeatCount.Word(n);
 
     private FrameworkElement RepeatSelector(int sel, MacroSlot slot)
     {
         var choice = ChoiceOf(slot);
-        var root = new StackPanel { Margin = new Thickness(0, 4, 0, 10) };
-        root.Children.Add(T("Повтор", 12, muted: true).With(t => { t.FontWeight = FontWeights.SemiBold; t.Margin = new Thickness(2, 0, 0, 6); }));
+        var root = new StackPanel();
 
         var wrap = new WrapPanel();
         var group = new Border
@@ -43,11 +42,9 @@ public partial class MainWindow
         };
         root.Children.Add(group);
 
-        var explain = T(RepeatExplain(choice, slot.Repeat), 12.5, muted: true).With(t => { t.TextWrapping = TextWrapping.Wrap; t.Margin = new Thickness(2, 8, 0, 0); });
-        var line = new WrapPanel { Margin = new Thickness(0, 0, 0, 0) };
-        line.Children.Add(explain);
-        root.Children.Add(line);
-        var onDevice = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2, 6, 0, 0) };
+        var explain = T(RepeatExplain(choice, slot.Repeat), 12.5, muted: true).With(t => { t.TextWrapping = TextWrapping.Wrap; t.Margin = new Thickness(4, 8, 0, 0); });
+        root.Children.Add(explain);
+        var onDevice = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 4, 0, 0) };
         onDevice.Children.Add(new TextBlock { Text = "\uE73E", FontFamily = Icons, FontSize = 11, Foreground = R("OkBrush"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
         onDevice.Children.Add(T("Работает в самой клавиатуре — программа на ПК для этого не нужна.", 11.5, muted: true));
         if (choice is RepeatChoice.Hold or RepeatChoice.Toggle) root.Children.Add(onDevice);
@@ -66,6 +63,7 @@ public partial class MainWindow
             RefreshMacros();
         }
 
+        var labels = new Dictionary<RepeatChoice, (TextBlock tb, string full)>();
         Border Segment(RepeatChoice c, string? badge, string? glyph, string label, string tip, FrameworkElement? extra = null)
         {
             bool on = choice == c;
@@ -80,7 +78,9 @@ public partial class MainWindow
                 });
             else
                 sp.Children.Add(new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 14, Foreground = on ? fg : R("AccentBrush"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(1, 0, 8, 0) });
-            sp.Children.Add(new TextBlock { Text = label, FontSize = 13, FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal, Foreground = fg, VerticalAlignment = VerticalAlignment.Center });
+            var lt = new TextBlock { Text = label, FontSize = 13, FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal, Foreground = fg, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+            labels[c] = (lt, label);
+            sp.Children.Add(lt);
             if (extra != null) sp.Children.Add(extra);
             var seg = new Border
             {
@@ -108,7 +108,7 @@ public partial class MainWindow
             var box = new TextBox
             {
                 Text = slot.Repeat.ToString(), Width = 46, Height = 26, Padding = new Thickness(0), TextAlignment = TextAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center,
-                FontWeight = FontWeights.SemiBold, BorderThickness = new Thickness(0), Background = R("PanelBrush"), Foreground = R("TextBrush"), ToolTip = "Сколько раз подряд (2…65535)",
+                FontWeight = FontWeights.SemiBold, BorderThickness = new Thickness(0), Background = R("PanelBrush"), Foreground = R("TextBrush"), ToolTip = "Сколько раз подряд (2…65535). Сохраняется сразу; ↑/↓ — на 1.",
             };
             Button Step(string glyph, int d) 
             {
@@ -121,7 +121,7 @@ public partial class MainWindow
                 b.Click += (_, e) =>
                 {
                     e.Handled = true;
-                    int n = Math.Clamp(slot.Repeat + d, 2, 65535);
+                    int n = RepeatCount.Clamp(slot.Repeat + d);
                     if (n == slot.Repeat) return;
                     slot.Repeat = n; _lastTimes[sel] = n; box.Text = n.ToString();
                     explain.Text = RepeatExplain(RepeatChoice.Times, n);
@@ -129,12 +129,24 @@ public partial class MainWindow
                 };
                 return b;
             }
+            // commit on every keystroke (clamped to 2…65535) – no focus loss / Enter needed
             box.TextChanged += (_, _) =>
             {
-                if (int.TryParse(box.Text, out var r) && r is >= 2 and <= 65535 && r != slot.Repeat)
+                if (RepeatCount.TryParse(box.Text, out var r) && r != slot.Repeat)
                 { slot.Repeat = r; _lastTimes[sel] = r; explain.Text = RepeatExplain(RepeatChoice.Times, r); Changed(false); }
             };
             box.LostKeyboardFocus += (_, _) => box.Text = slot.Repeat.ToString();
+            box.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter) { e.Handled = true; box.Text = slot.Repeat.ToString(); Keyboard.ClearFocus(); }
+                else if (e.Key is Key.Up or Key.Down)
+                {
+                    e.Handled = true;
+                    slot.Repeat = RepeatCount.Clamp(slot.Repeat + (e.Key == Key.Up ? 1 : -1)); _lastTimes[sel] = slot.Repeat;
+                    box.Text = slot.Repeat.ToString(); box.CaretIndex = box.Text.Length;
+                }
+            };
+            DataObject.AddPastingHandler(box, (_, e) => { if (!(e.DataObject.GetData(typeof(string)) is string t && t.Trim().All(char.IsDigit))) e.CancelCommand(); });
             box.PreviewTextInput += (_, e) => e.Handled = !e.Text.All(char.IsDigit);
             box.PreviewMouseLeftButtonUp += (_, e) => e.Handled = true;
             st.Children.Add(Step("\uE738", -1));
@@ -152,7 +164,11 @@ public partial class MainWindow
         var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2 };
         root.SizeChanged += (_, e) =>
         {
-            bool narrow = e.NewSize.Width < 660;
+            bool narrow = e.NewSize.Width < 600;
+            // short labels in the 2×2 grid so nothing is clipped
+            if (labels.TryGetValue(RepeatChoice.Toggle, out var tg)) tg.tb.Text = narrow ? "До повторного" : tg.full;
+            if (labels.TryGetValue(RepeatChoice.Times, out var tm)) tm.tb.Visibility = narrow && choice == RepeatChoice.Times ? Visibility.Collapsed : Visibility.Visible;
+            if (labels.TryGetValue(RepeatChoice.Hold, out var hd)) hd.tb.Text = hd.full;
             if (narrow && group.Child == wrap)
             {
                 var items = wrap.Children.Cast<UIElement>().ToList(); wrap.Children.Clear();
