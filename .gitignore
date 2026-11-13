@@ -1,0 +1,12 @@
+bin/
+obj/
+out/
+backup-v1-studio/
+backup-v2-studio/
+backup-v3-assets/
+screens/
+*.exe
+*.bin
+part0*
+*.user
+.vs/

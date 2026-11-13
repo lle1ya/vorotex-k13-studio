@@ -1,0 +1,297 @@
+<Window x:Class="Vorotex.Studio.MainWindow" UseLayoutRounding="True" SnapsToDevicePixels="True"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="VOROTEX K13 Studio" Width="1280" Height="800" MinWidth="960" MinHeight="640"
+        Style="{StaticResource DarkWindow}" WindowStartupLocation="CenterScreen">
+  <Grid x:Name="Root" Background="{DynamicResource BgBrush}">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <!-- Header: name · profile · write · ? · ⋯ -->
+    <Grid Margin="28,16,28,0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="Auto"/>
+      </Grid.ColumnDefinitions>
+      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+        <Border Width="34" Height="34" CornerRadius="9" Background="{DynamicResource AccentBrush}" Margin="0,0,12,0">
+          <TextBlock Text="K13" Foreground="White" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Border>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="VOROTEX K13" FontSize="17" FontWeight="SemiBold"/>
+          <StackPanel Orientation="Horizontal" Margin="0,1,0,0">
+            <Ellipse x:Name="ConnDot" Width="7" Height="7" Fill="{DynamicResource ErrBrush}" VerticalAlignment="Center" Margin="0,1,6,0"/>
+            <TextBlock x:Name="ConnText" Text="Клавиатура не найдена" Style="{StaticResource Muted}" FontSize="12"/>
+          </StackPanel>
+        </StackPanel>
+      </StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+        <ComboBox x:Name="ProfileBox" Width="190" SelectionChanged="ProfileBox_SelectionChanged" Margin="0,0,10,0" ToolTip="Профиль"/>
+        <Button x:Name="WriteBtn" Style="{StaticResource AccentButton}" IsEnabled="False" Margin="0,0,8,0" Click="WriteBtn_Click"
+                ToolTipService.ShowOnDisabled="True">
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="&#xE898;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <TextBlock Text="Записать"/>
+            <Ellipse x:Name="SyncDot" Width="8" Height="8" Fill="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="10,1,0,0" Stroke="White" StrokeThickness="1"/>
+          </StackPanel>
+        </Button>
+        <Button x:Name="HelpBtn" Width="36" Height="34" Padding="0" Click="HelpBtn_Click" ToolTip="Как пользоваться" Margin="0,0,6,0" Style="{StaticResource GhostButton}">
+          <TextBlock Text="?" FontSize="16" FontWeight="SemiBold"/>
+        </Button>
+        <Button x:Name="MoreBtn" Width="36" Height="34" Padding="0" Click="MoreBtn_Click" ToolTip="Ещё" Style="{StaticResource GhostButton}">
+          <TextBlock Text="&#xE712;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"/>
+        </Button>
+      </StackPanel>
+    </Grid>
+
+    <!-- Tabs -->
+    <Grid Grid.Row="1" Margin="28,14,28,4">
+      <Border HorizontalAlignment="Center" CornerRadius="20" Background="{DynamicResource PanelBrush}" Padding="3">
+        <StackPanel Orientation="Horizontal">
+          <RadioButton x:Name="TabLayout" Style="{StaticResource PillTab}" GroupName="main" IsChecked="True" Checked="Tab_Checked" Content="Кнопки"/>
+          <RadioButton x:Name="TabLight" Style="{StaticResource PillTab}" GroupName="main" Checked="Tab_Checked" Content="Подсветка"/>
+          <RadioButton x:Name="TabMacro" Style="{StaticResource PillTab}" GroupName="main" Checked="Tab_Checked" Content="Макросы"/>
+          <RadioButton x:Name="TabProfiles" Style="{StaticResource PillTab}" GroupName="main" Checked="Tab_Checked" Content="Профили"/>
+        </StackPanel>
+      </Border>
+      <ProgressBar x:Name="Progress" Height="3" VerticalAlignment="Bottom" Margin="0,0,0,-6" Minimum="0" Maximum="1" Visibility="Collapsed"/>
+    </Grid>
+
+    <!-- Pages -->
+    <Grid Grid.Row="2" Margin="28,10,28,6">
+
+      <!-- Кнопки -->
+      <Grid x:Name="PageLayout" Background="Transparent" MouseLeftButtonUp="LayoutBackground_Click">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <TextBlock x:Name="LayoutHint" Text="Нажмите на кнопку, которую хотите настроить" FontSize="19" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,14,0,0"/>
+          <ContentControl x:Name="LayoutKbHost" Grid.Row="1" Margin="24,18,24,10" MaxWidth="980" VerticalAlignment="Center"/>
+          <StackPanel Grid.Row="2" HorizontalAlignment="Center" Margin="0,0,0,14">
+            <TextBlock x:Name="HoverCaption" Style="{StaticResource Muted}" FontSize="13" HorizontalAlignment="Center" MinHeight="18"/>
+            <StackPanel x:Name="DotLegend" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,6,0,0">
+              <Ellipse Width="8" Height="8" Fill="{DynamicResource AccentBrush}" VerticalAlignment="Center" Margin="0,1,6,0"/>
+              <TextBlock Text="— кнопка настроена не как с завода" Style="{StaticResource Muted}" FontSize="12"/>
+            </StackPanel>
+          </StackPanel>
+        </Grid>
+        <Border x:Name="SidePanel" Grid.Column="1" Width="430" Visibility="Collapsed" Background="{DynamicResource PanelBrush}" CornerRadius="16" Margin="12,0,0,6" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                MouseLeftButtonUp="SidePanel_MouseUp">
+          <Border.RenderTransform>
+            <TranslateTransform x:Name="SideShift"/>
+          </Border.RenderTransform>
+          <DockPanel>
+            <StackPanel x:Name="EditorFooter" DockPanel.Dock="Bottom" Margin="26,0,26,18"/>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel x:Name="EditorHost" Margin="26,22,26,12"/>
+            </ScrollViewer>
+          </DockPanel>
+        </Border>
+      </Grid>
+
+      <!-- Подсветка -->
+      <Grid x:Name="PageLight" Visibility="Collapsed">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <ContentControl x:Name="LightKbHost" Height="176" Margin="0,2,0,12" HorizontalAlignment="Center"/>
+        <ScrollViewer x:Name="LightScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel MaxWidth="1130" Margin="0,0,10,10">
+            <StackPanel x:Name="Step1Head" Orientation="Horizontal" Margin="0,0,0,10"/>
+            <WrapPanel x:Name="ModeCards" Margin="0,0,0,6"/>
+            <Grid Margin="0,8,0,0">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="40"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <StackPanel>
+                <StackPanel x:Name="Step2Head" Orientation="Horizontal" Margin="0,0,0,10"/>
+                <StackPanel x:Name="ColorPanel" Margin="0,0,0,14"/>
+              </StackPanel>
+              <StackPanel Grid.Column="2">
+                <StackPanel x:Name="Step3Head" Orientation="Horizontal" Margin="0,0,0,12"/>
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="80"/>
+                    <ColumnDefinition Width="72"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="60"/>
+                  </Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                  </Grid.RowDefinitions>
+                  <TextBlock Text="Яркость" VerticalAlignment="Center"/>
+                  <TextBlock Grid.Column="1" Text="тускло" Style="{StaticResource Muted}" VerticalAlignment="Center" TextAlignment="Right" Margin="0,0,10,0"/>
+                  <Slider x:Name="BrightSlider" Grid.Column="2" Minimum="0" Maximum="6" ValueChanged="Led_Changed" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1"/>
+                  <TextBlock Grid.Column="3" Text="ярко" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                  <TextBlock Grid.Row="1" Text="Скорость" VerticalAlignment="Center" Margin="0,18,0,0"/>
+                  <TextBlock Grid.Row="1" Grid.Column="1" Text="медленно" Style="{StaticResource Muted}" VerticalAlignment="Center" TextAlignment="Right" Margin="0,18,10,0"/>
+                  <Slider x:Name="SpeedSlider" Grid.Row="1" Grid.Column="2" Minimum="0" Maximum="6" ValueChanged="Led_Changed" VerticalAlignment="Center" Margin="0,18,0,0" IsSnapToTickEnabled="True" TickFrequency="1"/>
+                  <TextBlock Grid.Row="1" Grid.Column="3" Text="быстро" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="10,18,0,0"/>
+                </Grid>
+                <Button x:Name="LightMoreBtn" Style="{StaticResource LinkButton}" Content="Дополнительно ▾" HorizontalAlignment="Left" Margin="0,16,0,8" Click="LightMore_Click"/>
+                <StackPanel x:Name="ParamsPanel" Visibility="Collapsed"/>
+              </StackPanel>
+            </Grid>
+          </StackPanel>
+        </ScrollViewer>
+      </Grid>
+
+      <!-- Макросы -->
+      <Grid x:Name="PageMacro" Visibility="Collapsed">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="330"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <DockPanel Margin="0,0,20,6">
+          <DockPanel DockPanel.Dock="Top" Margin="2,2,0,12">
+            <Button DockPanel.Dock="Right" Style="{StaticResource AccentButton}" Click="NewMacro_Click" Padding="14,6" ToolTip="Новый макрос">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="&#xE710;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock Text="Новый"/>
+              </StackPanel>
+            </Button>
+            <StackPanel VerticalAlignment="Center">
+              <TextBlock Text="Макросы" FontSize="20" FontWeight="SemiBold"/>
+              <TextBlock x:Name="MacroCountText" Style="{StaticResource Muted}" FontSize="12"/>
+            </StackPanel>
+          </DockPanel>
+          <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+            <TextBox x:Name="MacroSearch" TextChanged="MacroSearch_TextChanged" Padding="30,7,10,7"/>
+            <TextBlock Text="&#xE721;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="11,0,0,0" IsHitTestVisible="False"/>
+            <TextBlock x:Name="MacroSearchHint" Text="Поиск по названию, клавише, кнопке" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="31,0,0,0" IsHitTestVisible="False"/>
+          </Grid>
+          <Border DockPanel.Dock="Bottom" Background="{DynamicResource PanelBrush}" CornerRadius="14" Padding="16,12" Margin="0,12,0,0" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+            <StackPanel>
+              <DockPanel Margin="0,0,0,8">
+                <TextBlock x:Name="MemPct" DockPanel.Dock="Right" FontWeight="SemiBold" FontSize="12"/>
+                <TextBlock Text="Память клавиатуры для макросов" FontSize="12.5" FontWeight="SemiBold"/>
+              </DockPanel>
+              <ProgressBar x:Name="MemBar" Height="8" Minimum="0" Maximum="1"/>
+              <TextBlock x:Name="MemText" Style="{StaticResource Muted}" FontSize="11.5" Margin="0,7,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+          </Border>
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="MacroCards" Margin="0,0,4,0"/>
+          </ScrollViewer>
+        </DockPanel>
+        <Border Grid.Column="1" Background="{DynamicResource PanelBrush}" CornerRadius="18" Margin="0,0,0,6" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+          <DockPanel>
+            <StackPanel x:Name="MacroHeader" DockPanel.Dock="Top" Margin="28,22,28,0"/>
+            <Border x:Name="MacroAddBar" DockPanel.Dock="Bottom" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="28,12,28,14"/>
+            <ScrollViewer x:Name="MacroScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel x:Name="MacroHost" Margin="28,8,28,18"/>
+            </ScrollViewer>
+          </DockPanel>
+        </Border>
+      </Grid>
+
+      <!-- Профили -->
+      <Grid x:Name="PageProfiles" Visibility="Collapsed">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Margin="0,0,10,10" MaxWidth="1180">
+            <DockPanel Margin="2,2,0,14">
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Style="{StaticResource GhostButton}" Click="ImportProfileJson_Click" Margin="0,0,8,0" Padding="12,6" ToolTip="Импорт профиля из файла .json">
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE8B5;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock Text="Импорт"/>
+                  </StackPanel>
+                </Button>
+                <Button Style="{StaticResource AccentButton}" Click="NewProfile_Click" Padding="14,6">
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE710;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock Text="Новый профиль"/>
+                  </StackPanel>
+                </Button>
+              </StackPanel>
+              <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="Профили" FontSize="20" FontWeight="SemiBold"/>
+                <TextBlock Style="{StaticResource Muted}" FontSize="12" Text="Набор назначений кнопок, подсветки, макросов и действий на ПК. В клавиатуре — активный профиль после «Записать»."/>
+              </StackPanel>
+            </DockPanel>
+            <WrapPanel x:Name="ProfileCards" Margin="0,0,0,8"/>
+
+            <Border Style="{StaticResource Card}" Margin="0,8,0,14">
+              <StackPanel>
+                <DockPanel>
+                  <CheckBox x:Name="AutoSwitchBox" Style="{StaticResource Switch}" DockPanel.Dock="Right" Checked="AutoSwitch_Changed" Unchecked="AutoSwitch_Changed"/>
+                  <Border Width="34" Height="34" CornerRadius="10" Background="{DynamicResource AccentSoftBrush}" Margin="0,0,12,0">
+                    <TextBlock Text="&#xE8AB;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15" Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                  </Border>
+                  <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="Автопереключение по программе" FontSize="15" FontWeight="SemiBold"/>
+                    <TextBlock Style="{StaticResource Muted}" FontSize="12" Text="Открыли Photoshop — включился профиль «Фото». Меняются действия на ПК; кнопки в клавиатуре — после «Записать»." TextWrapping="Wrap"/>
+                  </StackPanel>
+                </DockPanel>
+                <StackPanel x:Name="RulesHost" Margin="0,14,0,0"/>
+                <DockPanel Margin="0,8,0,0">
+                  <Button DockPanel.Dock="Left" Click="AddRule_Click" Style="{StaticResource GhostButton}" Padding="12,6">
+                    <StackPanel Orientation="Horizontal">
+                      <TextBlock Text="&#xE710;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                      <TextBlock Text="Добавить правило"/>
+                    </StackPanel>
+                  </Button>
+                  <TextBlock x:Name="ForegroundText" Style="{StaticResource Muted}" FontSize="11.5" VerticalAlignment="Center" TextAlignment="Right" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Margin="12,0,0,0"/>
+                </DockPanel>
+              </StackPanel>
+            </Border>
+
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="14"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <Border Style="{StaticResource Card}">
+                <StackPanel>
+                  <DockPanel>
+                    <CheckBox x:Name="HostEnabledBox" Style="{StaticResource Switch}" DockPanel.Dock="Right" Checked="HostEnabled_Changed" Unchecked="HostEnabled_Changed"/>
+                    <TextBlock Text="Действия на компьютере" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                  </DockPanel>
+                  <TextBlock x:Name="HostSummary" Style="{StaticResource Muted}" Margin="0,4,0,10" TextWrapping="Wrap"/>
+                  <Button Content="Подробные настройки…" HorizontalAlignment="Left" Click="OpenHost_Click" Style="{StaticResource GhostButton}"/>
+                </StackPanel>
+              </Border>
+              <Border Grid.Column="2" Style="{StaticResource Card}">
+                <StackPanel>
+                  <TextBlock Text="Программа" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                  <CheckBox x:Name="TrayBox" Style="{StaticResource Switch}" Content="Сворачивать в трей при закрытии" Checked="Tray_Changed" Unchecked="Tray_Changed"/>
+                  <CheckBox x:Name="AutostartBox" Style="{StaticResource Switch}" Content="Запускать вместе с Windows (в трей)" Checked="Autostart_Changed" Unchecked="Autostart_Changed"/>
+                  <CheckBox x:Name="DarkBox" Style="{StaticResource Switch}" Content="Тёмная тема" Checked="Dark_Changed" Unchecked="Dark_Changed"/>
+                </StackPanel>
+              </Border>
+            </Grid>
+          </StackPanel>
+        </ScrollViewer>
+      </Grid>
+    </Grid>
+
+    <!-- Footer -->
+    <DockPanel Grid.Row="3" Margin="28,0,28,10">
+      <TextBlock DockPanel.Dock="Left" x:Name="SafeText" Text="Перед каждой записью — резервная копия, после — проверка" Style="{StaticResource Muted}" FontSize="11.5"/>
+      <TextBlock x:Name="StatusText" Style="{StaticResource Muted}" FontSize="11.5" TextAlignment="Right" TextTrimming="CharacterEllipsis" Margin="16,0,0,0"/>
+    </DockPanel>
+
+    <!-- Welcome overlay -->
+    <Grid x:Name="Welcome" Grid.RowSpan="4" Visibility="Collapsed" Background="#73000000">
+      <Border Width="600" Background="{DynamicResource PanelBrush}" CornerRadius="20" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="36,30,36,26" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+        <StackPanel x:Name="WelcomeHost"/>
+      </Border>
+    </Grid>
+  </Grid>
+</Window>

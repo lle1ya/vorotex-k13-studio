@@ -1,0 +1,28 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Color x:Key="AccentColor">#F06423</Color>
+  <SolidColorBrush x:Key="BgBrush" Color="#131418"/>
+  <SolidColorBrush x:Key="PanelBrush" Color="#1C1E23"/>
+  <SolidColorBrush x:Key="Panel2Brush" Color="#24272D"/>
+  <SolidColorBrush x:Key="HoverBrush" Color="#2C3038"/>
+  <SolidColorBrush x:Key="BorderBrush" Color="#2E323A"/>
+  <SolidColorBrush x:Key="DividerBrush" Color="#2A2D34"/>
+  <SolidColorBrush x:Key="TextBrush" Color="#EDEDEF"/>
+  <SolidColorBrush x:Key="MutedBrush" Color="#9AA0AA"/>
+  <SolidColorBrush x:Key="AccentBrush" Color="#F06423"/>
+  <SolidColorBrush x:Key="AccentSoftBrush" Color="#3A2419"/>
+  <SolidColorBrush x:Key="SelBrush" Color="#3A2419"/>
+  <SolidColorBrush x:Key="OnAccentBrush" Color="#FFFFFF"/>
+  <SolidColorBrush x:Key="WarnBrush" Color="#F0B429"/>
+  <SolidColorBrush x:Key="OkBrush" Color="#3DD68C"/>
+  <SolidColorBrush x:Key="ErrBrush" Color="#F25F5C"/>
+  <SolidColorBrush x:Key="TrackBrush" Color="#3A3E46"/>
+  <SolidColorBrush x:Key="KbBodyBrush" Color="#2F3034"/>
+  <SolidColorBrush x:Key="KbBodyEdgeBrush" Color="#45464C"/>
+  <SolidColorBrush x:Key="KbPlateBrush" Color="#25262A"/>
+  <SolidColorBrush x:Key="KeyEdgeBrush" Color="#2C2D31"/>
+  <SolidColorBrush x:Key="KeyFaceBrush" Color="#3E3F45"/>
+  <SolidColorBrush x:Key="KeyLegendBrush" Color="#F0F0F2"/>
+  <SolidColorBrush x:Key="KeySubBrush" Color="#A0A0A8"/>
+  <Color x:Key="ShadowColor">#AA000000</Color>
+</ResourceDictionary>
