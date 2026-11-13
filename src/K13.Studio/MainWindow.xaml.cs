@@ -111,6 +111,7 @@ public partial class MainWindow : Window
             UpdateConn();
             RefreshDirty();
         }
+        Labels.MacroNamer = MacroName;
         Closing += OnClosing;
         if (!offline && !_store.Data.WelcomeShown) Loaded += (_, _) => ShowWelcome(true);
         if (startMinimized) { WindowState = WindowState.Minimized; Loaded += (_, _) => Hide(); }

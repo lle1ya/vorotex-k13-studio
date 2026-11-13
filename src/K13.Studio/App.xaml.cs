@@ -79,6 +79,14 @@ public partial class App : Application
             return;
         }
 
+        int r47 = Array.IndexOf(e.Args, "--render-v47");
+        if (r47 >= 0)
+        {
+            int code = Screenshots.RenderV47(r47 + 1 < e.Args.Length ? e.Args[r47 + 1] : Path.Combine(DataFolder, "screens-v4.7"));
+            Shutdown(code);
+            return;
+        }
+
         // Offline screenshot mode: VorotexK13Studio.exe --render-screenshot <folder>  (no device access, no hook, no tray)
         int r = Array.IndexOf(e.Args, "--render-screenshot");
         if (r >= 0)

@@ -24,6 +24,9 @@ public static class Labels
         [0xFF] = ("", "—"),
     };
 
+    /// <summary>User macro names (set by the main window from the active profile).</summary>
+    public static Func<int, string>? MacroNamer { get; set; }
+
     public static string KeyText(byte code) => Map.TryGetValue(code, out var v) ? v.Text : KeyCatalog.Name(code);
 
     /// <summary>Returns a short legend for a keymap code in the context of the profile.</summary>
@@ -35,7 +38,7 @@ public static class Labels
             var mouse = MouseOf(cfg.Macros[slot]);
             if (mouse != null) return ("🖱", mouse);
             var combo = ComboOf(cfg.Macros[slot]);
-            return ("⏺", combo ?? $"Макрос {slot + 1}");
+            return ("⏺", combo ?? MacroNamer?.Invoke(slot) ?? $"Макрос {slot + 1}");
         }
         if (code is >= 0x68 and <= 0x73)
         {

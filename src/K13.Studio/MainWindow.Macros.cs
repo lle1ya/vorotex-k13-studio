@@ -246,7 +246,7 @@ public partial class MainWindow
         titleCol.Children.Add(EditableTitle(MacroName(sel), 22, n => RenameMacro(sel, n), "Переименовать макрос"));
         var sub = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
         if (keys.Count == 0) sub.Children.Add(Pill("\uE7BA", "не назначен на кнопку", false));
-        foreach (var k in keys) sub.Children.Add(Pill("\uE765", "на " + k));
+        foreach (var k in keys) sub.Children.Add(Pill("\uE765", k));
         if (slot.IsUsed) sub.Children.Add(Pill("\uE916", $"{groups.Count} {StepsWord(groups.Count)} · {MacroSeconds(slot):0.0} с", false));
         var assign = new Button { Style = (Style)FindResource("LinkButton"), Content = keys.Count == 0 ? "Назначить на кнопку…" : "Изменить кнопку…", Margin = new Thickness(4, 0, 0, 4), VerticalAlignment = VerticalAlignment.Center, IsEnabled = !_recording };
         assign.Click += (_, _) => AssignMacro();
@@ -292,6 +292,7 @@ public partial class MainWindow
                 rb.Checked += (_, _) => { if (_loading) return; set(); Changed(false); RefreshMacros(); };
                 rep.Children.Add(rb);
             }
+            rep.Margin = new Thickness(16, 0, 0, 0);
             Opt("1 раз", mode == MacroRepeatMode.Count && slot.Repeat <= 1, () => { slot.RepeatMode = MacroRepeatMode.Count; slot.Repeat = 1; }, "Один раз на нажатие");
             Opt("N раз", mode == MacroRepeatMode.Count && slot.Repeat > 1, () => { slot.RepeatMode = MacroRepeatMode.Count; slot.Repeat = Math.Max(2, slot.Repeat); }, "Несколько раз подряд");
             Opt("пока зажата", mode == MacroRepeatMode.WhileHeld, () => slot.RepeatMode = MacroRepeatMode.WhileHeld, "Повторять, пока кнопка удерживается");
@@ -304,6 +305,18 @@ public partial class MainWindow
                 rep.Children.Add(T("раз", 12.5).With(t => t.VerticalAlignment = VerticalAlignment.Center));
             }
             bar.Children.Add(rep);
+            // narrow window: the repeat switch moves under the recorder instead of overlapping it
+            var outer = MacroHeader;
+            bar.SizeChanged += (_, e) =>
+            {
+                bool narrow = e.NewSize.Width < 600;
+                if (narrow && rep.Parent == bar)
+                {
+                    bar.Children.Remove(rep);
+                    rep.HorizontalAlignment = HorizontalAlignment.Left; rep.Margin = new Thickness(0, 0, 0, 6);
+                    outer.Children.Insert(outer.Children.IndexOf(bar) + 1, rep);
+                }
+            };
         }
         MacroHeader.Children.Add(bar);
         if (slot.Unsupported)
@@ -903,6 +916,8 @@ public partial class MainWindow
         w.Content = sp;
         if (w.ShowDialog() == true) { Changed(); RefreshMacros(); }
     }
+    internal int FirstNamedMacroOtherThan(int slot) => _profile.MacroNames.Keys.Where(k => k != slot).DefaultIfEmpty(slot).First();
+
     internal void SelectMacro(int slot) { _selMacro = slot; RefreshMacros(); }
 
     /// <summary>Preview only: fills a free slot with a demo macro that uses the mouse (Ctrl + click, wheel).</summary>

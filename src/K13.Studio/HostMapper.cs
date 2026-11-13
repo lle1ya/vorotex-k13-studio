@@ -306,6 +306,12 @@ public static class MacroPlayer
             inp.type = INPUT_MOUSE;
             inp.U.mi = new Native.MOUSEINPUT { dwFlags = 0x0800, mouseData = unchecked((uint)(e.WheelAmount * 120)), dwExtraInfo = Native.InjectedTag };
         }
+        else if (e.Code == MouseCodes.Move)
+        {
+            int dx = e.Extra is { Length: >= 4 } x ? (short)(x[0] | x[1] << 8) : 0, dy = e.Extra is { Length: >= 4 } y ? (short)(y[2] | y[3] << 8) : 0;
+            inp.type = INPUT_MOUSE;
+            inp.U.mi = new Native.MOUSEINPUT { dx = dx, dy = dy, dwFlags = 0x0001, dwExtraInfo = Native.InjectedTag };
+        }
         else if (e.IsMouseButton)
         {
             uint f = e.Code switch { MouseCodes.Left => 0x02u, MouseCodes.Right => 0x08u, _ => 0x20u };
