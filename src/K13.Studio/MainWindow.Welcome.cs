@@ -42,7 +42,6 @@ public partial class MainWindow
         {
             var img = new DeviceView(interactive: false) { Height = 180, Margin = new Thickness(0, 0, 0, 18) };
             img.Rebuild(Cfg, _profile.Host, -1, false);
-            RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
             WelcomeHost.Children.Add(img);
         }
         else

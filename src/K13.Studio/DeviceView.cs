@@ -135,7 +135,6 @@ public sealed class DeviceView : Viewbox
         TextOptions.SetTextFormattingMode(this, TextFormattingMode.Ideal);
         TextOptions.SetTextRenderingMode(this, TextRenderingMode.Auto);
         TextOptions.SetTextHintingMode(this, TextHintingMode.Fixed);
-        RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.HighQuality);
         RenderOptions.SetClearTypeHint(this, ClearTypeHint.Enabled);
         DrawBody();
         if (showLed) DrawLedUnderglow();
@@ -440,7 +439,7 @@ public sealed class DeviceView : Viewbox
         var dur = TimeSpan.FromMilliseconds(130);
         p.Root.MouseEnter += (_, _) =>
         {
-            p.Lift?.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(-1.6, dur) { EasingFunction = new CubicEase() });
+            p.Lift?.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(-2, dur) { EasingFunction = new CubicEase() });
             p.HoverLayer?.BeginAnimation(OpacityProperty, new DoubleAnimation(1, dur));
             Hovered?.Invoke(id);
         };
@@ -454,7 +453,7 @@ public sealed class DeviceView : Viewbox
         p.Root.MouseLeftButtonUp += (_, e) =>
         {
             e.Handled = true;
-            p.Lift?.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(-1.6, dur));
+            p.Lift?.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(-2, dur));
             Clicked?.Invoke(id);
         };
     }

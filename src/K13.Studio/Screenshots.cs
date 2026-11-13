@@ -264,6 +264,7 @@ internal static class Screenshots
             Directory.CreateDirectory(folder);
             var tmp = Path.Combine(Path.GetTempPath(), "vorotex-screens50-" + Environment.ProcessId);
             var shots = new List<string>();
+            var audit = new List<string>();
             foreach (var dark in new[] { false, true })
             {
                 App.SetTheme(dark);
@@ -282,10 +283,12 @@ internal static class Screenshots
                 if (!dark) shots.Add(Shot(w, 1, Path.Combine(folder, "04-main-lighting-150pct.png"), 1.5));
                 if (!dark) shots.Add(Shot(w, 3, Path.Combine(folder, "05-main-profiles-150pct.png"), 1.5));
 
+                for (int pg = 0; pg <= 3; pg++) { w.ShowPage(pg); Pump(); audit.AddRange(Audit(w, $"page{pg}{sfx}")); }
                 var t = w.BuildTestWindow(text);
                 t.Owner = null; t.Left = -32000; t.Top = -32000; t.ShowActivated = false; t.WindowStartupLocation = WindowStartupLocation.Manual;
                 t.Show();
                 shots.Add(ShotWindow(t, Path.Combine(folder, $"06-dialog-test-150pct{sfx}.png"), 1.5));
+                audit.AddRange(Audit(t, "test-dialog"));
                 t.Close();
 
                 var c = MessageBox.Build(w, "Записать изменения в клавиатуру?\n\nПеред записью будет сделана резервная копия, после — проверка чтением. При расхождении всё вернётся как было.",
@@ -293,6 +296,7 @@ internal static class Screenshots
                 c.Owner = null; c.Left = -32000; c.Top = -32000; c.ShowActivated = false; c.WindowStartupLocation = WindowStartupLocation.Manual;
                 c.Show();
                 shots.Add(ShotWindow(c, Path.Combine(folder, $"07-dialog-confirm-150pct{sfx}.png"), 1.5));
+                audit.AddRange(Audit(c, "confirm-dialog"));
                 c.Close();
                 if (!dark)
                 {
@@ -306,6 +310,7 @@ internal static class Screenshots
                 w.ExitApp();
             }
             File.WriteAllText(Path.Combine(folder, "screens.txt"), string.Join(Environment.NewLine, shots));
+            File.WriteAllText(Path.Combine(folder, "crisp-audit.txt"), audit.Count == 0 ? "OK: no effects, bitmap images, cache modes or fractional/scaled transforms" : string.Join(Environment.NewLine, audit.Distinct()));
             return 0;
         }
         catch (Exception ex)
@@ -315,13 +320,50 @@ internal static class Screenshots
         }
     }
 
+    /// <summary>v5.1 crispness audit: everything that renders through a bitmap or off the pixel grid.</summary>
+    internal static List<string> Audit(DependencyObject root, string where)
+    {
+        var res = new List<string>();
+        void Walk(DependencyObject d, string path)
+        {
+            if (d is UIElement u)
+            {
+                string name = d.GetType().Name + (d is FrameworkElement { Name.Length: > 0 } fe ? "#" + fe.Name : "");
+                if (u.Effect != null) res.Add($"{where}: Effect {u.Effect.GetType().Name} on {name}");
+                if (u.CacheMode != null) res.Add($"{where}: CacheMode on {name}");
+                if (d is System.Windows.Controls.Image { Source: BitmapSource bs } im) res.Add($"{where}: bitmap Image {bs.PixelWidth}x{bs.PixelHeight} on {name} ({im.ActualWidth}x{im.ActualHeight} DIP)");
+                if (u.RenderTransform is Transform t && !t.Value.IsIdentity && u.IsVisible)
+                {
+                    var m = t.Value;
+                    bool frac = Math.Abs(m.OffsetX - Math.Round(m.OffsetX)) > 0.01 || Math.Abs(m.OffsetY - Math.Round(m.OffsetY)) > 0.01;
+                    bool rightAngle = new[] { m.M11, m.M12, m.M21, m.M22 }.All(v => Math.Abs(v) < 1e-6 || Math.Abs(Math.Abs(v) - 1) < 1e-6); // 90° steps keep pixels exact
+                    bool scaled = !rightAngle;
+                    if (frac || scaled) res.Add($"{where}: RenderTransform {(scaled ? "scale" : "fractional offset")} {m} on {name}");
+                }
+            }
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(d); i++) Walk(VisualTreeHelper.GetChild(d, i), path);
+        }
+        Walk(root, where);
+        return res;
+    }
+
+    /// <summary>Re-lay the pixel-grid icons for the target scale before an offline render.</summary>
+    private static void PrepIcons(DependencyObject root, double scale)
+    {
+        AppIconView.ScaleOverride = scale;
+        void Walk(DependencyObject d) { if (d is AppIconView v) { v.InvalidateVisual(); v.UpdateLayout(); } for (int i = 0; i < VisualTreeHelper.GetChildrenCount(d); i++) Walk(VisualTreeHelper.GetChild(d, i)); }
+        Walk(root);
+    }
+
     private static string ShotWindow(Window w, string path, double scale)
     {
         Pump(); w.UpdateLayout(); Pump();
         var root = (FrameworkElement)VisualTreeHelper.GetChild(w, 0);
         int pw = (int)Math.Ceiling(root.ActualWidth * scale), ph = (int)Math.Ceiling(root.ActualHeight * scale);
         var rtb = new RenderTargetBitmap(pw, ph, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        PrepIcons(root, scale);
         rtb.Render(root);
+        AppIconView.ScaleOverride = null;
         var enc = new PngBitmapEncoder();
         enc.Frames.Add(BitmapFrame.Create(rtb));
         using (var fs = File.Create(path)) enc.Save(fs);
@@ -387,7 +429,9 @@ internal static class Screenshots
         var root = VisualTreeHelper.GetChildrenCount(w) > 0 ? (FrameworkElement)VisualTreeHelper.GetChild(w, 0) : (FrameworkElement)w.Content; // whole window incl. title bar
         int pw = (int)Math.Ceiling(root.ActualWidth * scale), ph = (int)Math.Ceiling(root.ActualHeight * scale);
         var rtb = new RenderTargetBitmap(pw, ph, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        PrepIcons(root, scale);
         rtb.Render(root);
+        AppIconView.ScaleOverride = null;
         var enc = new PngBitmapEncoder();
         enc.Frames.Add(BitmapFrame.Create(rtb));
         using (var fs = File.Create(path)) enc.Save(fs);

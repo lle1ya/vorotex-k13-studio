@@ -27,7 +27,7 @@ internal static class VectorFx
                 Data = g, Stroke = brush, StrokeThickness = Math.Max(0.5, blur * 2 * i / Layers), StrokeLineJoin = PenLineJoin.Round,
                 Fill = fill && i == 1 ? brush : null, Opacity = per, IsHitTestVisible = false,
             });
-        if (dy != 0) c.RenderTransform = new TranslateTransform(0, dy);
+        if (Math.Round(dy) != 0) c.RenderTransform = new TranslateTransform(0, Math.Round(dy)); // v5.1: whole-pixel offsets only
         return c;
     }
 
@@ -67,7 +67,7 @@ internal static class VectorFx
                 Text = tb.Text, FontFamily = tb.FontFamily, FontSize = tb.FontSize, FontWeight = tb.FontWeight, TextAlignment = tb.TextAlignment, Width = tb.Width,
                 LineHeight = tb.LineHeight, LineStackingStrategy = tb.LineStackingStrategy, TextTrimming = tb.TextTrimming, IsHitTestVisible = false,
                 Foreground = new SolidColorBrush(Color.FromArgb((byte)(255 * Math.Min(1, op * 1.4)), color.R, color.G, color.B)),
-                RenderTransform = new TranslateTransform(0, Math.Max(0.6, depth * 0.8)),
+                RenderTransform = new TranslateTransform(0, Math.Max(1, Math.Round(depth * 0.8))), // v5.1: integer → no smeared text
             };
         }
         else
@@ -88,7 +88,7 @@ internal static class VectorFx
             var halo = Halo(g, brush, blur, isBlur ? 0.9 : op, 0, filled && depth != 0);
             var tg = new TransformGroup();
             if (fe.RenderTransform is { } rt && rt != Transform.Identity) tg.Children.Add(rt);
-            if (depth != 0) tg.Children.Add(new TranslateTransform(0, depth));
+            if (Math.Round(depth) != 0) tg.Children.Add(new TranslateTransform(0, Math.Round(depth)));
             halo.RenderTransform = tg;
             halo.RenderTransformOrigin = fe.RenderTransformOrigin;
             layer = halo;

@@ -42,6 +42,7 @@ internal static class Chrome
             w.StateChanged += (_, _) => { if (w.WindowState == WindowState.Maximized) w.WindowState = WindowState.Normal; }; // no double-click maximise
         }
         ApplyDwm(w);
+        w.DpiChanged += (_, _) => CrispIcons.Apply(w);
     }
 
     public static void ApplyDwm(Window w)
@@ -52,6 +53,7 @@ internal static class Chrome
             if (h == IntPtr.Zero) return;
             int round = DWMWCP_ROUND; DwmSetWindowAttribute(h, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
             int dark = App.IsDark ? 1 : 0; DwmSetWindowAttribute(h, DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
+            CrispIcons.Apply(w);
         }
         catch { /* Win10 / Wine: attributes unsupported – the custom title bar still works */ }
     }

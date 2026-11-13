@@ -1,6 +1,7 @@
 <Window x:Class="Vorotex.Studio.MainWindow" UseLayoutRounding="True" SnapsToDevicePixels="True"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Vorotex.Studio"
         Title="VOROTEX K13 Studio" Width="1280" Height="800" MinWidth="960" MinHeight="640"
         Style="{StaticResource DarkWindow}" WindowStartupLocation="CenterScreen">
   <Grid x:Name="Root" Background="{DynamicResource BgBrush}">
@@ -18,7 +19,7 @@
         <ColumnDefinition Width="Auto"/>
       </Grid.ColumnDefinitions>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-        <Image Source="pack://application:,,,/VorotexK13Studio;component/Assets/app.ico" Width="36" Height="36" Margin="0,0,12,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+        <local:AppIconView Width="32" Height="32" Margin="0,0,12,0"/>
         <StackPanel VerticalAlignment="Center">
           <TextBlock Text="VOROTEX K13" FontSize="16" FontWeight="SemiBold"/>
           <StackPanel Orientation="Horizontal" Margin="0,1,0,0">

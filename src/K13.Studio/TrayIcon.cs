@@ -39,16 +39,8 @@ public sealed class TrayIcon : IDisposable
 
     public void Balloon(string title, string text) => _icon.ShowBalloonTip(2500, title, text, ToolTipIcon.Info);
 
-    private static Icon MakeIcon()
-    {
-        try
-        {
-            var res = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/VorotexK13Studio;component/Assets/app.ico"));
-            if (res != null) using (res.Stream) return new Icon(res.Stream, SystemInformation.SmallIconSize);
-        }
-        catch { }
-        return SystemIcons.Application;
-    }
+    /// <summary>Exact tray size for the system DPI (16/20/24/32 px frame of the .ico – never a downscaled 256 px).</summary>
+    private static Icon MakeIcon() => CrispIcons.Load(CrispIcons.SmallIconPx()) ?? SystemIcons.Application;
 
     public void Dispose() { _icon.Visible = false; _icon.Dispose(); }
 }
