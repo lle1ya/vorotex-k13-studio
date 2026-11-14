@@ -245,7 +245,8 @@ public sealed class HostMapper : IDisposable
                 case HostActionKind.KeyCombo: KeyCombo.Send(a.Value); break;
                 case HostActionKind.Text: KeyCombo.TypeText(a.Value); break;
                 case HostActionKind.LaunchProgram:
-                    Process.Start(new ProcessStartInfo(a.Value, a.Arguments) { UseShellExecute = true })?.Dispose(); break;
+                    // v5.4: %USERPROFILE%\… from an imported profile points into this user's folder
+                    Process.Start(new ProcessStartInfo(Environment.ExpandEnvironmentVariables(a.Value), a.Arguments) { UseShellExecute = true })?.Dispose(); break;
                 case HostActionKind.OpenUrl:
                     Process.Start(new ProcessStartInfo(a.Value) { UseShellExecute = true })?.Dispose(); break;
                 case HostActionKind.SwitchProfile: SwitchProfileRequested?.Invoke(a.Value); break;
@@ -348,18 +349,21 @@ public static class MacroPlayer
     }
 }
 
-/// <summary>Watches the foreground window and requests a profile switch by rules (.exe / title).</summary>
+/// <summary>Watches the foreground window; <see cref="AutoSwitchEngine"/> decides (debounce, own window, fallback).</summary>
 public sealed class ForegroundWatcher : IDisposable
 {
     private readonly DispatcherTimer _timer;
-    private string _last = "";
-    public Func<List<AppSwitchRule>> Rules { get; set; } = () => new();
-    public event Action<string, string, string>? Matched; // profile, process, title
-    public (string Process, string Title) Current { get; private set; }
+    public AutoSwitchEngine Engine { get; } = new();
+    public Func<ProfileStoreData?> Data { get; set; } = () => null;
+    public Func<string> CurrentProfile { get; set; } = () => "";
+    /// <summary>decision, process, title, exe path</summary>
+    public event Action<AutoSwitchDecision, string, string>? Decided;
+    public (string Process, string Title) Current { get; private set; } = ("", "");
+    public string CurrentPath { get; private set; } = "";
 
     public ForegroundWatcher()
     {
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
         _timer.Tick += (_, _) => Tick();
     }
 
@@ -368,18 +372,15 @@ public sealed class ForegroundWatcher : IDisposable
 
     private void Tick()
     {
-        var (proc, title) = Native.ForegroundInfo();
-        Current = (proc, title);
-        var key = proc + "|" + title;
-        if (key == _last) return;
-        _last = key;
-        if (proc.Equals("VorotexK13Studio", StringComparison.OrdinalIgnoreCase)) return;
-        foreach (var r in Rules())
+        try
         {
-            bool okProc = string.IsNullOrWhiteSpace(r.ProcessName) || proc.Equals(r.ProcessName.Replace(".exe", "", StringComparison.OrdinalIgnoreCase), StringComparison.OrdinalIgnoreCase);
-            bool okTitle = string.IsNullOrWhiteSpace(r.TitleContains) || title.Contains(r.TitleContains, StringComparison.OrdinalIgnoreCase);
-            if (okProc && okTitle && !string.IsNullOrWhiteSpace(r.ProfileName)) { Matched?.Invoke(r.ProfileName, proc, title); return; }
+            var (proc, title, path) = Native.Foreground();
+            if (!string.Equals(proc, AppMatch.OwnProcess, StringComparison.OrdinalIgnoreCase)) { Current = (proc, title); CurrentPath = path; }
+            if (Data() is not { } d) return;
+            var dec = Engine.Observe(proc, title, Environment.TickCount64, d, CurrentProfile());
+            if (dec != null) Decided?.Invoke(dec, proc, title);
         }
+        catch (Exception ex) { App.Log("[auto] " + ex.Message); }
     }
 
     public void Dispose() => _timer.Stop();

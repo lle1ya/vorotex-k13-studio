@@ -55,6 +55,10 @@ public sealed class AppSwitchRule
     /// <summary>Substring of the window title, empty = any.</summary>
     public string TitleContains { get; set; } = "";
     public string ProfileName { get; set; } = "";
+    /// <summary>v5.4: friendly program name for the UI («Adobe Photoshop 2025»); cosmetic.</summary>
+    public string DisplayName { get; set; } = "";
+    /// <summary>v5.4: full .exe path on THIS computer, only to show the program icon (never exported).</summary>
+    public string IconPath { get; set; } = "";
 }
 
 public sealed class HostSettings
@@ -209,6 +213,8 @@ public sealed class ProfileStoreData
     public string ActiveProfile { get; set; } = "";
     public List<AppSwitchRule> AppRules { get; set; } = new();
     public bool AutoSwitch { get; set; } = true;
+    /// <summary>v5.4: profile used when the active program matches no rule ("" = keep the current profile).</summary>
+    public string FallbackProfile { get; set; } = "";
     public bool MinimizeToTray { get; set; } = true;
     public bool DarkTheme { get; set; }
     public bool WelcomeShown { get; set; }
@@ -248,7 +254,9 @@ public sealed class ProfileStoreData
         }
         AppRules ??= new();
         AppRules.RemoveAll(r => r == null);
-        foreach (var r in AppRules) { r.ProcessName ??= ""; r.TitleContains ??= ""; r.ProfileName ??= ""; }
+        foreach (var r in AppRules) { r.ProcessName = AppMatch.NormalizeProcess(r.ProcessName); r.TitleContains = (r.TitleContains ?? "").Trim(); r.ProfileName ??= ""; r.DisplayName ??= ""; r.IconPath ??= ""; }
+        FallbackProfile ??= "";
+        if (FallbackProfile.Length > 0 && !Profiles.Any(p => string.Equals(p.Name, FallbackProfile, StringComparison.OrdinalIgnoreCase))) FallbackProfile = "";
         LedColors ??= new();
         LedModeObserved ??= new();
         ActiveProfile ??= "";

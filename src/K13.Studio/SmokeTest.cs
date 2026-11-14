@@ -69,6 +69,42 @@ public static class SmokeTest
                 var img = (byte[])MainWindow.DefaultImage.Clone(); img[0xD0] = 0xDA; img[0xD4] = 0xFF;
                 Dialog(w.BuildLayoutDialog(K13Header.Inspect(img, 0xE0), @"C:\backups\k13-prewrite.bin", out _));
             });
+            // v5.4: auto-switch, program picker, export / import
+            Step($"{th}: автопереключение — демо-правила", () => { w.DemoV54(); w.ScrollProfiles(0); Render(w, 3); w.ScrollProfiles(400); Render(w, 3); });
+            Step($"{th}: автопереключение — пауза и выключение", () => { w.SetAutoPaused(true); Render(w, 3); w.SetAutoPaused(false); });
+            Step($"{th}: выбор программы", () => Dialog(w.BuildAppPicker(w.ProfileByName("Игры")!)));
+            Step($"{th}: выбор программы — проверки", () =>
+            {
+                var p = w.ProfileByName("Игры")!;
+                if (w.AddRule(p, "", "") == null) throw new InvalidOperationException("пустое правило принято");
+                if (w.AddRule(p, "VorotexK13Studio.exe", "") == null) throw new InvalidOperationException("своё окно принято");
+                if (w.AddRule(p, "a|b", "") == null) throw new InvalidOperationException("недопустимые символы приняты");
+                if (w.AddRule(p, @"C:\Games\Witcher3.exe", "") != null) throw new InvalidOperationException("путь к exe не принят");
+                if (w.AddRule(p, "witcher3", "") == null) throw new InvalidOperationException("повтор принят");
+                if (w.AddRule(w.ProfileByName("Фото")!, "witcher3", "") != null) throw new InvalidOperationException("перенос не сработал");
+                Pump(); Render(w, 3);
+            });
+            Step($"{th}: экспорт — все профили", () => Dialog(w.BuildExportDialog(w.AllProfiles())));
+            Step($"{th}: экспорт — один профиль", () => Dialog(w.BuildExportDialog(w.AllProfiles().Take(1))));
+            Step($"{th}: импорт — просмотр с конфликтом", () => Dialog(w.BuildImportDialog(w.DemoImportPreview(), out _)));
+            Step($"{th}: импорт — сохранить оба и заменить", () =>
+            {
+                int before = w.AllProfiles().Count;
+                var names = w.ApplyImport(w.DemoImportPreview(), ImportConflict.KeepBoth);
+                if (w.AllProfiles().Count != before + 2 || !names.Contains("Фото (2)")) throw new InvalidOperationException("сохранить оба: " + string.Join(", ", names));
+                w.ApplyImport(w.DemoImportPreview(), ImportConflict.Replace);
+                if (w.AllProfiles().Count != before + 2) throw new InvalidOperationException("замена добавила профили");
+                Render(w, 3);
+            });
+            Step($"{th}: импорт — плохие данные отклоняются", () =>
+            {
+                foreach (var bad in new[] { "", "not json", "{\"Format\":\"vorotex-k13-profile\",\"FormatVersion\":9,\"Profiles\":[{}]}", "{\"Name\":\"x\",\"Device\":{\"Base\":5}}" })
+                {
+                    try { ProfileExchange.Read(bad, MainWindow.DefaultImage, Array.Empty<string>()); throw new InvalidOperationException("принято: " + bad); }
+                    catch (ProfileImportException) { }
+                }
+            });
+            Step($"{th}: перетаскивание — подсказка", () => { w.ShowDropOverlay(true); Render(w, 3); w.ShowDropOverlay(false); });
             Step($"{th}: маленькое окно 960×640", () => { w.Width = 960; w.Height = 640; for (int p = 0; p < 4; p++) Render(w, p); });
             Step($"{th}: выход", () => w.ExitApp());
         }

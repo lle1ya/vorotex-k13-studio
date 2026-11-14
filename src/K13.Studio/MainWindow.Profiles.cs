@@ -28,7 +28,7 @@ public partial class MainWindow
         ProfileCards.Children.Clear();
         var list = _store.Data.Profiles;
         for (int i = 0; i < list.Count; i++) ProfileCards.Children.Add(ProfileCard(list[i], i));
-        BuildRules();
+        BuildAutoSwitchCard();
     }
 
     private Border ProfileCard(AppProfile p, int index)
@@ -52,8 +52,10 @@ public partial class MainWindow
         head.Children.Add(icon);
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         titles.Children.Add(EditableTitle(p.Name, 16, n => RenameProfile(p, n), "Переименовать профиль"));
-        var rules = _store.Data.AppRules.Where(r => r.ProfileName == p.Name && r.ProcessName.Length > 0).Select(r => r.ProcessName).Distinct().ToList();
-        titles.Children.Add(new TextBlock { Text = rules.Count > 0 ? "авто: " + string.Join(", ", rules.Select(x => x + ".exe")) : (p.Comment.Length > 0 ? p.Comment : "включается вручную"),
+        int ruleCount = RulesOf(p).Count;
+        bool isFallback = string.Equals(_store.Data.FallbackProfile, p.Name, StringComparison.OrdinalIgnoreCase);
+        titles.Children.Add(new TextBlock { Text = p.Comment.Length > 0 ? p.Comment : ruleCount > 0 ? "включается сам — " + RuPlural.Of(ruleCount, "программа", "программы", "программ") + (isFallback ? " · по умолчанию" : "")
+                                                 : isFallback ? "по умолчанию, когда правило не подошло" : "включается вручную",
             FontSize = 12, Foreground = R("MutedBrush"), TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap, Margin = new Thickness(0, 1, 0, 0) });
         head.Children.Add(titles);
         root.Children.Add(head);
@@ -77,6 +79,9 @@ public partial class MainWindow
         facts.Children.Add(Pill("\uE781", K13Layout.LedModeName(cfg.Led.Mode), false));
         root.Children.Add(facts);
 
+        // v5.4: «Включать в программах»
+        root.Children.Add(AppRulesSection(p, accent));
+
         // actions
         var acts = new DockPanel();
         Button Icon(string glyph, string tip, Action a)
@@ -88,7 +93,7 @@ public partial class MainWindow
         }
         var right = new StackPanel { Orientation = Orientation.Horizontal };
         right.Children.Add(Icon("\uE8C8", "Дублировать", () => DuplicateProfile(p)));
-        right.Children.Add(Icon("\uEDE1", "Экспорт в файл .json", () => ExportProfile(p)));
+        right.Children.Add(Icon("\uEDE1", "Экспорт в файл .k13profile или как текст", () => ExportProfiles(new[] { p })));
         right.Children.Add(Icon("\uE74D", "Удалить", () => DeleteProfile(p)));
         DockPanel.SetDock(right, Dock.Right);
         acts.Children.Add(right);
@@ -135,6 +140,7 @@ public partial class MainWindow
         foreach (var h in _store.Data.Profiles.SelectMany(x => x.Host.Keys.SelectMany(k => new[] { k.Tap, k.Hold }).Concat(x.Host.Chords.Select(c => c.Action)).Concat(x.Host.Ring.Slots.Select(s => s.Action))))
             if (h.Kind == HostActionKind.SwitchProfile && h.Value == p.Name) h.Value = name;
         if (_store.Data.ActiveProfile == p.Name) _store.Data.ActiveProfile = name;
+        if (_store.Data.FallbackProfile == p.Name) _store.Data.FallbackProfile = name;
         Log($"Профиль «{p.Name}» переименован в «{name}».");
         p.Name = name;
         Dispatcher.BeginInvoke(() => ActivateProfile(_profile.Name, null));
@@ -172,100 +178,8 @@ public partial class MainWindow
                 Title, MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         _store.Data.Profiles.Remove(p);
         _store.Data.AppRules.RemoveAll(r => r.ProfileName == p.Name);
+        if (string.Equals(_store.Data.FallbackProfile, p.Name, StringComparison.OrdinalIgnoreCase)) _store.Data.FallbackProfile = "";
         ActivateProfile(p == _profile ? _store.Data.Profiles[0].Name : _profile.Name, null);
-    }
-
-    private void ExportProfile(AppProfile p)
-    {
-        var dlg = new Microsoft.Win32.SaveFileDialog { Filter = "Профиль VOROTEX K13|*.json", FileName = string.Concat(p.Name.Split(Path.GetInvalidFileNameChars())) + ".k13profile.json" };
-        if (dlg.ShowDialog(this) != true) return;
-        try
-        {
-            File.WriteAllText(dlg.FileName, JsonSerializer.Serialize(p, ProfileStore.JsonOptions));
-            StatusText.Text = "Профиль сохранён: " + dlg.FileName;
-        }
-        catch (Exception ex) { MessageBox.Show(this, "Не удалось сохранить: " + ex.Message, Title); }
-    }
-
-    private void ImportProfileJson_Click(object sender, RoutedEventArgs e)
-    {
-        var dlg = new Microsoft.Win32.OpenFileDialog { Filter = "Профиль VOROTEX K13|*.json|Все файлы|*.*" };
-        if (dlg.ShowDialog(this) != true) return;
-        try
-        {
-            var p = JsonSerializer.Deserialize<AppProfile>(File.ReadAllText(dlg.FileName), ProfileStore.JsonOptions) ?? throw new InvalidDataException("пустой файл");
-            p.Device ??= K13MemoryCodec.Decode(DefaultImage);
-            K13MemoryCodec.Validate(p.Device);
-            p.Normalize(); // v5.3: a file without "Host"/"MacroNames" (or with nulls) crashed later in the editor
-            var baseName = string.IsNullOrWhiteSpace(p.Name) ? "Импорт" : p.Name.Trim();
-            p.Name = _store.UniqueName(baseName.Length > 36 ? baseName[..36].TrimEnd() : baseName);
-            var tmp = new ProfileStoreData(); tmp.Profiles.Add(p);
-            var notes = TriggerKeyPolicy.DropUnsafe(tmp, KeyCombo.VkName);
-            _store.Data.Profiles.Add(p);
-            ActivateProfile(p.Name, "импорт");
-            if (notes.Count > 0) MessageBox.Show(this, string.Join("\n\n", notes), Title, MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
-        catch (Exception ex) { MessageBox.Show(this, "Не удалось импортировать профиль: " + ex.Message, Title); }
-    }
-
-    // ───────────────────────────── auto-switch rules (rows, not a table)
-    private void BuildRules()
-    {
-        RulesHost.Children.Clear();
-        var names = _store.Data.Profiles.Select(p => p.Name).ToList();
-        if (_store.Data.AppRules.Count == 0)
-            RulesHost.Children.Add(T("Правил пока нет. Добавьте программу — например, photoshop → «Фото».", 13, muted: true, bottom: 4));
-        foreach (var r in _store.Data.AppRules.ToList())
-        {
-            var row = new Grid();
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var ic = new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(8), Background = R("PanelBrush"), BorderBrush = R("BorderBrush"), BorderThickness = new Thickness(1),
-                Child = new TextBlock { Text = "\uE7C4", FontFamily = Icons, FontSize = 12, Foreground = R("MutedBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
-            row.Children.Add(ic);
-            var exe = Placeholder(r.ProcessName, "программа, например photoshop", v => { r.ProcessName = v.Trim().EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? v.Trim()[..^4] : v.Trim(); SaveStore(); });
-            exe.Margin = new Thickness(0, 0, 8, 0);
-            Grid.SetColumn(exe, 1); row.Children.Add(exe);
-            var title = Placeholder(r.TitleContains, "в заголовке окна (необязательно)", v => { r.TitleContains = v.Trim(); SaveStore(); });
-            Grid.SetColumn(title, 2); row.Children.Add(title);
-            var arrow = new TextBlock { Text = "\uE72A", FontFamily = Icons, FontSize = 12, Foreground = R("MutedBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(arrow, 3); row.Children.Add(arrow);
-            var prof = new ComboBox { ItemsSource = names, SelectedItem = names.Contains(r.ProfileName) ? r.ProfileName : null, VerticalAlignment = VerticalAlignment.Center };
-            prof.SelectionChanged += (_, _) => { if (prof.SelectedItem is string n) { r.ProfileName = n; SaveStore(); RefreshProfilesListLater(); } };
-            Grid.SetColumn(prof, 4); row.Children.Add(prof);
-            var del = new Button { Style = (Style)FindResource("GhostButton"), Padding = new Thickness(8, 5, 8, 5), Margin = new Thickness(6, 0, 0, 0), ToolTip = "Удалить правило",
-                Content = new TextBlock { Text = "\uE74D", FontFamily = Icons, FontSize = 12, Foreground = R("MutedBrush") } };
-            del.Click += (_, _) => { _store.Data.AppRules.Remove(r); SaveStore(); RefreshProfilesList(); };
-            Grid.SetColumn(del, 5); row.Children.Add(del);
-            RulesHost.Children.Add(new Border { Child = row, Background = R("Panel2Brush"), CornerRadius = new CornerRadius(12), Padding = new Thickness(8, 7, 8, 7), Margin = new Thickness(0, 0, 0, 6) });
-        }
-    }
-
-    private void RefreshProfilesListLater() => Dispatcher.BeginInvoke(RefreshProfilesList, System.Windows.Threading.DispatcherPriority.Background);
-
-    private Grid Placeholder(string value, string hint, Action<string> commit)
-    {
-        var g = new Grid { VerticalAlignment = VerticalAlignment.Center };
-        var box = new TextBox { Text = value, Padding = new Thickness(8, 4, 8, 4) };
-        var ph = new TextBlock { Text = hint, Foreground = R("MutedBrush"), Margin = new Thickness(11, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, FontSize = 13,
-            Visibility = value.Length == 0 ? Visibility.Visible : Visibility.Collapsed, TextTrimming = TextTrimming.CharacterEllipsis };
-        box.TextChanged += (_, _) => ph.Visibility = box.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        string orig = value;
-        box.LostKeyboardFocus += (_, _) => { if (box.Text != orig) { orig = box.Text; commit(box.Text); RefreshProfilesListLater(); } };
-        box.KeyDown += (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; Keyboard.ClearFocus(); } };
-        g.Children.Add(box); g.Children.Add(ph);
-        return g;
-    }
-
-    private void AddRule_Click(object sender, RoutedEventArgs e)
-    {
-        var (proc, _) = _fg.Current;
-        var r = new AppSwitchRule { ProcessName = proc is "" or "VorotexK13Studio" or "explorer" ? "" : proc, ProfileName = _profile.Name };
-        _store.Data.AppRules.Add(r); SaveStore(); RefreshProfilesList();
     }
 
     /// <summary>Screenshots only (offline store): demo profiles, rules and named macros.</summary>

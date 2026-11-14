@@ -84,6 +84,7 @@ public partial class MainWindow : Window
             _tray.ShowRequested += ShowFromTray;
             _tray.ExitRequested += ExitApp;
             _tray.ProfileChosen += n => ActivateProfile(n, "трей");
+            _tray.AutoPauseToggled += () => SetAutoPaused(!_fg.Engine.Paused);
         }
 
         _anim.Tick += (_, _) => AnimateTick(_clock.Elapsed.TotalSeconds);
@@ -93,15 +94,16 @@ public partial class MainWindow : Window
 
         if (!offline)
         {
-            _fg.Rules = () => _store.Data.AutoSwitch ? _store.Data.AppRules : new();
-            _fg.Matched += (p, proc, title) => { if (p != _profile.Name) ActivateProfile(p, "окно " + proc); };
+            _fg.Data = () => _store.Data;
+            _fg.CurrentProfile = () => _profile.Name;
+            _fg.Decided += OnAutoDecided;
             _fg.Start();
             _mapper!.Start();
             _poll.Tick += async (_, _) => await PollDevice();
             _poll.Start();
             Loaded += async (_, _) => await PollDevice();
             var dt = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-            dt.Tick += (_, _) => { var (p, t) = _fg.Current; ForegroundText.Text = p.Length > 0 ? $"Сейчас: {p}.exe" : ""; };
+            dt.Tick += (_, _) => RefreshForegroundLabel();
             dt.Start();
         }
         else
@@ -113,6 +115,7 @@ public partial class MainWindow : Window
         }
         Labels.MacroNamer = MacroName;
         Closing += OnClosing;
+        WireDragDrop();
         if (!offline && !_store.Data.WelcomeShown) Loaded += (_, _) => ShowWelcome(true);
         if (startMinimized) { WindowState = WindowState.Minimized; Loaded += (_, _) => Hide(); }
         Log($"Запуск v{typeof(App).Assembly.GetName().Version} (PID {Environment.ProcessId}, {Environment.ProcessPath}). Запись в клавиатуру: включена (с подтверждением, бэкапом и проверкой).");
@@ -169,7 +172,8 @@ public partial class MainWindow : Window
         try { _store.Save(); } catch (Exception ex) { Log("Не удалось сохранить профили: " + ex.Message); }
     }
 
-    private void ActivateProfile(string name, string? reason)
+    /// <param name="why">v5.4: shown as «Активен: X — why» (default: derived from <paramref name="reason"/>).</param>
+    private void ActivateProfile(string name, string? reason, string? why = null, bool auto = false)
     {
         var found = _store.Find(name);
         // v5.3: «Переключить профиль» on a deleted/renamed profile jumped to the first profile — now it is ignored
@@ -179,14 +183,23 @@ public partial class MainWindow : Window
         if (_recording && p != _profile) ToggleRecording();
         _profile = p;
         _store.Data.ActiveProfile = p.Name;
+        _activeWhy = why ?? reason switch
+        {
+            null => _activeWhy.Length > 0 ? _activeWhy : "последний использованный",
+            "вручную" => "выбран вручную",
+            "трей" => "выбран в меню трея",
+            "действие клавиши" => "переключён кнопкой клавиатуры",
+            _ => reason,
+        };
         SaveStore();
         _mapper?.Update(p.Host, p.Name);
         RefreshAll();
+        RefreshAutoStatus();
         if (reason != null)
         {
-            Log($"Профиль «{p.Name}» ({reason}).");
-            StatusText.Text = $"Профиль «{p.Name}» ({reason})";
-            if (!IsVisible) _tray?.Balloon("Профиль: " + p.Name, "Действия на ПК переключены.");
+            Log($"Профиль «{p.Name}» ({_activeWhy}).");
+            StatusText.Text = auto ? $"Профиль «{p.Name}» — {_activeWhy}. " + DeviceNote() : $"Профиль «{p.Name}» ({reason})";
+            if (!IsVisible && !auto) _tray?.Balloon("Профиль: " + p.Name, "Действия на ПК переключены.");
         }
     }
 
@@ -246,7 +259,6 @@ public partial class MainWindow : Window
             ProfileBox.ItemsSource = _store.Data.Profiles.Select(p => p.Name).ToList();
             ProfileBox.SelectedItem = _profile.Name;
             RefreshProfilesList();
-            AutoSwitchBox.IsChecked = _store.Data.AutoSwitch;
             TrayBox.IsChecked = _store.Data.MinimizeToTray;
             AutostartBox.IsChecked = _store.Data.StartWithWindows;
             DarkBox.IsChecked = _store.Data.DarkTheme;
@@ -438,7 +450,6 @@ public partial class MainWindow : Window
         catch (Exception ex) { MessageBox.Show(this, "Не удалось разобрать файл: " + ex.Message, Title); }
     }
 
-    private void AutoSwitch_Changed(object sender, RoutedEventArgs e) { if (!_loading) { _store.Data.AutoSwitch = AutoSwitchBox.IsChecked == true; SaveStore(); } }
     private void Tray_Changed(object sender, RoutedEventArgs e) { if (!_loading) { _store.Data.MinimizeToTray = TrayBox.IsChecked == true; SaveStore(); } }
 
     private void Autostart_Changed(object sender, RoutedEventArgs e)

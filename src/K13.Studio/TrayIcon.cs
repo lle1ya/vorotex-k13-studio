@@ -7,8 +7,10 @@ namespace Vorotex.Studio;
 public sealed class TrayIcon : IDisposable
 {
     private readonly NotifyIcon _icon;
-    private readonly ToolStripMenuItem _profiles;
+    private readonly ToolStripMenuItem _profiles, _auto;
     public event Action? ShowRequested;
+    /// <summary>v5.4: «Приостановить автопереключение» clicked.</summary>
+    public event Action? AutoPauseToggled;
     public event Action? ExitRequested;
     public event Action<string>? ProfileChosen;
 
@@ -18,6 +20,9 @@ public sealed class TrayIcon : IDisposable
         var menu = new ContextMenuStrip();
         menu.Items.Add("Открыть VOROTEX K13 Studio", null, (_, _) => ShowRequested?.Invoke());
         menu.Items.Add(_profiles);
+        _auto = new ToolStripMenuItem("Приостановить автопереключение");
+        _auto.Click += (_, _) => AutoPauseToggled?.Invoke();
+        menu.Items.Add(_auto);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Выход", null, (_, _) => ExitRequested?.Invoke());
         _icon = new NotifyIcon { Icon = MakeIcon(), Text = "VOROTEX K13 Studio", Visible = true, ContextMenuStrip = menu };
@@ -36,6 +41,14 @@ public sealed class TrayIcon : IDisposable
             item.Click += (_, _) => ProfileChosen?.Invoke(n);
             _profiles.DropDownItems.Add(item);
         }
+    }
+
+    /// <summary>v5.4: state of the auto-switch item (checked = paused; disabled when auto-switch is off in settings).</summary>
+    public void SetAutoSwitch(bool enabled, bool paused)
+    {
+        _auto.Enabled = enabled;
+        _auto.Checked = enabled && paused;
+        _auto.Text = !enabled ? "Автопереключение выключено (в настройках)" : paused ? "Автопереключение на паузе — продолжить" : "Приостановить автопереключение";
     }
 
     public void SetTooltip(string text) => _icon.Text = text.Length > 63 ? text[..63] : text;

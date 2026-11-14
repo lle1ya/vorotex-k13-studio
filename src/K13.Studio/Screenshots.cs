@@ -256,6 +256,49 @@ internal static class Screenshots
         }
     }
 
+    /// <summary>v5.4: auto-switch by program (Profiles tab, program picker), export, import preview, drop overlay.</summary>
+    public static int RenderV54(string folder)
+    {
+        try
+        {
+            Directory.CreateDirectory(folder);
+            var tmp = Path.Combine(Path.GetTempPath(), "vorotex-screens54-" + Environment.ProcessId);
+            var shots = new List<string>();
+            foreach (var dark in new[] { false, true })
+            {
+                App.SetTheme(dark);
+                var w = new MainWindow(offline: true, storeFolder: tmp + (dark ? "d" : "l"), previewImage: null)
+                { Width = 1280, Height = 900, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual };
+                w.Show();
+                int demo = w.DemoMouseMacro();
+                w.DemoV47(demo);
+                w.DemoV54();
+                string sfx = dark ? "-dark" : "";
+                void Dlg(Window d, string name) { d.Owner = null; d.Left = -32000; d.Top = -32000; d.ShowActivated = false; d.WindowStartupLocation = WindowStartupLocation.Manual; d.Show(); shots.Add(ShotWindow(d, Path.Combine(folder, name), 1.5)); d.Close(); }
+
+                w.ScrollProfiles(0);
+                shots.Add(Shot(w, 3, Path.Combine(folder, $"01-profiles-auto-150pct{sfx}.png"), 1.5));
+                w.ScrollProfiles(330);
+                shots.Add(Shot(w, 3, Path.Combine(folder, $"02-profiles-cards-150pct{sfx}.png"), 1.5));
+                w.ScrollProfiles(0);
+                Dlg(w.BuildAppPicker(w.ProfileByName("Фото")!, "Photoshop"), $"03-app-picker-150pct{sfx}.png");
+                Dlg(w.BuildExportDialog(w.AllProfiles()), $"04-export-150pct{sfx}.png");
+                Dlg(w.BuildImportDialog(w.DemoImportPreview(), out _), $"05-import-preview-150pct{sfx}.png");
+                w.ShowDropOverlay(true);
+                shots.Add(Shot(w, 3, Path.Combine(folder, $"06-drop-150pct{sfx}.png"), 1.0));
+                w.ShowDropOverlay(false);
+                w.ExitApp();
+            }
+            File.WriteAllText(Path.Combine(folder, "screens.txt"), string.Join(Environment.NewLine, shots));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(Path.Combine(folder, "screens-error.txt"), ex.ToString()); } catch { }
+            return 1;
+        }
+    }
+
     /// <summary>v5.0: custom title bars, Inter font, app icon – main window, test dialog, confirmation dialog.</summary>
     /// <summary>v5.2: busy F13 warning (editor + dialog + overview label) and the «layout not certain» dialog.</summary>
     public static int RenderV52(string folder)

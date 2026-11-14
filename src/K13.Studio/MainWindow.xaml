@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Vorotex.Studio"
         Title="VOROTEX K13 Studio" Width="1280" Height="800" MinWidth="960" MinHeight="640"
-        Style="{StaticResource DarkWindow}" WindowStartupLocation="CenterScreen">
+        Style="{StaticResource DarkWindow}" WindowStartupLocation="CenterScreen" AllowDrop="True">
   <Grid x:Name="Root" Background="{DynamicResource BgBrush}">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
@@ -205,10 +205,22 @@
           <StackPanel Margin="0,0,10,10" MaxWidth="1180">
             <DockPanel Margin="2,2,0,14">
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button Style="{StaticResource GhostButton}" Click="ImportProfileJson_Click" Margin="0,0,8,0" Padding="12,6" ToolTip="Импорт профиля из файла .json">
+                <Button x:Name="PasteProfileBtn" Style="{StaticResource GhostButton}" Click="PasteProfile_Click" Margin="0,0,6,0" Padding="12,6" ToolTip="Вставить профиль, скопированный как текст (Ctrl+V на этой вкладке)">
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE77F;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock Text="Вставить"/>
+                  </StackPanel>
+                </Button>
+                <Button Style="{StaticResource GhostButton}" Click="ImportProfileJson_Click" Margin="0,0,6,0" Padding="12,6" ToolTip="Импорт из файла .k13profile (или перетащите файл в окно)">
                   <StackPanel Orientation="Horizontal">
                     <TextBlock Text="&#xE8B5;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <TextBlock Text="Импорт"/>
+                  </StackPanel>
+                </Button>
+                <Button Style="{StaticResource GhostButton}" Click="ExportAll_Click" Margin="0,0,8,0" Padding="12,6" ToolTip="Сохранить все профили в один файл .k13profile">
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xEDE1;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock Text="Экспорт"/>
                   </StackPanel>
                 </Button>
                 <Button Style="{StaticResource AccentButton}" Click="NewProfile_Click" Padding="14,6">
@@ -220,35 +232,15 @@
               </StackPanel>
               <StackPanel VerticalAlignment="Center">
                 <TextBlock Text="Профили" FontSize="20" FontWeight="SemiBold"/>
-                <TextBlock Style="{StaticResource Muted}" FontSize="12" Text="Набор назначений кнопок, подсветки, макросов и действий на ПК. В клавиатуре — активный профиль после «Записать»."/>
+                <TextBlock Style="{StaticResource Muted}" FontSize="12" Text="Назначения кнопок, подсветка, макросы и действия на ПК. Профиль может включаться сам — в нужной программе." TextTrimming="CharacterEllipsis"/>
               </StackPanel>
             </DockPanel>
-            <WrapPanel x:Name="ProfileCards" Margin="0,0,0,8"/>
 
-            <Border Style="{StaticResource Card}" Margin="0,8,0,14">
-              <StackPanel>
-                <DockPanel>
-                  <CheckBox x:Name="AutoSwitchBox" Style="{StaticResource Switch}" DockPanel.Dock="Right" Checked="AutoSwitch_Changed" Unchecked="AutoSwitch_Changed"/>
-                  <Border Width="34" Height="34" CornerRadius="10" Background="{DynamicResource AccentSoftBrush}" Margin="0,0,12,0">
-                    <TextBlock Text="&#xE8AB;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16" Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                  </Border>
-                  <StackPanel VerticalAlignment="Center">
-                    <TextBlock Text="Автопереключение по программе" FontSize="16" FontWeight="SemiBold"/>
-                    <TextBlock Style="{StaticResource Muted}" FontSize="12" Text="Открыли Photoshop — включился профиль «Фото». Меняются действия на ПК; кнопки в клавиатуре — после «Записать»." TextWrapping="Wrap"/>
-                  </StackPanel>
-                </DockPanel>
-                <StackPanel x:Name="RulesHost" Margin="0,14,0,0"/>
-                <DockPanel Margin="0,8,0,0">
-                  <Button DockPanel.Dock="Left" Click="AddRule_Click" Style="{StaticResource GhostButton}" Padding="12,6">
-                    <StackPanel Orientation="Horizontal">
-                      <TextBlock Text="&#xE710;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                      <TextBlock Text="Добавить правило"/>
-                    </StackPanel>
-                  </Button>
-                  <TextBlock x:Name="ForegroundText" Style="{StaticResource Muted}" FontSize="12" VerticalAlignment="Center" TextAlignment="Right" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Margin="12,0,0,0"/>
-                </DockPanel>
-              </StackPanel>
+            <Border Style="{StaticResource Card}" Margin="0,0,14,16">
+              <StackPanel x:Name="AutoSwitchHost"/>
             </Border>
+
+            <WrapPanel x:Name="ProfileCards" Margin="0,0,0,8"/>
 
             <Grid>
               <Grid.ColumnDefinitions>
@@ -285,6 +277,19 @@
       <TextBlock DockPanel.Dock="Left" x:Name="SafeText" Text="Перед каждой записью — резервная копия, после — проверка" Style="{StaticResource Muted}" FontSize="12"/>
       <TextBlock x:Name="StatusText" Style="{StaticResource Muted}" FontSize="12" TextAlignment="Right" TextTrimming="CharacterEllipsis" Margin="16,0,0,0"/>
     </DockPanel>
+
+    <!-- v5.4: drop a .k13profile file anywhere on the window -->
+    <Grid x:Name="DropOverlay" Grid.RowSpan="4" Visibility="Collapsed" Background="#59000000" IsHitTestVisible="False">
+      <Border Margin="40" CornerRadius="24" BorderThickness="2" BorderBrush="{DynamicResource AccentBrush}" Background="{DynamicResource PanelBrush}" Opacity="0.96">
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+          <Border Width="64" Height="64" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}" HorizontalAlignment="Center" Margin="0,0,0,16">
+            <TextBlock Text="&#xE8B5;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="26" Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+          <TextBlock x:Name="DropTitle" Text="Отпустите, чтобы импортировать профиль" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+          <TextBlock x:Name="DropHint" Text="Сначала покажем, что внутри — ничего не изменится без вашего подтверждения" Style="{StaticResource Muted}" FontSize="13" HorizontalAlignment="Center" Margin="0,6,0,0"/>
+        </StackPanel>
+      </Border>
+    </Grid>
 
     <!-- Welcome overlay -->
     <Grid x:Name="Welcome" Grid.RowSpan="4" Visibility="Collapsed" Background="#73000000">
