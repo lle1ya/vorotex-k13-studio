@@ -196,7 +196,9 @@ public partial class MainWindow
             var p = JsonSerializer.Deserialize<AppProfile>(File.ReadAllText(dlg.FileName), ProfileStore.JsonOptions) ?? throw new InvalidDataException("пустой файл");
             p.Device ??= K13MemoryCodec.Decode(DefaultImage);
             K13MemoryCodec.Validate(p.Device);
-            p.Name = _store.UniqueName(string.IsNullOrWhiteSpace(p.Name) ? "Импорт" : p.Name.Trim());
+            p.Normalize(); // v5.3: a file without "Host"/"MacroNames" (or with nulls) crashed later in the editor
+            var baseName = string.IsNullOrWhiteSpace(p.Name) ? "Импорт" : p.Name.Trim();
+            p.Name = _store.UniqueName(baseName.Length > 36 ? baseName[..36].TrimEnd() : baseName);
             var tmp = new ProfileStoreData(); tmp.Profiles.Add(p);
             var notes = TriggerKeyPolicy.DropUnsafe(tmp, KeyCombo.VkName);
             _store.Data.Profiles.Add(p);

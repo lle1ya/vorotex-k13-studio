@@ -734,46 +734,38 @@ public partial class MainWindow
         sp.Children.Add(box);
         w.Content = sp;
         bool busy = false;
-        bool cancel = false; int done = 0;
+        System.Threading.CancellationTokenSource? cts = null;
         run.Click += async (_, _) =>
         {
-            if (busy) { cancel = true; return; }
+            if (busy) { cts?.Cancel(); return; }
             busy = true; run.IsEnabled = false;
             box.Focus();
             bool withMouse = mouse.IsChecked == true;
             var events = m.Events.Select(e => e.Clone()).ToList();
             // the same number that is saved and written to the keypad (v4.8 capped this at 5 – bug)
             int repeat = m.RepeatMode == MacroRepeatMode.Count ? Math.Max(1, m.Repeat) : 1;
-            cancel = false;
+            using var my = new System.Threading.CancellationTokenSource();
+            cts = my;
             run.Content = "■  Стоп"; run.IsEnabled = true;
             status.Text = repeat > 1 ? $"Играет: {RepeatCount.Format(repeat)}… (Стоп или Esc — прервать)" : "Играет…";
-            await Task.Delay(300);
-            await Task.Run(() =>
+            int done = 0;
+            try
             {
-                var held = new HashSet<byte>();
-                try
-                {
-                    for (int r = 0; r < repeat && !cancel; r++)
-                    {
-                        done = r + 1;
-                        foreach (var e in events)
-                        {
-                            if (cancel) break;
-                            if (e.DelayMs > 0) Thread.Sleep(e.DelayMs);
-                            bool isMouse = e.IsMouseButton || e.IsWheel || e.Code == MouseCodes.Move;
-                            if (isMouse && !withMouse) continue;
-                            MacroPlayer.Send(e);
-                            if (!e.IsWheel && e.Code != MouseCodes.Move) { if (e.Down) held.Add(e.Code); else held.Remove(e.Code); }
-                        }
-                    }
-                }
-                finally { foreach (var c in held) MacroPlayer.Send(new MacroEvent { Down = false, Code = c }); } // never leave a key stuck
-            });
-            status.Text = (cancel ? $"Остановлено после {done} из {repeat}. " : repeat > 1 ? $"Готово: {RepeatCount.Format(repeat)}. " : "Готово. ") + (m.RepeatMode switch { MacroRepeatMode.WhileHeld => "На клавиатуре этот макрос крутится, пока кнопка зажата (здесь показан один проход).", MacroRepeatMode.Toggle => "На клавиатуре: первое нажатие запускает макрос по кругу, второе — останавливает (здесь показан один проход).", _ => "" });
+                await Task.Delay(300, my.Token);
+                // v5.3: shared player – pauses stop at once on «Стоп», held keys and buttons are always released
+                done = await Task.Run(() => MacroSequencer.Run(events, repeat, MacroPlayer.Send, my.Token,
+                    e => withMouse || !(e.IsMouseButton || e.IsWheel || e.Code == MouseCodes.Move)));
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { App.Log("Проверка макроса: " + ex); }
+            bool cancelled = my.IsCancellationRequested;
+            cts = null;
+            if (!w.IsLoaded) return;
+            status.Text = (cancelled ? $"Остановлено после {done} из {repeat}. " : repeat > 1 ? $"Готово: {RepeatCount.Format(repeat)}. " : "Готово. ") + (m.RepeatMode switch { MacroRepeatMode.WhileHeld => "На клавиатуре этот макрос крутится, пока кнопка зажата (здесь показан один проход).", MacroRepeatMode.Toggle => "На клавиатуре: первое нажатие запускает макрос по кругу, второе — останавливает (здесь показан один проход).", _ => "" });
             busy = false; run.IsEnabled = true; run.Content = "▶  Запустить";
         };
-        w.PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape && busy) { cancel = true; e.Handled = true; } };
-        w.Closing += (_, _) => cancel = true;
+        w.PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape && busy) { cts?.Cancel(); e.Handled = true; } };
+        w.Closing += (_, _) => cts?.Cancel();
         return w;
     }
 
@@ -987,7 +979,10 @@ public partial class MainWindow
         {
             _recorder.Stop();
             PreviewKeyDown -= RecKeyDown; PreviewKeyUp -= RecKeyUp;
-            // drop a dangling press of the «Стоп» click if any slipped through
+            // v5.3: a key still held when «Стоп» was pressed used to stay pressed on the keypad after the macro
+            int closed = MacroSequencer.CloseDanglingPresses(slot.Events);
+            if (closed > 0) Log($"Добавлено отпусканий для клавиш, которые были зажаты в момент остановки: {closed}.");
+            _recDown.Clear();
             Log($"{MacroName(_selMacro)}: записано {slot.Events.Count} шагов.");
             Changed();
         }

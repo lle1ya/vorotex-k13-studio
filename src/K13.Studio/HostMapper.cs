@@ -27,7 +27,7 @@ public sealed class HostMapper : IDisposable
     private volatile bool _resetPending;
     private volatile string _profileName = "";
     // hook-thread state (only touched inside HookProc)
-    private readonly Dictionary<ushort, long> _downAt = new();
+    private readonly KeyDownTracker _ringDown = new(1000), _keyDown = new();
     private readonly HashSet<ushort> _consumed = new();
     private readonly Dictionary<ushort, long> _lastDown = new();
     private readonly HashSet<ushort> _ringKeys = new();
@@ -125,7 +125,7 @@ public sealed class HostMapper : IDisposable
         {
             if (nCode >= 0)
             {
-                if (_resetPending) { _resetPending = false; _downAt.Clear(); _consumed.Clear(); _lastDown.Clear(); }
+                if (_resetPending) { _resetPending = false; _ringDown.Clear(); _keyDown.Clear(); _consumed.Clear(); _lastDown.Clear(); }
                 var k = Marshal.PtrToStructure<Native.KBDLLHOOKSTRUCT>(lParam);
                 ushort vk = (ushort)k.vkCode;
                 bool injected = (k.flags & Native.LLKHF_INJECTED) != 0 && k.dwExtraInfo == Native.InjectedTag;
@@ -173,24 +173,20 @@ public sealed class HostMapper : IDisposable
     {
         var binding = _settings.Keys.FirstOrDefault(b => b.TriggerVk == vk);
         bool suppress = binding?.Suppress ?? true;
-        long now = Stopwatch.GetTimestamp();
+        long nowMs = Environment.TickCount64;
         if (binding != null && binding.Tap.Kind == HostActionKind.Ring)
         {
             if (down)
             {
                 // OS auto-repeat: downs keep coming every ~30 ms while held. A stale entry (lost key-up) expires after 1 s of silence.
-                bool repeat = _downAt.ContainsKey(vk) && _lastDown.TryGetValue(vk, out var last) && Stopwatch.GetElapsedTime(last).TotalMilliseconds < 1000;
-                _lastDown[vk] = now;
-                if (repeat) return true;
-                _downAt[vk] = now;
+                if (!_ringDown.Down(vk, nowMs)) return true;
                 var ringSettings = _settings.Ring;
                 Diag($"{KeyCombo.VkName(vk)} ↓ (стик) → открыть кольцо, профиль «{_profileName}», ячеек {ringSettings.Slots.Count}");
                 _ui.BeginInvoke(() => Ring?.TriggerDown(ringSettings));
             }
             else
             {
-                _lastDown.Remove(vk);
-                double held = _downAt.Remove(vk, out var t1) ? Stopwatch.GetElapsedTime(t1).TotalMilliseconds : 0;
+                double held = _ringDown.Up(vk, nowMs) ?? 0;
                 Diag($"{KeyCombo.VkName(vk)} ↑ через {held:0} мс");
                 _ui.BeginInvoke(() => Ring?.TriggerUp(held));
             }
@@ -198,12 +194,12 @@ public sealed class HostMapper : IDisposable
         }
         if (down)
         {
-            if (_downAt.ContainsKey(vk)) return suppress; // auto-repeat
-            _downAt[vk] = now;
+            if (!_keyDown.Down(vk, nowMs)) return suppress; // auto-repeat (a lost key-up expires, see KeyDownTracker)
+            _consumed.Remove(vk);
             foreach (var ch in _settings.Chords.Where(c => c.VkA == vk || c.VkB == vk))
             {
                 ushort other = ch.VkA == vk ? ch.VkB : ch.VkA;
-                if (_downAt.ContainsKey(other))
+                if (_keyDown.IsDown(other))
                 {
                     _consumed.Add(vk); _consumed.Add(other);
                     Run(ch.Action, $"аккорд {ch.Title}");
@@ -219,10 +215,9 @@ public sealed class HostMapper : IDisposable
         }
         else
         {
-            bool had = _downAt.Remove(vk, out var t0);
+            double ms = _keyDown.Up(vk, nowMs) ?? 0;
             if (_consumed.Remove(vk)) return suppress;
             if (binding == null) return suppress;
-            double ms = had ? Stopwatch.GetElapsedTime(t0).TotalMilliseconds : 0;
             if (binding.Hold.Kind != HostActionKind.None && ms >= binding.HoldMs) Run(binding.Hold, "удержание " + KeyCombo.VkName(vk));
             else Run(binding.Tap, "нажатие " + KeyCombo.VkName(vk));
             return suppress;
@@ -250,9 +245,9 @@ public sealed class HostMapper : IDisposable
                 case HostActionKind.KeyCombo: KeyCombo.Send(a.Value); break;
                 case HostActionKind.Text: KeyCombo.TypeText(a.Value); break;
                 case HostActionKind.LaunchProgram:
-                    Process.Start(new ProcessStartInfo(a.Value, a.Arguments) { UseShellExecute = true }); break;
+                    Process.Start(new ProcessStartInfo(a.Value, a.Arguments) { UseShellExecute = true })?.Dispose(); break;
                 case HostActionKind.OpenUrl:
-                    Process.Start(new ProcessStartInfo(a.Value) { UseShellExecute = true }); break;
+                    Process.Start(new ProcessStartInfo(a.Value) { UseShellExecute = true })?.Dispose(); break;
                 case HostActionKind.SwitchProfile: SwitchProfileRequested?.Invoke(a.Value); break;
                 case HostActionKind.Ring: Ring?.TriggerDown(_settings.Ring); Ring?.TriggerUp(0); break;
                 case HostActionKind.PlayMacro:
@@ -282,38 +277,41 @@ public interface IRingHost
 public static class MacroPlayer
 {
     private static System.Threading.CancellationTokenSource? _playing;
+    private static System.Threading.Tasks.Task? _task;
 
-    /// <summary>Plays the macro the full saved number of times (same value as on the keypad).
-    /// Triggering it again while it is still playing stops it.</summary>
+    /// <summary>Plays the macro the full saved number of times (same value as on the keypad); «по кругу» repeats
+    /// until triggered again. Triggering it again while it is still playing stops it.</summary>
     public static void Play(MacroSlot m)
     {
         var prev = System.Threading.Interlocked.Exchange(ref _playing, null);
         if (prev != null) { prev.Cancel(); return; }
+        if (m.Events.Count == 0) return;
         var cts = new System.Threading.CancellationTokenSource();
         _playing = cts;
         var events = m.Events.Select(e => e.Clone()).ToList();
-        int repeat = m.RepeatMode == MacroRepeatMode.Count ? Math.Max(1, m.Repeat) : 1;
-        System.Threading.Tasks.Task.Run(() =>
+        int passes = MacroSequencer.Passes(m.RepeatMode, m.Repeat);
+        _task = System.Threading.Tasks.Task.Run(() =>
         {
-            var held = new HashSet<byte>();
-            try
-            {
-                for (int r = 0; r < repeat && !cts.IsCancellationRequested; r++)
-                    foreach (var e in events)
-                    {
-                        if (cts.IsCancellationRequested) break;
-                        if (e.DelayMs > 0) System.Threading.Thread.Sleep(e.DelayMs);
-                        Send(e);
-                        if (!e.IsWheel && e.Code != MouseCodes.Move) { if (e.Down) held.Add(e.Code); else held.Remove(e.Code); }
-                    }
-            }
+            try { MacroSequencer.Run(events, passes, Send, cts.Token); }
+            catch (Exception ex) { App.Log("Макрос: " + ex.Message); }
             finally
             {
-                foreach (var c in held) Send(new MacroEvent { Down = false, Code = c });
                 System.Threading.Interlocked.CompareExchange(ref _playing, null, cts);
+                cts.Dispose();
             }
         });
     }
+
+    /// <summary>v5.3: stops a playing macro and waits (briefly) until its held keys are released — called on exit,
+    /// otherwise a key pressed by the macro could stay down after the app is gone.</summary>
+    public static void StopAll(int waitMs = 1500)
+    {
+        var prev = System.Threading.Interlocked.Exchange(ref _playing, null);
+        try { prev?.Cancel(); } catch (ObjectDisposedException) { }
+        try { _task?.Wait(waitMs); } catch (AggregateException) { }
+    }
+
+    private static int _sendFailLogged;
 
     private const uint INPUT_MOUSE = 0;
 
@@ -344,7 +342,9 @@ public static class MacroPlayer
             inp.type = Native.INPUT_KEYBOARD;
             inp.U.ki = new Native.KEYBDINPUT { wVk = vk, dwFlags = e.Down ? 0 : Native.KEYEVENTF_KEYUP, dwExtraInfo = Native.InjectedTag };
         }
-        Native.SendInput(1, new[] { inp }, System.Runtime.InteropServices.Marshal.SizeOf<Native.INPUT>());
+        if (Native.SendInput(1, new[] { inp }, System.Runtime.InteropServices.Marshal.SizeOf<Native.INPUT>()) == 0 &&
+            System.Threading.Interlocked.Exchange(ref _sendFailLogged, 1) == 0)
+            App.Log("Windows не принял нажатие от программы (SendInput = 0). Обычно так бывает, когда активно окно, запущенное от администратора.");
     }
 }
 

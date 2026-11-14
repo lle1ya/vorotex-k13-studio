@@ -471,7 +471,7 @@ public sealed class DeviceView : Viewbox
             p.Badge.Visibility = showDots && changed ? Visibility.Visible : Visibility.Collapsed;
             var action = ActionOf(cfg, host, id);
             if (p.Sub != null) p.Sub.Text = ShowSubLabels && changed ? (action == "—" ? "выкл." : Short(action)) : "";
-            if (_interactive) p.Root.ToolTip = $"{char.ToUpper(ControlName(id)[0])}{ControlName(id)[1..]}: {action}" + (changed ? "  (изменено)" : "");
+            if (_interactive) p.Root.ToolTip = $"{char.ToUpperInvariant(ControlName(id)[0])}{ControlName(id)[1..]}: {action}" + (changed ? "  (изменено)" : "");
         }
     }
 

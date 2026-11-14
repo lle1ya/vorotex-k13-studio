@@ -9,7 +9,7 @@ internal static class ShellLaunch
 {
     public static void Open(string target, Action<string>? log)
     {
-        Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+        Process.Start(new ProcessStartInfo(target) { UseShellExecute = true })?.Dispose();
         log?.Invoke("Открыто: " + target);
     }
 
@@ -32,7 +32,7 @@ internal static class ShellLaunch
         App.Log($"[action] браузер: ProgId={progId ?? "?"}, exe={exe ?? "?"}");
         if (exe != null && File.Exists(exe))
         {
-            Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true })?.Dispose();
             log?.Invoke("Браузер: " + Path.GetFileName(exe));
             return;
         }
@@ -53,7 +53,7 @@ internal static class ShellLaunch
     {
         try
         {
-            Process.Start(new ProcessStartInfo("taskmgr.exe") { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo("taskmgr.exe") { UseShellExecute = true })?.Dispose();
             log?.Invoke("Диспетчер задач запущен");
         }
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)

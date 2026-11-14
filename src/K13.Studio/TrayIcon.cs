@@ -26,10 +26,13 @@ public sealed class TrayIcon : IDisposable
 
     public void SetProfiles(IEnumerable<string> names, string active)
     {
+        // v5.3: Clear() does not dispose the old items (a leak on every profile switch)
+        var old = _profiles.DropDownItems.Cast<ToolStripItem>().ToList();
         _profiles.DropDownItems.Clear();
+        foreach (var o in old) o.Dispose();
         foreach (var n in names)
         {
-            var item = new ToolStripMenuItem(n) { Checked = n == active };
+            var item = new ToolStripMenuItem(n.Replace("&", "&&", StringComparison.Ordinal)) { Checked = n == active }; // «&» is a mnemonic in menus
             item.Click += (_, _) => ProfileChosen?.Invoke(n);
             _profiles.DropDownItems.Add(item);
         }
@@ -42,5 +45,5 @@ public sealed class TrayIcon : IDisposable
     /// <summary>Exact tray size for the system DPI (16/20/24/32 px frame of the .ico – never a downscaled 256 px).</summary>
     private static Icon MakeIcon() => CrispIcons.Load(CrispIcons.SmallIconPx()) ?? SystemIcons.Application;
 
-    public void Dispose() { _icon.Visible = false; _icon.Dispose(); }
+    public void Dispose() { _icon.Visible = false; var menu = _icon.ContextMenuStrip; _icon.Dispose(); menu?.Dispose(); }
 }

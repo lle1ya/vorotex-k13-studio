@@ -24,7 +24,7 @@ public partial class MainWindow : Window
     private byte[]? _deviceImage;
     private K13Status? _status;
     private string? _devicePath;
-    private bool _connected, _busy, _sessionBackupDone, _freshStore, _loading, _exiting, _trayHintShown;
+    private bool _connected, _busy, _polling, _exitPending, _freshStore, _loading, _exiting, _trayHintShown;
     private readonly bool _offline;
     private int _selCol = -1, _selMacro;
     internal readonly StringBuilder LogText = new();
@@ -59,7 +59,7 @@ public partial class MainWindow : Window
         LightKbHost.Content = _kbLight;
         _kbLayout.Clicked += OnDeviceClicked;
         _kbLayout.Hovered += id => HoverCaption.Text = id is int i && i is not DeviceView.JoystickKnob and not DeviceView.WheelBody
-            ? $"{char.ToUpper(DeviceView.ControlName(i)[0])}{DeviceView.ControlName(i)[1..]}: {DeviceView.ActionOf(Cfg, _profile.Host, i)}"
+            ? $"{char.ToUpperInvariant(DeviceView.ControlName(i)[0])}{DeviceView.ControlName(i)[1..]}: {DeviceView.ActionOf(Cfg, _profile.Host, i)}"
             : id is DeviceView.JoystickKnob ? "Джойстик: 4 направления (центр — нажатие стика)" : id is DeviceView.WheelBody ? "Колесо: поворот вверх и вниз" : "";
 
         if (!offline)
@@ -128,7 +128,17 @@ public partial class MainWindow : Window
 
     private void LoadStore(byte[]? previewImage)
     {
-        if (!_offline) { try { _store.Load(); } catch (Exception ex) { Log("Не удалось прочитать профили: " + ex.Message); } }
+        if (!_offline)
+        {
+            // v5.3: Load never throws and keeps a damaged profiles.json aside (…corrupt-…) instead of it being overwritten below
+            try { _store.Load(); } catch (Exception ex) { Log("Не удалось прочитать профили: " + ex.Message); }
+            var problems = _store.LoadNotes.Where(n => n.Contains("повреждён", StringComparison.Ordinal) || n.Contains("восстановлены", StringComparison.Ordinal) || n.Contains("не читается", StringComparison.Ordinal)).ToList();
+            foreach (var n in _store.LoadNotes) Log("Профили: " + n);
+            if (problems.Count > 0)
+                Dispatcher.BeginInvoke(() => MessageBox.Show(this, string.Join("\n\n", problems) + "\n\nПапка: " + _store.Folder,
+                    Title, MessageBoxButton.OK, MessageBoxImage.Warning), DispatcherPriority.ApplicationIdle);
+        }
+        else _store.Data.Normalize();
         if (_store.Data.Profiles.Count == 0)
         {
             _freshStore = true;
@@ -161,7 +171,12 @@ public partial class MainWindow : Window
 
     private void ActivateProfile(string name, string? reason)
     {
-        var p = _store.Find(name) ?? _store.Data.Profiles[0];
+        var found = _store.Find(name);
+        // v5.3: «Переключить профиль» on a deleted/renamed profile jumped to the first profile — now it is ignored
+        if (found == null && reason != null) { Log($"Профиль «{name}» не найден ({reason}) — переключение пропущено."); return; }
+        var p = found ?? _store.Data.Profiles[0];
+        // v5.3: a profile switch (e.g. auto-switch by the active window) during recording put the steps into the wrong profile
+        if (_recording && p != _profile) ToggleRecording();
         _profile = p;
         _store.Data.ActiveProfile = p.Name;
         SaveStore();
@@ -285,7 +300,7 @@ public partial class MainWindow : Window
         m.Items.Add(new Separator());
         Item("\uE8B5", "Импорт из config.ini…", ImportIni_Click);
         Item("\uE8E5", "Импорт резервной копии (.bin)…", ImportBin_Click);
-        Item("\uE838", "Открыть папку резервных копий", (_, _) => { Directory.CreateDirectory(BackupStore.DefaultFolder); Process.Start(new ProcessStartInfo("explorer.exe", BackupStore.DefaultFolder) { UseShellExecute = true }); });
+        Item("\uE838", "Открыть папку резервных копий", (_, _) => { Directory.CreateDirectory(BackupStore.DefaultFolder); Process.Start(new ProcessStartInfo("explorer.exe", BackupStore.DefaultFolder) { UseShellExecute = true })?.Dispose(); });
         m.Items.Add(new Separator());
         Item("\uE7F8", "Действия на компьютере…", OpenHost_Click);
         Item("\uE897", "Как пользоваться", (_, _) => ShowWelcome(true));
@@ -439,7 +454,14 @@ public partial class MainWindow : Window
     // ───────────────────────────── device (read-only)
     private async Task PollDevice()
     {
-        if (_busy || _offline) return;
+        if (_busy || _offline || _polling || _exiting) return;
+        _polling = true;
+        try { await PollDeviceCore(); }
+        finally { _polling = false; }
+    }
+
+    private async Task PollDeviceCore()
+    {
         string? path;
         try { path = await Task.Run(() => WindowsHid.FindVendorInterfaces().FirstOrDefault()); }
         catch (Exception ex) { Log("Поиск устройства: " + ex.Message); return; }
@@ -497,7 +519,14 @@ public partial class MainWindow : Window
             StatusText.Text = "Клавиатура переведена в обычный режим. Проверьте кнопки.";
         }
         catch (Exception ex) { Log("Завершение сеанса: " + ex.Message); StatusText.Text = ex.Message; }
-        finally { _busy = false; UpdateConn(); }
+        finally { _busy = false; UpdateConn(); ExitIfPending(); }
+    }
+
+    /// <summary>v5.3: «Выход» pressed during a read/write waits for the HID session to finish (and end with 07 18 11/00/20)
+    /// instead of killing it half-way.</summary>
+    private void ExitIfPending()
+    {
+        if (_exitPending && !_busy) Dispatcher.BeginInvoke(ExitApp, DispatcherPriority.Background);
     }
 
     private void UpdateConn()
@@ -531,11 +560,10 @@ public partial class MainWindow : Window
             if (sent.Any(f => !K13Protocol.IsReadOnlyFrame(f) && !K13Protocol.IsSessionEndFrame(f))) throw new InvalidOperationException("Обнаружена не-читающая команда — прервано.");
             _deviceImage = img; _status = st; _imageFresh = true;
             var path = BackupStore.Save(img, null, auto ? "k13-auto" : "k13-read", st);
-            _sessionBackupDone = true;
             Log($"Прочитано 0x{img.Length:X} байт ({sent.Count} кадров, только 00/05/01). Резервная копия: {path}");
-            if (_freshStore && auto)
+            if (_freshStore && auto && TryDecode(img) is { } decoded)
             {
-                _profile.Device = K13MemoryCodec.Decode(img);
+                _profile.Device = decoded;
                 _freshStore = false;
                 Log("Профиль «" + _profile.Name + "» заполнен настройками с клавиатуры.");
                 SaveStore(); RefreshAll();
@@ -551,8 +579,13 @@ public partial class MainWindow : Window
         }
         finally
         {
-            _busy = false; Progress.Visibility = Visibility.Collapsed; UpdateConn(); RefreshDirty();
+            _busy = false; Progress.Visibility = Visibility.Collapsed; UpdateConn(); RefreshDirty(); ExitIfPending();
         }
+    }
+
+    private static K13DeviceConfig? TryDecode(byte[] img)
+    {
+        try { return K13MemoryCodec.Decode(img); } catch (K13FormatException) { return null; }
     }
 
     private async void ReadBtn_Click(object sender, RoutedEventArgs e)
@@ -562,7 +595,13 @@ public partial class MainWindow : Window
         if (MessageBox.Show(this, $"Память прочитана и сохранена в резервную копию.\n\nЗаменить настройки профиля «{_profile.Name}» данными с клавиатуры?\n(Действия на ПК профиля сохранятся.)",
                 Title, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
         {
-            _profile.Device = K13MemoryCodec.Decode(img);
+            try { _profile.Device = K13MemoryCodec.Decode(img); }
+            catch (Exception ex)
+            {
+                Log("Не удалось разобрать память клавиатуры: " + ex.Message);
+                MessageBox.Show(this, "Память прочитана и сохранена, но разобрать её не удалось:\n" + ex.Message + "\n\nПрофиль не изменён.", Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
             SaveStore(); RefreshAll();
         }
     }
@@ -652,6 +691,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            _imageFresh = false; // the keypad may now differ from the cached image – re-read before the next write
             Log("Ошибка записи: " + ex.Message); App.Log("write: " + ex);
             StatusText.Text = "Ошибка записи: " + ex.Message;
             MessageBox.Show(this, "Ошибка записи: " + ex.Message + "\n\nРезервные копии: " + BackupStore.DefaultFolder, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -659,7 +699,7 @@ public partial class MainWindow : Window
         }
         finally
         {
-            _busy = false; Progress.Visibility = Visibility.Collapsed; UpdateConn(); RefreshDirty();
+            _busy = false; Progress.Visibility = Visibility.Collapsed; UpdateConn(); RefreshDirty(); ExitIfPending();
         }
     }
 
@@ -693,7 +733,7 @@ public partial class MainWindow : Window
     {
         var img = await ReadDevice(auto: false);
         if (img != null && MessageBox.Show(this, "Резервная копия сохранена в\n" + BackupStore.DefaultFolder + "\n\nОткрыть папку?", Title, MessageBoxButton.YesNo) == MessageBoxResult.Yes)
-            Process.Start(new ProcessStartInfo("explorer.exe", BackupStore.DefaultFolder) { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo("explorer.exe", BackupStore.DefaultFolder) { UseShellExecute = true })?.Dispose();
     }
 
     private void RefreshDirty()
@@ -775,14 +815,25 @@ public partial class MainWindow : Window
             if (!_trayHintShown) { _tray?.Balloon("VOROTEX K13 Studio", "Программа работает в трее. Выход — через меню значка или «⋯ → Выход»."); _trayHintShown = true; }
             return;
         }
+        if (!_exiting && _busy) { e.Cancel = true; ExitApp(); return; }
         if (!_exiting) ExitApp();
     }
 
     internal void ExitApp()
     {
+        if (_exiting) return;
+        if (_busy)
+        {
+            // v5.3: never kill a read/write half-way — finish it (it ends the HID session properly), then exit
+            if (!_exitPending) { _exitPending = true; Log("Выход после завершения обмена с клавиатурой…"); StatusText.Text = "Выход после завершения обмена с клавиатурой…"; }
+            return;
+        }
         if (_recording) ToggleRecording();
         _exiting = true;
-        _poll.Stop(); _anim.Stop(); _fg.Dispose(); _mapper?.Dispose(); _tray?.Dispose();
+        _poll.Stop(); _anim.Stop(); _ledTimer?.Stop();
+        MacroPlayer.StopAll();                 // v5.3: release keys a playing macro is holding
+        try { _ringOverlay?.Close(); } catch (InvalidOperationException) { }
+        _fg.Dispose(); _mapper?.Dispose(); _tray?.Dispose(); _recorder.Dispose();
         SaveStore();
         if (!_offline) Application.Current.Shutdown();
         else Close();

@@ -46,7 +46,9 @@ public partial class App : Application
         Chrome.Register();
         DispatcherUnhandledException += OnUnhandled;
         Exit += (_, _) => FlushLog();
-        AppDomain.CurrentDomain.UnhandledException += (_, a) => Log("FATAL " + a.ExceptionObject);
+        AppDomain.CurrentDomain.UnhandledException += (_, a) => { Log("FATAL " + a.ExceptionObject); FlushLog(); };
+        // v5.3: a failed background task (fire-and-forget) is logged instead of vanishing silently
+        TaskScheduler.UnobservedTaskException += (_, a) => { Log("TASK " + a.Exception); a.SetObserved(); };
 
         // Headless read-only self-test: VorotexK13Studio.exe --read-backup [folder]
         int i = Array.IndexOf(e.Args, "--read-backup");
@@ -75,6 +77,17 @@ public partial class App : Application
                 Log($"Профили ({store.Data.Profiles.Count}) приведены к образу {e.Args[rp + 1]} (очищенная клавиатура).");
             }
             catch (Exception ex) { Log("reset-profiles: " + ex); code = 1; }
+            FlushLog();
+            Shutdown(code);
+            return;
+        }
+
+        // v5.3: headless UI smoke test (offline: no hook, no tray, no keypad access) — exit code = failed steps
+        int sm = Array.IndexOf(e.Args, "--smoke-test");
+        if (sm >= 0)
+        {
+            _smoke = true;
+            int code = SmokeTest.Run(sm + 1 < e.Args.Length ? e.Args[sm + 1] : Path.Combine(DataFolder, "smoke"));
             FlushLog();
             Shutdown(code);
             return;
@@ -191,9 +204,12 @@ public partial class App : Application
         }
     }
 
+    private static bool _smoke;
+
     private void OnUnhandled(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         Log("UNHANDLED " + e.Exception);
+        if (_smoke) { SmokeTest.Unhandled++; e.Handled = true; return; }
         MessageBox.Show(e.Exception.Message, "VOROTEX K13 Studio — ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
         e.Handled = true;
     }

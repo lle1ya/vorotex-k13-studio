@@ -87,7 +87,7 @@ public static class Labels
         }
         if (Map.TryGetValue(code, out var v)) return v;
         var k = KeyCatalog.Get(code);
-        if (k.Category == KeyCategory.Numpad && k.Name.StartsWith("Num ")) return ("", k.Name.Replace("Num ", "Num"));
+        if (k.Category == KeyCategory.Numpad && k.Name.StartsWith("Num ", StringComparison.Ordinal)) return ("", k.Name.Replace("Num ", "Num"));
         return ("", k.Name);
     }
 

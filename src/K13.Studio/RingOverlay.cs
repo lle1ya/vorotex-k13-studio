@@ -37,7 +37,8 @@ public sealed class RingOverlay : Window, IRingHost
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(15) };
     private POINT _origin;
     private double _scale = 1;
-    private bool _holding, _open, _stickUsed;
+    private bool _holding, _stickUsed;
+    private volatile bool _open; // v5.3: read by the keyboard-hook thread (WantsKey)
     private readonly HashSet<ushort> _stick = new();
     private DateTime _openedAt;
 

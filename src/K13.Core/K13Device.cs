@@ -90,7 +90,9 @@ public sealed class K13Device : IDisposable
         foreach (var p in WindowsHid.FindVendorInterfaces())
         {
             var t = WindowsHidTransport.TryOpen(p);
-            if (t != null) return new K13Device(t, p);
+            if (t == null) continue;
+            try { return new K13Device(t, p); }
+            catch { t.Dispose(); throw; }
         }
         return null;
     }
@@ -246,21 +248,30 @@ public sealed class K13Device : IDisposable
     }
 
     /// <summary>Leaves the vendor channel the way the vendor app does (see <see cref="K13Protocol.SessionEndFrames"/>). Safe to call repeatedly.</summary>
+    /// <remarks>v5.3: every frame is attempted even if an earlier one fails (a single HID hiccup used to skip 07 18 00 and 07 20);
+    /// the first error is rethrown after all three were tried.</remarks>
     public void EndSession()
     {
         lock (_lock)
         {
+            Exception? first = null;
             foreach (var f in K13Protocol.SessionEndFrames)
             {
-                Send(f.Data);
+                try { Send(f.Data); }
+                catch (Exception ex) when (ex is IOException or WriteBlockedException) { first ??= ex; }
                 Pause(f.SleepAfterMs);
             }
             _ended = true;
+            if (first != null) throw first is IOException io ? io : new IOException(first.Message, first);
         }
     }
 
+    private bool _disposed;
+
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         if (EndSessionOnDispose && _touched && !_ended)
         {
             try { EndSession(); } catch (Exception) { /* device unplugged – nothing to end */ }
@@ -268,7 +279,9 @@ public sealed class K13Device : IDisposable
         _t.Dispose();
         if (_mutex != null)
         {
-            try { _mutex.ReleaseMutex(); } catch (ApplicationException) { }
+            // a Mutex can only be released by the thread that acquired it; elsewhere it would be left «abandoned»
+            if (Environment.CurrentManagedThreadId == _mutexThread)
+                try { _mutex.ReleaseMutex(); } catch (ApplicationException) { }
             _mutex.Dispose();
         }
     }

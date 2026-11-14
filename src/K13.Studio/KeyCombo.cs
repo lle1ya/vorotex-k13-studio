@@ -49,17 +49,26 @@ public static class KeyCombo
         var inputs = new List<Native.INPUT>();
         foreach (var vk in vks) inputs.Add(KeyInput(vk, false));
         for (int i = vks.Count - 1; i >= 0; i--) inputs.Add(KeyInput(vks[i], true));
-        Native.SendInput((uint)inputs.Count, inputs.ToArray(), System.Runtime.InteropServices.Marshal.SizeOf<Native.INPUT>());
+        Submit(inputs);
+    }
+
+    private static void Submit(List<Native.INPUT> inputs)
+    {
+        if (inputs.Count == 0) return;
+        if (Native.SendInput((uint)inputs.Count, inputs.ToArray(), System.Runtime.InteropServices.Marshal.SizeOf<Native.INPUT>()) == 0)
+            App.Log("Windows не принял нажатие от программы (SendInput = 0) — возможно, активно окно, запущенное от администратора.");
     }
 
     public static void TypeText(string text)
     {
         var inputs = new List<Native.INPUT>();
-        foreach (var ch in text)
+        // v5.3: line breaks/tabs go as real Enter/Tab (as Unicode characters many apps ignored them or showed garbage)
+        foreach (var (ch, vk) in Vorotex.K13.TextKeys.Split(text))
         {
-            inputs.Add(Unicode(ch, false)); inputs.Add(Unicode(ch, true));
+            if (vk != 0) { inputs.Add(KeyInput(vk, false)); inputs.Add(KeyInput(vk, true)); }
+            else { inputs.Add(Unicode(ch, false)); inputs.Add(Unicode(ch, true)); }
         }
-        Native.SendInput((uint)inputs.Count, inputs.ToArray(), System.Runtime.InteropServices.Marshal.SizeOf<Native.INPUT>());
+        Submit(inputs);
     }
 
     private static Native.INPUT KeyInput(ushort vk, bool up) => new()

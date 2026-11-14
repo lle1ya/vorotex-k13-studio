@@ -13,7 +13,8 @@ public static class RepeatCount
     {
         value = 0;
         text = text?.Trim();
-        if (string.IsNullOrEmpty(text) || !text.All(char.IsDigit)) return false;
+        // v5.3: ASCII digits only — char.IsDigit also accepts e.g. Arabic-Indic «٣», and int.Parse then threw (crash while typing)
+        if (string.IsNullOrEmpty(text) || !text.All(c => c is >= '0' and <= '9')) return false;
         value = text.Length > 6 ? Max : Clamp(int.Parse(text));
         return true;
     }
@@ -27,4 +28,19 @@ public static class RepeatCount
     }
 
     public static string Format(int n) => $"{n} {Word(n)}";
+}
+
+/// <summary>Russian plural forms: Of(1, "блок", "блока", "блоков") = «1 блок», 3 → «3 блока», 11 → «11 блоков».</summary>
+public static class RuPlural
+{
+    public static string Word(int n, string one, string few, string many)
+    {
+        n = Math.Abs(n);
+        if (n % 100 is >= 11 and <= 14) return many;
+        return (n % 10) switch { 1 => one, 2 or 3 or 4 => few, _ => many };
+    }
+
+    public static string Of(int n, string one, string few, string many) => $"{n} {Word(n, one, few, many)}";
+
+    public static string Blocks(int n) => Of(n, "блок", "блока", "блоков");
 }

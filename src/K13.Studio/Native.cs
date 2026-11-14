@@ -41,9 +41,10 @@ internal static class Native
         if (h == IntPtr.Zero) return ("", "");
         var sb = new StringBuilder(512);
         GetWindowText(h, sb, sb.Capacity);
-        GetWindowThreadProcessId(h, out uint pid);
+        if (GetWindowThreadProcessId(h, out uint pid) == 0 || pid == 0) return ("", sb.ToString());
         string proc = "";
-        try { proc = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName; } catch { }
+        // v5.3: dispose the Process – this runs every second and each one held an OS process handle until the next GC
+        try { using var p = System.Diagnostics.Process.GetProcessById((int)pid); proc = p.ProcessName; } catch { }
         return (proc, sb.ToString());
     }
 }

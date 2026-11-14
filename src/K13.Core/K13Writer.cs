@@ -73,7 +73,7 @@ public static class K13Writer
                     else if (got[k][i] != cachedImage[a + i] && !Trailer(a + i)) same = false;
                 }
             }
-            if (same) { before = ext; source = $"образ этого сеанса, сверено {check.Count} блок(ов)"; }
+            if (same) { before = ext; source = $"образ этого сеанса, сверено {RuPlural.Blocks(check.Count)}"; }
             else log("Клавиатура отличается от прочитанного ранее образа — читаю полностью.");
             Mark("проверка");
         }
@@ -105,9 +105,32 @@ public static class K13Writer
         int bb = cfg.Base; // v5.2: base-relative (KeymapFrom/MacrosFrom/LedTo are the BASE=0xE0 values)
         bool keys = diff.Any(b => b.Address < bb + K13Layout.OffFn && b.Address + b.Data.Length > bb + K13Layout.OffKeymap || b.Address >= bb + K13Layout.OffMacroTable);
         bool led = diff.Any(b => b.Address < bb + 0x20 && b.Address + b.Data.Length > bb);
-        log($"Запись: {diff.Count} блок(ов): " + string.Join(", ", diff.Select(b => $"0x{b.Address:X4}[{b.Data.Length}] {b.Purpose}")));
+        log($"Запись: {RuPlural.Blocks(diff.Count)}: " + string.Join(", ", diff.Select(b => $"0x{b.Address:X4}[{b.Data.Length}] {b.Purpose}")));
         P("Запись…", 0.7);
-        dev.Apply(diff, new Progress<double>(f => P("Запись…", 0.7 + f * 0.15)), programmingMode);
+        try { dev.Apply(diff, new Progress<double>(f => P("Запись…", 0.7 + f * 0.15)), programmingMode); }
+        catch (Exception ex) when (ex is IOException or TimeoutException)
+        {
+            // v5.3: the write broke off half-way (cable pulled, HID error). Try to put back the touched blocks from «before»;
+            // if the keypad is gone this fails too — then the backup file is the way back.
+            log("Запись прервана: " + ex.Message + " — пробую вернуть затронутые блоки из резервной копии.");
+            Mark("запись (прервана)");
+            bool restored = false;
+            try
+            {
+                var lenR = Math.Max(target.Length, before.Length);
+                var touched = Cover(diff, lenR).Where(c => c.Addr + c.Len <= before.Length)
+                    .Select(c => new WriteBlock(c.Addr, before.AsSpan(c.Addr, c.Len).ToArray(), "восстановление")).ToList();
+                dev.Apply(touched, null, programmingMode);
+                var (okR0, _, _) = ReadBack(dev, touched.Select(r => (r.Address, r.Data.Length)).ToList(), before);
+                restored = okR0;
+            }
+            catch (Exception rex) { log("Восстановление не удалось: " + rex.Message); }
+            Mark("восстановление");
+            return new(false, false, restored, diff.Count, bfile, null, false, false, restored ? before : null,
+                restored ? $"Запись прервалась ({ex.Message}), но затронутые блоки возвращены как было и проверены."
+                         : $"Запись прервалась: {ex.Message}\nКлавиатура могла остаться частично записанной. Подключите её снова и нажмите «Записать» ещё раз " +
+                           $"или верните резервную копию: {bfile}", string.Join(", ", times));
+        }
         Mark("запись");
 
         // ---- 3. read back only the written blocks
@@ -121,7 +144,7 @@ public static class K13Writer
         for (int k = 0; k < cover.Count; k++) Array.Copy(blocksAfter[k], 0, after, cover[k].Addr, cover[k].Len);
         var afile = BackupStore.Save(after, backupFolder, "k13-postwrite", null);
         if (okRead)
-            return new(true, false, false, diff.Count, bfile, afile, keys, led, after, $"Записано и проверено: {diff.Count} блок(ов).", string.Join(", ", times));
+            return new(true, false, false, diff.Count, bfile, afile, keys, led, after, $"Записано и проверено: {RuPlural.Blocks(diff.Count)}.", string.Join(", ", times));
 
         // ---- 4. confirmed mismatch → restore
         var bad = cover.SelectMany(c => Enumerable.Range(c.Addr, c.Len)).Where(i => after[i] != target[i] && !Trailer(i)).ToList();

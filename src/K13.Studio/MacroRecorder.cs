@@ -13,7 +13,7 @@ public sealed class MacroRecorder : IDisposable
 {
     public const int WH_MOUSE_LL = 14;
     private const int WM_LBUTTONDOWN = 0x201, WM_LBUTTONUP = 0x202, WM_RBUTTONDOWN = 0x204, WM_RBUTTONUP = 0x205,
-        WM_MBUTTONDOWN = 0x207, WM_MBUTTONUP = 0x208, WM_MOUSEWHEEL = 0x20A, WM_XBUTTONDOWN = 0x20B, WM_XBUTTONUP = 0x20C;
+        WM_MBUTTONDOWN = 0x207, WM_MBUTTONUP = 0x208, WM_MOUSEWHEEL = 0x20A, WM_XBUTTONDOWN = 0x20B;
     private const uint LLMHF_INJECTED = 0x01;
 
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; }

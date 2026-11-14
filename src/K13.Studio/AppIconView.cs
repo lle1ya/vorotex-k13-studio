@@ -117,7 +117,7 @@ internal static class CrispIcons
     [DllImport("user32.dll")] private static extern int GetSystemMetricsForDpi(int index, uint dpi);
     [DllImport("user32.dll")] private static extern uint GetDpiForSystem();
     [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
-    private const int SM_CXICON = 11, SM_CXSMICON = 49, WM_SETICON = 0x80;
+    private const int SM_CXSMICON = 49, WM_SETICON = 0x80;
     private static readonly List<System.Drawing.Icon> Keep = new();
     private const string Uri = "pack://application:,,,/VorotexK13Studio;component/Assets/app.ico";
 

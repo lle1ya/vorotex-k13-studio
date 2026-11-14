@@ -157,6 +157,43 @@ public sealed class AppProfile
     public string Accent { get; set; } = "";
     public string Glyph { get; set; } = "";
 
+    /// <summary>v5.3: null-safe defaults for everything a JSON file may omit or null out; an invalid device part is dropped
+    /// (the caller fills it from the default image) instead of crashing later.</summary>
+    public List<string> Normalize()
+    {
+        var notes = new List<string>();
+        Comment ??= ""; Accent ??= ""; Glyph ??= "";
+        MacroNames ??= new();
+        foreach (var k in MacroNames.Where(kv => kv.Key is < 0 or >= K13Layout.MacroSlots || string.IsNullOrWhiteSpace(kv.Value)).Select(kv => kv.Key).ToList()) MacroNames.Remove(k);
+        Host ??= new();
+        Host.Keys ??= new(); Host.Keys.RemoveAll(k => k == null);
+        Host.Chords ??= new(); Host.Chords.RemoveAll(c => c == null);
+        foreach (var k in Host.Keys)
+        {
+            k.Tap = Fix(k.Tap); k.Hold = Fix(k.Hold);
+            k.HoldMs = Math.Clamp(k.HoldMs, 100, 5000);
+        }
+        foreach (var c in Host.Chords) { c.Action = Fix(c.Action); c.Title ??= ""; }
+        Host.Ring ??= RingSettings.CreateDefault();
+        Host.Ring.Slots ??= new();
+        Host.Ring.Slots.RemoveAll(sl => sl == null);
+        if (Host.Ring.Slots.Count > RingSettings.MaxSlots) Host.Ring.Slots.RemoveRange(RingSettings.MaxSlots, Host.Ring.Slots.Count - RingSettings.MaxSlots);
+        foreach (var sl in Host.Ring.Slots) { sl.Title ??= ""; sl.Glyph ??= "\uE734"; sl.Action = Fix(sl.Action); }
+        Host.Ring.TapThresholdMs = Math.Clamp(Host.Ring.TapThresholdMs, 50, 2000);
+        if (Device != null)
+        {
+            try { K13MemoryCodec.Validate(Device); }
+            catch (Exception ex) when (ex is K13FormatException or NullReferenceException or IndexOutOfRangeException)
+            {
+                notes.Add($"Профиль «{Name}»: настройки клавиатуры в файле повреждены ({ex.Message}) — взяты стандартные.");
+                Device = null;
+            }
+        }
+        return notes;
+
+        static HostAction Fix(HostAction? a) { a ??= new(); a.Value ??= ""; a.Arguments ??= ""; return a; }
+    }
+
     public AppProfile Clone(string? newName = null)
     {
         var json = JsonSerializer.Serialize(this, ProfileStore.JsonOptions);
@@ -187,6 +224,38 @@ public sealed class ProfileStoreData
     public Dictionary<int, string> LedModeObserved { get; set; } = new();
     /// <summary>Data version for one-time migrations (see <see cref="ProfileMigrations"/>).</summary>
     public int SchemaVersion { get; set; }
+
+    /// <summary>v5.3: repairs what a hand-edited / older / partly damaged profiles.json can contain (nulls, duplicates,
+    /// out-of-range values) so the app never crashes on it. Returns notes for the log.</summary>
+    public List<string> Normalize()
+    {
+        var notes = new List<string>();
+        Profiles ??= new();
+        int nulls = Profiles.RemoveAll(p => p == null);
+        if (nulls > 0) notes.Add($"Удалено пустых записей профилей: {nulls}.");
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < Profiles.Count; i++)
+        {
+            var p = Profiles[i];
+            var name = (p.Name ?? "").Trim();
+            if (name.Length == 0) name = $"Профиль {i + 1}";
+            if (name.Length > 40) name = name[..40].TrimEnd();
+            string unique = name;
+            for (int k = 2; seen.Contains(unique); k++) unique = $"{name} ({k})";
+            if (unique != p.Name) notes.Add($"Профиль «{p.Name}» назван «{unique}» (пустое, длинное или повторяющееся имя).");
+            p.Name = unique; seen.Add(unique);
+            notes.AddRange(p.Normalize());
+        }
+        AppRules ??= new();
+        AppRules.RemoveAll(r => r == null);
+        foreach (var r in AppRules) { r.ProcessName ??= ""; r.TitleContains ??= ""; r.ProfileName ??= ""; }
+        LedColors ??= new();
+        LedModeObserved ??= new();
+        ActiveProfile ??= "";
+        if (Profiles.Count > 0 && !Profiles.Any(p => string.Equals(p.Name, ActiveProfile, StringComparison.OrdinalIgnoreCase)))
+            ActiveProfile = Profiles[0].Name;
+        return notes;
+    }
 }
 
 /// <summary>
@@ -295,16 +364,71 @@ public sealed class ProfileStore
         Directory.CreateDirectory(Folder);
     }
 
+    public string BackupPath => FilePath + ".bak";
+
+    /// <summary>Notes from the last <see cref="Load"/> (corrupt file kept aside, backup used, fields repaired…).</summary>
+    public List<string> LoadNotes { get; } = new();
+
+    /// <summary>
+    /// v5.3: never throws for a bad file and never lets a damaged profiles.json be overwritten silently:
+    /// the broken file is kept as <c>profiles.json.corrupt-…</c>, then <c>profiles.json.bak</c> (previous good save) is tried;
+    /// missing/null fields are repaired by <see cref="ProfileStoreData.Normalize"/>.
+    /// </summary>
     public void Load()
     {
-        if (!File.Exists(FilePath)) { Data = new ProfileStoreData(); return; }
-        Data = JsonSerializer.Deserialize<ProfileStoreData>(File.ReadAllText(FilePath), JsonOptions) ?? new ProfileStoreData();
+        LoadNotes.Clear();
+        if (!File.Exists(FilePath) && !File.Exists(BackupPath)) { Data = new ProfileStoreData(); return; }
+        ProfileStoreData? d = null;
+        if (File.Exists(FilePath))
+        {
+            d = TryRead(FilePath, out var err);
+            if (d == null)
+            {
+                var keep = FilePath + $".corrupt-{DateTime.Now:yyyyMMdd-HHmmss}";
+                try { File.Copy(FilePath, keep, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                LoadNotes.Add($"Файл профилей повреждён ({err}). Он сохранён как {Path.GetFileName(keep)}.");
+            }
+        }
+        if (d == null && File.Exists(BackupPath))
+        {
+            d = TryRead(BackupPath, out var err2);
+            LoadNotes.Add(d != null ? "Профили восстановлены из предыдущего сохранения (profiles.json.bak)." : $"Резервная копия профилей тоже не читается ({err2}).");
+        }
+        Data = d ?? new ProfileStoreData();
+        LoadNotes.AddRange(Data.Normalize());
     }
 
+    private static ProfileStoreData? TryRead(string path, out string? error)
+    {
+        error = null;
+        try
+        {
+            var text = File.ReadAllText(path);
+            if (string.IsNullOrWhiteSpace(text)) { error = "пустой файл"; return null; }
+            return JsonSerializer.Deserialize<ProfileStoreData>(text, JsonOptions) ?? throw new JsonException("null");
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or NotSupportedException or InvalidOperationException)
+        { error = ex.Message; return null; }
+    }
+
+    /// <summary>Atomic save: write + flush a temp file, then replace profiles.json keeping the previous version as profiles.json.bak.</summary>
     public void Save()
     {
         var tmp = FilePath + ".tmp";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(Data, JsonOptions));
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(Data, JsonOptions);
+        using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            fs.Write(bytes);
+            fs.Flush(true);
+        }
+        if (File.Exists(FilePath))
+        {
+            try { File.Replace(tmp, FilePath, BackupPath, ignoreMetadataErrors: true); return; }
+            catch (Exception ex) when (ex is IOException or PlatformNotSupportedException or UnauthorizedAccessException)
+            {
+                try { File.Copy(FilePath, BackupPath, true); } catch (IOException) { }
+            }
+        }
         File.Move(tmp, FilePath, true);
     }
 
@@ -326,9 +450,13 @@ public static class BackupStore
     {
         folder ??= DefaultFolder;
         Directory.CreateDirectory(folder);
-        var ts = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+        var ts = DateTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+        // v5.3: two backups in the same second (quick lighting writes) used to overwrite each other — never reuse a name
         var bin = Path.Combine(folder, $"{prefix}-{ts}.bin");
-        File.WriteAllBytes(bin, image);
+        for (int n = 2; File.Exists(bin); n++) bin = Path.Combine(folder, $"{prefix}-{ts}-{n}.bin");
+        var tmp = bin + ".tmp";
+        File.WriteAllBytes(tmp, image);
+        File.Move(tmp, bin);
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"# VOROTEX K13 backup {ts} len=0x{image.Length:X}");
         if (status != null) sb.AppendLine("# status: " + status.Hex);
