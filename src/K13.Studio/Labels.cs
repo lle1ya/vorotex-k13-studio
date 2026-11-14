@@ -29,6 +29,35 @@ public static class Labels
 
     public static string KeyText(byte code) => Map.TryGetValue(code, out var v) ? v.Text : KeyCatalog.Name(code);
 
+    /// <summary>v5.2: the PC-side action that already listens to this key code (F13–F24 triggers, diagonals), or null.</summary>
+    public static string? HostUse(byte code, HostSettings host)
+    {
+        if (code is < 0x68 or > 0x73) return null;
+        ushort vk = (ushort)(0x7C + (code - 0x68));
+        var b = host.Keys.FirstOrDefault(k => k.TriggerVk == vk);
+        if (b != null && (b.Tap.Kind != HostActionKind.None || b.Hold.Kind != HostActionKind.None))
+        {
+            var a = b.Tap.Kind != HostActionKind.None ? b.Tap : b.Hold;
+            string what = a.Kind switch
+            {
+                HostActionKind.Ring => "Кольцо действий",
+                HostActionKind.LaunchProgram => $"запуск «{System.IO.Path.GetFileNameWithoutExtension(a.Value)}»",
+                HostActionKind.OpenUrl => $"сайт {Host(a.Value)}",
+                HostActionKind.Text => "вставка текста",
+                HostActionKind.KeyCombo => $"сочетание {a.Value}",
+                HostActionKind.SwitchProfile => $"профиль «{a.Value}»",
+                _ => a.ToString(),
+            };
+            return b.Tap.Kind == HostActionKind.None ? "удержание: " + what : what;
+        }
+        var c = host.Chords.FirstOrDefault(ch => ch.VkA == vk || ch.VkB == vk);
+        return c != null ? $"диагональ «{c.Title}»" : null;
+    }
+
+    /// <summary>«F13 · занята: Кольцо действий» for a code taken by a PC action, otherwise just the key name.</summary>
+    public static string BusyName(byte code, HostSettings host) =>
+        HostUse(code, host) is { } use ? $"{KeyCatalog.Name(code)} · занята: {use}" : KeyCatalog.Name(code);
+
     /// <summary>Returns a short legend for a keymap code in the context of the profile.</summary>
     public static (string Icon, string Text) For(byte code, K13DeviceConfig cfg, HostSettings host)
     {

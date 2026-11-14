@@ -88,10 +88,24 @@ internal static class MessageBox
         return result();
     }
 
-    /// <summary>Builds the dialog without showing it (also used for screenshots).</summary>
-    internal static Window Build(Window? owner, string text, string caption, MessageBoxButton buttons, MessageBoxImage image, MessageBoxResult def, out Func<MessageBoxResult> result)
+    /// <summary>Same themed dialog with own button captions (in the order of <paramref name="buttons"/>).</summary>
+    public static MessageBoxResult ShowCustom(Window? owner, string text, string caption, MessageBoxButton buttons, MessageBoxImage image, MessageBoxResult def, params string[] labels)
     {
-        var win = Ui.MakeWindow(owner, caption, 460, 200);
+        if (owner is { IsLoaded: false } or { IsVisible: false }) owner = null;
+        var w = Build(owner, text, caption, buttons, image, def, out var r, labels);
+        w.ShowDialog();
+        return r();
+    }
+
+    /// <summary>Builds the dialog without showing it (also used for screenshots).</summary>
+    internal static Window Build(Window? owner, string text, string caption, MessageBoxButton buttons, MessageBoxImage image, MessageBoxResult def, out Func<MessageBoxResult> result, string[]? labels = null)
+    {
+        int li = 0;
+        string L(string d) { var x = labels != null && li < labels.Length ? labels[li] : d; li++; return x; }
+        // custom (longer) button captions get a wider dialog so nothing is clipped
+        int extra = labels == null ? 0 : Math.Max(0, labels.Sum(l => l.Length) - 18) * 8;
+        if (text.Length > 500) extra = Math.Max(extra, 140);
+        var win = Ui.MakeWindow(owner, caption, Math.Min(640, 460 + extra), 200);
         win.ResizeMode = ResizeMode.NoResize;
         win.SizeToContent = SizeToContent.Height;
         win.ShowInTaskbar = owner == null;
@@ -123,11 +137,12 @@ internal static class MessageBox
             root.Children.Add(circle);
         }
         var body = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, FontSize = 14, LineHeight = 21, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 6, 0, 0) };
-        root.Children.Add(new ScrollViewer { Content = body, MaxHeight = 420, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        root.Children.Add(new ScrollViewer { Content = body, MaxHeight = 520, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
 
         void Btn(string label, MessageBoxResult r, bool cancel = false)
         {
             bool primary = r == def;
+            label = L(label);
             var b = new Button { Content = label, MinWidth = 96, Margin = new Thickness(8, 0, 0, 0), IsDefault = primary, IsCancel = cancel, Padding = new Thickness(16, 7, 16, 7) };
             if (primary) b.Style = (Style)Application.Current.FindResource("AccentButton");
             b.Click += (_, _) => { res = r; win.DialogResult = r is MessageBoxResult.OK or MessageBoxResult.Yes; win.Close(); };

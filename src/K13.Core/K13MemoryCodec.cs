@@ -14,12 +14,14 @@ public static class K13MemoryCodec
 {
     public static readonly byte[] HeaderMagic = { 0xE1, 0x1E };
 
+    /// <summary>BASE of the config block. v5.2: no exact E1 1E match any more – the header is checked structurally by
+    /// <see cref="K13Header.Inspect"/>; only an image without any usable BASE is rejected here (the writer separately asks
+    /// the user before touching a keypad whose layout is <see cref="HeaderVerdict.Uncertain"/>).</summary>
     public static int ReadBase(byte[] img)
     {
-        if (img.Length < K13Layout.HeaderAddress + 8) throw new K13FormatException("Образ слишком короткий (нет заголовка 0xD0).");
-        if (img[K13Layout.HeaderAddress] != 0xE1 || img[K13Layout.HeaderAddress + 1] != 0x1E)
-            throw new K13FormatException($"Нет сигнатуры E1 1E по адресу 0xD0 (прочитано {img[0xD0]:X2} {img[0xD1]:X2}).");
-        return img[0xD2] | img[0xD3] << 8;
+        var h = K13Header.Inspect(img);
+        if (h.Verdict == HeaderVerdict.Unusable) throw new K13FormatException(string.Join(" ", h.Problems));
+        return h.Base;
     }
 
     /// <summary>Logical ↔ device colour mapping used by Encode/Decode (set by the app from the store / calibration).</summary>
@@ -46,7 +48,7 @@ public static class K13MemoryCodec
         led.ModeEnableMask = img[b + K13Layout.OffModeEnable];
 
         int keymapPtr = U16(img, b + K13Layout.OffKeymapPtr), macroPtr = U16(img, b + K13Layout.OffMacroPtr);
-        if (keymapPtr != b + K13Layout.OffKeymap || macroPtr != b + K13Layout.OffMacroTable)
+        if ((keymapPtr != b + K13Layout.OffKeymap || macroPtr != b + K13Layout.OffMacroTable))
             throw new K13FormatException($"Неожиданные указатели keymap=0x{keymapPtr:X4} macro=0x{macroPtr:X4} (ожидалось BASE+0x48/BASE+0xF8).");
 
         byte w = img[b + K13Layout.OffWheel];
@@ -134,7 +136,11 @@ public static class K13MemoryCodec
         }
 
         // 1. header @0xD0
-        Put(K13Layout.HeaderAddress, new byte[] { 0xE1, 0x1E, (byte)b, (byte)(b >> 8), 0xF0, 0x0F, 0x00, 0x00 }, "Заголовок");
+        // v5.2: keep the unit's own marker (E1 1E on ours, DA 1E on the makers' unit, …); only a blank header gets E1 1E.
+        byte m0 = baseImage.Length > K13Layout.HeaderAddress + 1 ? baseImage[K13Layout.HeaderAddress] : (byte)0xFF;
+        byte m1 = baseImage.Length > K13Layout.HeaderAddress + 1 ? baseImage[K13Layout.HeaderAddress + 1] : (byte)0xFF;
+        if ((m0 is 0xFF or 0x00) && (m1 is 0xFF or 0x00)) { m0 = K13Header.KnownMarkerLo; m1 = K13Header.MarkerHi; }
+        Put(K13Layout.HeaderAddress, new byte[] { m0, m1, (byte)b, (byte)(b >> 8), 0xF0, 0x0F, 0x00, 0x00 }, "Заголовок");
         // 2. BASE+0x00..0x17 : flags, colours, extra
         var led = cfg.Led;
         var ledBytes = new byte[0x18];

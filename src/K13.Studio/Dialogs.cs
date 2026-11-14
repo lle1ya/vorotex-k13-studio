@@ -169,7 +169,7 @@ internal static class ActionText
         {
             var b = host.Keys.FirstOrDefault(k => k.TriggerVk == 0x7C + (code - 0x68));
             if (b != null && (b.Tap.Kind != HostActionKind.None || b.Hold.Kind != HostActionKind.None))
-                return $"{b.Tap}" + (b.Hold.Kind != HostActionKind.None ? $"; удержание: {b.Hold}" : "") + $"  (через ПК, {KeyCatalog.Name(code)})";
+                return $"{KeyCatalog.Name(code)} · занята: {Labels.HostUse(code, host)}" + (b.Tap.Kind != HostActionKind.None && b.Hold.Kind != HostActionKind.None ? $"; удержание: {b.Hold}" : "") + " (действие на ПК)";
         }
         return KeyCatalog.Name(code);
     }

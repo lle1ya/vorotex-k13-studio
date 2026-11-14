@@ -278,7 +278,14 @@ public partial class MainWindow
         var ctl = K13Layout.ByColumn(_selCol);
         byte code = Cfg.GetKey(_selCol);
         var (icon, text) = Labels.For(code, Cfg, _profile.Host);
-        CurrentBlock(icon, text, ActionText.Describe(code, Cfg, _profile.Host), code != ctl.FactoryCode,
+        // v5.2: a regular key that sends a code taken by the ring (e.g. F13) – say so instead of a bare «Кольцо»
+        string curDesc = ActionText.Describe(code, Cfg, _profile.Host);
+        if (_selCol != DeviceView.StickPress && TileOf(code, Cfg, _profile.Host) == "ring")
+        {
+            text = Labels.BusyName(code, _profile.Host);
+            curDesc = $"Кнопка посылает {KeyCatalog.Name(code)}, а этот код программа перехватывает для кольца действий — обычное нажатие {KeyCatalog.Name(code)} до других программ не дойдёт.";
+        }
+        CurrentBlock(icon, text, curDesc, code != ctl.FactoryCode,
             () => { Cfg.SetKey(_selCol, ctl.FactoryCode); Changed(); RefreshMacros(); });
 
         EditorHost.Children.Add(T("Выберите, что она будет делать:", 13, muted: true, bottom: 8).With(t => t.Margin = new Thickness(0, 14, 0, 8)));
@@ -405,6 +412,14 @@ public partial class MainWindow
     {
         if (_captureText == null) return;
         _captureText.Text = text; _captureText.FontSize = 24; _captureText.FontWeight = FontWeights.SemiBold; _captureText.Foreground = R("TextBrush");
+        // v5.2: a plain key whose code a PC action already listens to (F13 → Кольцо действий, …)
+        if (_tile == "key" && _pendingCode is byte pc && Labels.HostUse(pc, _profile.Host) is { } use)
+        {
+            _captureText.Inlines.Clear();
+            _captureText.Inlines.Add(new System.Windows.Documents.Run(KeyCatalog.Name(pc)));
+            _captureText.Inlines.Add(new System.Windows.Documents.LineBreak());
+            _captureText.Inlines.Add(new System.Windows.Documents.Run("⚠ занята: " + use) { FontSize = 14, FontWeight = FontWeights.Medium, Foreground = R("WarnBrush") });
+        }
     }
 
     private Action KeyEditor(byte code)
@@ -425,7 +440,8 @@ public partial class MainWindow
             foreach (var k in all.Where(k => q.Length == 0 || k.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || KeyCatalog.CategoryTitle(k.Category).Contains(q, StringComparison.OrdinalIgnoreCase)))
             {
                 var dp = new DockPanel();
-                var cat = new TextBlock { Text = KeyCatalog.CategoryTitle(k.Category), Foreground = R("MutedBrush"), FontSize = 12 };
+                var busy = Labels.HostUse(k.Code, _profile.Host);
+                var cat = new TextBlock { Text = busy != null ? "занята: " + busy : KeyCatalog.CategoryTitle(k.Category), Foreground = R(busy != null ? "WarnBrush" : "MutedBrush"), FontSize = 12 };
                 DockPanel.SetDock(cat, Dock.Right);
                 dp.Children.Add(cat); dp.Children.Add(new TextBlock { Text = k.Name });
                 var it = new ListBoxItem { Content = dp, Tag = k.Code };
@@ -595,10 +611,45 @@ public partial class MainWindow
     {
         if (!IsKeyCol(_selCol)) return;
         if (Cfg.GetKey(_selCol) == code) return;
+        if (_tile == "key" && Labels.HostUse(code, _profile.Host) is { } use)
+        {
+            BuildBusyKeyDialog(code, use, out var answer).ShowDialog();
+            if (answer() != MessageBoxResult.Yes) { _lastError = $"{KeyCatalog.Name(code)} не назначена — выберите другую клавишу."; return; }
+            Log($"{DeviceView.ControlName(_selCol)}: {KeyCatalog.Name(code)} оставлена, хотя занята действием на ПК ({use}).");
+        }
         Cfg.SetKey(_selCol, code);
         Log($"{DeviceView.ControlName(_selCol)}: {KeyCatalog.Name(code)}.");
         Changed();
         RefreshMacros();
+    }
+
+    /// <summary>v5.2 screenshots: key editor of a key with F13 picked from the list (F13 is the stick's ring trigger).</summary>
+    internal void DemoBusyKey(int col, byte code)
+    {
+        ShowPage(0); SelectControl(col); OpenTile("key");
+        if (EditorHost.Children.OfType<TextBox>().FirstOrDefault() is { } search) search.Text = "F1";
+        _captureKey = false;
+        _pendingCode = code; SetCaptured(KeyCatalog.Name(code));
+        if (EditorHost.Children.OfType<ListBox>().FirstOrDefault() is { } list)
+            foreach (ListBoxItem it in list.Items) if ((byte)it.Tag == code) { it.IsSelected = true; list.ScrollIntoView(it); break; }
+    }
+
+    internal void DemoKeepBusy(int col, byte code) { Cfg.SetKey(col, code); OpenTile(null); SelectControl(col); }
+
+    internal string? HostUseOf(byte code) => Labels.HostUse(code, _profile.Host);
+
+    /// <summary>v5.2: warning when a plain key is chosen whose code a PC action already uses.</summary>
+    internal Window BuildBusyKeyDialog(byte code, string use, out Func<MessageBoxResult> answer)
+    {
+        string name = KeyCatalog.Name(code);
+        var others = K13Layout.Controls.Where(c => c.Column != _selCol && Cfg.GetKey(c.Column) == code).Select(c => DeviceView.ControlName(c.Column)).ToList();
+        string text = $"{name} уже занята действием на ПК: «{use}».\n\n" +
+                      $"Программа перехватывает {name} и выполняет это действие, поэтому {DeviceView.ControlName(_selCol)} будет делать «{use}», " +
+                      $"а обычное нажатие {name} до других программ не дойдёт." +
+                      (others.Count > 0 ? $"\n\nЭтот код уже посылает: {string.Join(", ", others)}." : "") +
+                      $"\n\nЧтобы кнопка нажимала именно {name}, выберите другую клавишу или назначьте «{use}» другую клавишу в «⋯ → Действия на компьютере».";
+        return MessageBox.Build(IsLoaded ? this : null, text, $"{name} · занята: {use}", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No, out answer,
+            new[] { $"Оставить ({use})", "Выбрать другую клавишу" });
     }
 
     private string? ApplyCombo(string combo)

@@ -194,7 +194,8 @@ public partial class MainWindow : Window
         {
             K13MemoryCodec.Encode(Cfg, _deviceImage, out var plan);
             var diff = K13Protocol.DiffPlan(plan, _deviceImage);
-            return diff.Count > 0 && diff.All(b => b.Address >= 0x00E0 && b.Address + b.Data.Length <= 0x0100);
+            int bs = K13MemoryCodec.ReadBase(_deviceImage);
+            return diff.Count > 0 && diff.All(b => b.Address >= bs && b.Address + b.Data.Length <= bs + 0x20);
         }
         catch { return false; }
     }
@@ -606,13 +607,34 @@ public partial class MainWindow : Window
                 double left = Math.Max(0, est - swTotal.Elapsed.TotalSeconds);
                 StatusText.Text = $"{p.Stage} {p.Fraction:P0}" + (left >= 1 ? $" · осталось ≈ {left:0} с" : "");
             });
-            var r = await Task.Run(() =>
+            Task<K13WriteResult> Run(string? accepted) => Task.Run(() =>
             {
                 using var dev = K13Device.OpenFirst() ?? throw new IOException("Клавиатура не найдена.");
                 K13WriteGate.Unlock(K13WriteGate.ConfirmationPhrase);
-                try { return K13Writer.WriteProfile(dev, cfg, m => { lock (lines) lines.Add(m); App.Log("[write] " + m); }, progress, cachedImage: cached); }
+                try { return K13Writer.WriteProfile(dev, cfg, m => { lock (lines) lines.Add(m); App.Log("[write] " + m); }, progress, cachedImage: cached, acceptedHeader: accepted); }
                 finally { K13WriteGate.Lock(); }
             });
+            var r = await Run(_store.Data.AcceptedHeader);
+            if (r.NeedsConfirmation && r.Header != null)
+            {
+                foreach (var l in lines) Log(l);
+                lines.Clear();
+                if (r.After != null) _deviceImage = r.After;
+                Progress.Visibility = Visibility.Collapsed;
+                BuildLayoutDialog(r.Header, r.BackupBefore, out var answer).ShowDialog();
+                if (answer() != MessageBoxResult.Yes)
+                {
+                    StatusText.Text = "Запись отменена: раскладка памяти не подтверждена. Клавиатура не изменялась.";
+                    Log("Запись отменена пользователем (заголовок " + r.Header.RawHex + ").");
+                    return false;
+                }
+                _store.Data.AcceptedHeader = r.Header.RawHex; SaveStore();
+                Log("Пользователь разрешил запись при заголовке " + r.Header.RawHex + ".");
+                Progress.Visibility = Visibility.Visible;
+                cached = null;
+                r = await Run(r.Header.RawHex);
+            }
+            else if (r.Header is { Verdict: HeaderVerdict.Compatible } hc) StatusText.Text = hc.Summary;
             foreach (var l in lines) Log(l);
             double secs = swTotal.Elapsed.TotalSeconds;
             Log($"Запись: {r.Message} Время {secs:0.0} с [{r.Timing}]" + (r.BackupAfter != null ? " Проверка: " + r.BackupAfter : ""));
@@ -639,6 +661,19 @@ public partial class MainWindow : Window
         {
             _busy = false; Progress.Visibility = Visibility.Collapsed; UpdateConn(); RefreshDirty();
         }
+    }
+
+    /// <summary>v5.2: themed «layout not certain» dialog — names the bytes found at 0xD0 and what did not match.</summary>
+    internal Window BuildLayoutDialog(K13HeaderInfo h, string? backup, out Func<MessageBoxResult> answer)
+    {
+        var text = "Память этой клавиатуры устроена не совсем так, как у проверенной K13, поэтому программа спрашивает перед записью.\n\n" +
+                   $"Заголовок по адресу 0xD0:\n{h.RawHex.Replace(' ', '\u00A0')}  (у проверенной K13: E1\u00A01E\u00A0E0\u00A000\u00A0F0\u00A00F\u00A000\u00A000)\n\n" +
+                   string.Join("\n", h.Problems.Concat(h.Notes).Select(x => "• " + x)) + "\n\n" +
+                   (backup != null ? $"Резервная копия памяти уже сохранена:\n{backup}\n\n" : "") +
+                   "Если продолжить, будут записаны только изменённые блоки, затем они будут прочитаны и сверены; при расхождении память вернётся из резервной копии. " +
+                   "Для этого заголовка вопрос больше задаваться не будет.";
+        return MessageBox.Build(IsLoaded ? this : null, text, "Проверка памяти клавиатуры", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No, out answer,
+            new[] { "Продолжить запись", "Отмена" });
     }
 
     private int EstimateWriteSeconds(K13DeviceConfig cfg, byte[]? cached)

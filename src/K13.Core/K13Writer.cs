@@ -3,7 +3,13 @@ using System.Diagnostics;
 namespace Vorotex.K13;
 
 public sealed record K13WriteResult(bool Ok, bool NothingToDo, bool Restored, int Blocks, string? BackupBefore, string? BackupAfter,
-    bool KeysChanged, bool LightingChanged, byte[]? After, string Message, string Timing = "");
+    bool KeysChanged, bool LightingChanged, byte[]? After, string Message, string Timing = "")
+{
+    /// <summary>v5.2: the header/layout of this unit is not certain — nothing was written; ask the user and call again
+    /// with <c>acceptedHeader</c> = <see cref="K13HeaderInfo.RawHex"/> of <see cref="Header"/>.</summary>
+    public bool NeedsConfirmation { get; init; }
+    public K13HeaderInfo? Header { get; init; }
+}
 
 /// <summary>
 /// Safe and fast write (v0.4.4):
@@ -30,14 +36,16 @@ public static class K13Writer
 
     public static K13WriteResult WriteProfile(K13Device dev, K13DeviceConfig cfg, Action<string> log,
         IProgress<(string Stage, double Fraction)>? progress = null, bool programmingMode = false, string? backupFolder = null,
-        byte[]? cachedImage = null)
+        byte[]? cachedImage = null, string? acceptedHeader = null)
     {
         var sw = Stopwatch.StartNew();
         var times = new List<string>();
         void Mark(string what) { times.Add($"{what} {sw.ElapsedMilliseconds} мс"); sw.Restart(); }
         void P(string s, double f) => progress?.Report((s, f));
         var st = dev.GetStatus();
-        if (st.Base != 0xE0) return Fail($"Неожиданный BASE 0x{st.Base:X} — запись отменена.");
+        int? devBase = st.Base is >= 0xD8 and <= 0x1000 ? st.Base : null;
+        // v5.2: the exact «E1 1E E0 00» / «BASE == 0xE0» checks are replaced by a structural check (K13Header.Inspect).
+        bool HeaderOk(byte[] img) { var h = K13Header.Inspect(img, devBase); return h.CanWrite || h.Verdict == HeaderVerdict.Uncertain && h.RawHex == acceptedHeader; }
 
         // ---- 1. image before the write
         byte[]? before = null;
@@ -74,16 +82,29 @@ public static class K13Writer
             before = dev.ReadImageVerified(new Progress<(string, double)>(x => P("Чтение клавиатуры…", 0.05 + x.Item2 * 0.6)));
             Mark("полное чтение");
         }
-        if (!HeaderOk(before)) return Fail("Заголовок памяти не E1 1E E0 00 — запись отменена.");
+        var header = K13Header.Inspect(before, devBase);
+        log(header.Summary + (header.Notes.Count > 0 ? " " + string.Join(" ", header.Notes) : ""));
+        if (header.Verdict == HeaderVerdict.Unusable)
+            return Fail("Не удалось определить, где в памяти клавиатуры лежат настройки: " + string.Join(" ", header.Problems) + " Запись отменена, клавиатура не изменялась.") with { Header = header };
         var bfile = BackupStore.Save(before, backupFolder, "k13-prewrite", st);
         log($"Резервная копия перед записью ({source}): {bfile}");
+        if (header.Verdict == HeaderVerdict.Uncertain && header.RawHex != acceptedHeader)
+            return new K13WriteResult(false, false, false, 0, bfile, null, false, false, before,
+                "Раскладка памяти этой клавиатуры не совпала с проверенной — нужно подтверждение. Ничего не записано.", string.Join(", ", times))
+                { NeedsConfirmation = true, Header = header };
+        if (cfg.Base != header.Base)
+        {
+            log($"Профиль был рассчитан на BASE 0x{cfg.Base:X}, у клавиатуры 0x{header.Base:X} — пересчитываю адреса.");
+            cfg.Base = header.Base;
+        }
 
         // ---- 2. plan and write
         var target = K13MemoryCodec.Encode(cfg, before, out var plan);
         var diff = K13Protocol.DiffPlan(plan, before);
         if (diff.Count == 0) return new(true, true, false, 0, bfile, null, false, false, before, "Клавиатура уже совпадает с профилем — записывать нечего.", string.Join(", ", times));
-        bool keys = diff.Any(b => b.Address < KeymapTo && b.Address + b.Data.Length > KeymapFrom || b.Address >= MacrosFrom);
-        bool led = diff.Any(b => b.Address < LedTo && b.Address + b.Data.Length > 0x00E0);
+        int bb = cfg.Base; // v5.2: base-relative (KeymapFrom/MacrosFrom/LedTo are the BASE=0xE0 values)
+        bool keys = diff.Any(b => b.Address < bb + K13Layout.OffFn && b.Address + b.Data.Length > bb + K13Layout.OffKeymap || b.Address >= bb + K13Layout.OffMacroTable);
+        bool led = diff.Any(b => b.Address < bb + 0x20 && b.Address + b.Data.Length > bb);
         log($"Запись: {diff.Count} блок(ов): " + string.Join(", ", diff.Select(b => $"0x{b.Address:X4}[{b.Data.Length}] {b.Purpose}")));
         P("Запись…", 0.7);
         dev.Apply(diff, new Progress<double>(f => P("Запись…", 0.7 + f * 0.15)), programmingMode);
@@ -118,8 +139,6 @@ public static class K13Writer
 
         K13WriteResult Fail(string m) => new(false, false, false, 0, null, null, false, false, null, m, string.Join(", ", times));
     }
-
-    static bool HeaderOk(byte[] img) => img.Length > 0xD3 && img[0xD0] == 0xE1 && img[0xD1] == 0x1E && img[0xD2] == 0xE0 && img[0xD3] == 0x00;
 
     /// <summary>Read back and compare with the expected image. One pass when it matches; otherwise up to 3 more (slower) passes.
     /// ok=false only when two consecutive passes agree on a mismatch.</summary>

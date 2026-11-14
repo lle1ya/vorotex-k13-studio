@@ -257,6 +257,51 @@ internal static class Screenshots
     }
 
     /// <summary>v5.0: custom title bars, Inter font, app icon – main window, test dialog, confirmation dialog.</summary>
+    /// <summary>v5.2: busy F13 warning (editor + dialog + overview label) and the «layout not certain» dialog.</summary>
+    public static int RenderV52(string folder)
+    {
+        try
+        {
+            Directory.CreateDirectory(folder);
+            var tmp = Path.Combine(Path.GetTempPath(), "vorotex-screens52-" + Environment.ProcessId);
+            var shots = new List<string>();
+            foreach (var dark in new[] { false, true })
+            {
+                App.SetTheme(dark);
+                var w = new MainWindow(offline: true, storeFolder: tmp + (dark ? "d" : "l"), previewImage: null)
+                { Width = 1280, Height = 800, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual };
+                w.Show();
+                int demo = w.DemoMouseMacro();
+                w.DemoV47(demo);
+                string sfx = dark ? "-dark" : "";
+                void Dlg(Window d, string name) { d.Owner = null; d.Left = -32000; d.Top = -32000; d.ShowActivated = false; d.WindowStartupLocation = WindowStartupLocation.Manual; d.Show(); shots.Add(ShotWindow(d, Path.Combine(folder, name), 1.5)); d.Close(); }
+
+                w.SelectControl(4);
+                shots.Add(Shot(w, 0, Path.Combine(folder, $"01-main-keys-150pct{sfx}.png"), 1.5));
+                w.DemoBusyKey(3, 0x68);
+                shots.Add(Shot(w, 0, Path.Combine(folder, $"02-key-f13-busy-editor-150pct{sfx}.png"), 1.5));
+                Dlg(w.BuildBusyKeyDialog(0x68, w.HostUseOf(0x68) ?? "Кольцо действий", out _), $"03-dialog-f13-busy-150pct{sfx}.png");
+                w.DemoKeepBusy(3, 0x68);
+                shots.Add(Shot(w, 0, Path.Combine(folder, $"04-key4-f13-label-150pct{sfx}.png"), 1.5));
+
+                var img = (byte[])MainWindow.DefaultImage.Clone();
+                img[0xD0] = 0xDA; img[0xD4] = 0xFF; img[0xD5] = 0xFF;   // marker + tail differ → «not certain» case
+                var h = K13Header.Inspect(img, 0xE0);
+                Dlg(w.BuildLayoutDialog(h, @"C:\Users\…\AppData\Local\VorotexK13Studio\backups\k13-prewrite-20261114-133000.bin", out _), $"05-dialog-layout-check-150pct{sfx}.png");
+                var ok = (byte[])MainWindow.DefaultImage.Clone(); ok[0xD0] = 0xDA;
+                File.AppendAllText(Path.Combine(folder, "header-check.txt"), $"{(dark ? "dark" : "light")}: DA 1E → {K13Header.Inspect(ok, 0xE0).Verdict}: {K13Header.Inspect(ok, 0xE0).Summary}\n");
+                w.ExitApp();
+            }
+            File.WriteAllText(Path.Combine(folder, "screens.txt"), string.Join(Environment.NewLine, shots));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(Path.Combine(folder, "screens-error.txt"), ex.ToString()); } catch { }
+            return 1;
+        }
+    }
+
     public static int RenderV50(string folder)
     {
         try

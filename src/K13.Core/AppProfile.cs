@@ -179,6 +179,8 @@ public sealed class ProfileStoreData
     public bool StartWithWindows { get; set; }
     /// <summary>The user confirmed (once) that the app may write to the keypad.</summary>
     public bool WriteConfirmed { get; set; }
+    /// <summary>v5.2: 0xD0 header (8 bytes hex) the user allowed writing with although the layout check was uncertain.</summary>
+    public string? AcceptedHeader { get; set; }
     /// <summary>Colour channel mapping (default: inverted, see LedColorMap).</summary>
     public LedColorMap LedColors { get; set; } = new();
     /// <summary>What each device mode number does (from the calibration wizard); null/empty = not calibrated.</summary>
