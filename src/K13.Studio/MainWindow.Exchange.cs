@@ -365,7 +365,7 @@ public partial class MainWindow
 
     internal void ScrollProfiles(double y)
     {
-        ProfileScroll.UpdateLayout(); ProfileScroll.ScrollToVerticalOffset(y);
+        if (PageProfiles.Children.Count > 0 && PageProfiles.Children[0] is ScrollViewer sv) { sv.UpdateLayout(); sv.ScrollToVerticalOffset(y); }
     }
 
     /// <summary>Screenshots/smoke test: a package from a friend — «Фото» (conflicts with ours) and «Стрим» that opens a link.</summary>

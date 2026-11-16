@@ -193,23 +193,22 @@ public static class SmokeTest
                 var m = w.ToastMenu(w);
                 if (m.Items.Count != 2) throw new InvalidOperationException("в меню ⋯ ожидалось 2 пункта, а не " + m.Items.Count);
             });
-            // v5.7.1: profiles — list on the left, the selected profile on the right
-            Step($"{th}: профили — список и выбранный профиль", () =>
+            // v5.7.2: v5.7 cards, slim header (auto-switch + «Новый» + ⋯), one line under the cards
+            Step($"{th}: профили — тонкая шапка, меню ⋯ и строка внизу", () =>
             {
-                w.SelectProfileView(null); Render(w, 3);
-                var rows = Find<Border>(w).Where(b => (b.Tag as string) == "profile-row").ToList();
-                if (rows.Count != w.AllProfiles().Count) throw new InvalidOperationException($"строк профилей {rows.Count}, профилей {w.AllProfiles().Count}");
-                if (w.ViewProfile != w.ActiveProfileForTest) throw new InvalidOperationException("по умолчанию открыт не активный профиль");
-                var other = w.AllProfiles().First(p => p != w.ActiveProfileForTest);
-                w.SelectProfileView(other.Name); Render(w, 3);
-                if (w.ViewProfile != other) throw new InvalidOperationException("выбор профиля не открыл его");
-                if (w.ActiveProfileForTest == other) throw new InvalidOperationException("выбор профиля сделал его активным");
+                Render(w, 3);
+                if (w.ProfileCardCount != w.AllProfiles().Count) throw new InvalidOperationException($"карточек {w.ProfileCardCount}, профилей {w.AllProfiles().Count}");
+                var tags = w.ProfilesMenu(w).Items.OfType<MenuItem>().Select(i => i.Tag as string).ToList();
+                foreach (var t in new[] { "fallback", "toast", "pcmode" })
+                    if (!tags.Contains(t)) throw new InvalidOperationException("в ⋯ профилей нет пункта " + t);
+                var toast = w.ProfilesMenu(w).Items.OfType<MenuItem>().First(i => (i.Tag as string) == "toast");
+                if (toast.Items.Count < 6) throw new InvalidOperationException("подменю уведомления: " + toast.Items.Count);
+                var main = AllText(w.MainMenu());
+                if (!main.Contains("Сворачивать в трей") || !main.Contains("Запускать вместе с Windows") || !main.Contains("тема")) throw new InvalidOperationException("трей/автозапуск/тема не в главном меню ⋯");
+                if (w.TrayBoxForTest.IsVisible) throw new InvalidOperationException("карточка «Настройки» осталась на странице");
                 var all = AllText(w);
-                if (!all.Contains("Сделать активным") || !all.Contains("Включать в программах") || !all.Contains("Действия на компьютере") || !all.Contains("Для всех профилей"))
-                    throw new InvalidOperationException("нет разделов выбранного профиля");
-                if (w.ProfilesMenu(w).Items.Count != 3) throw new InvalidOperationException("в меню ⋯ профилей ожидалось 3 пункта");
-                if (w.TrayBoxForTest.IsVisible) throw new InvalidOperationException("редкие настройки не свёрнуты в «Дополнительно»");
-                w.SelectProfileView(null); Render(w, 3);
+                if (!all.Contains("Действия на компьютере") || !all.Contains("Автопереключение")) throw new InvalidOperationException("нет строки действий на ПК или переключателя");
+                if (all.Contains("В других программах") || all.Contains("Уведомление при смене")) throw new InvalidOperationException("редкие настройки остались в шапке");
             });
             // v5.6.1: «?» help — hover tooltip + click popup; no ToolTip with StaysOpen=false anywhere (throws on real Windows)
             Step($"{th}: «?» открывается кликом, подсказки без StaysOpen=false", () =>

@@ -8,8 +8,8 @@ using Vorotex.K13;
 
 namespace Vorotex.Studio;
 
-/// <summary>"Профили" page (v5.7.1): a calm list of profiles on the left, the selected profile on the right
-/// (preview, «Включать в программах», «Действия на компьютере»), settings for all profiles below it.</summary>
+/// <summary>"Профили" page (v4.7): profile cards with a mini K13 preview, inline rename, quick actions,
+/// JSON export/import and auto-switch rules as friendly rows (no tables).</summary>
 public partial class MainWindow
 {
     private static readonly string[] AccentPalette = { "#F06423", "#3B82F6", "#22A45D", "#A855F7", "#E11D48", "#0EA5E9", "#D99A06", "#64748B" };
@@ -23,239 +23,133 @@ public partial class MainWindow
 
     private static string GlyphOf(AppProfile p, int index) => p.Glyph.Length > 0 ? p.Glyph : GlyphPalette[index % GlyphPalette.Length];
 
-    // v5.7.1: the page is a list (left) and the selected profile (right), like «Макросы».
-    // Selecting a profile only shows it; «Сделать активным» (or a double click) switches to it.
-    private string? _viewName;
-    private bool _renameNext;
-    private bool _profAdvOpen;
-    private TextBlock? _hostSummary;
-
-    internal AppProfile ViewProfile => (_viewName != null ? _store.Find(_viewName) : null) ?? _profile;
-
-    internal AppProfile ActiveProfileForTest => _profile;
+    internal int ProfileCardCount => ProfileCards.Children.Count;
     internal CheckBox TrayBoxForTest => TrayBox;
-
-    internal void SetProfilesAdvancedOpen(bool open) { _profAdvOpen = open; RefreshProfilesList(); }
-
-    internal void SelectProfileView(string? name) { _viewName = name; RefreshProfilesList(); }
 
     private void RefreshProfilesList()
     {
         ProfileCards.Children.Clear();
         var list = _store.Data.Profiles;
-        var view = ViewProfile;
-        for (int i = 0; i < list.Count; i++) ProfileCards.Children.Add(ProfileRow(list[i], i, list[i] == view));
-        ProfileCountText.Text = RuPlural.Of(list.Count, "профиль", "профиля", "профилей");
-        BuildProfileDetail(view, Math.Max(0, list.IndexOf(view)));
+        for (int i = 0; i < list.Count; i++) ProfileCards.Children.Add(ProfileCard(list[i], i));
         BuildAutoSwitchCard();
     }
 
-    private Border ProfileIcon(AppProfile p, int index, double size) => new()
-    {
-        Width = size, Height = size, CornerRadius = new CornerRadius(size * 0.29), Background = AccentOf(p, index), VerticalAlignment = VerticalAlignment.Center,
-        Child = new TextBlock { Text = GlyphOf(p, index), FontFamily = Icons, FontSize = size * 0.42, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
-    };
-
-    private string ModeLine(AppProfile p)
-    {
-        int ruleCount = RulesOf(p).Count;
-        bool isFallback = string.Equals(_store.Data.FallbackProfile, p.Name, StringComparison.OrdinalIgnoreCase);
-        return ruleCount > 0 ? "включается сам — " + RuPlural.Of(ruleCount, "программа", "программы", "программ") + (isFallback ? " · и в остальных" : "")
-             : isFallback ? "включается в остальных программах" : "включается вручную";
-    }
-
-    /// <summary>One row of the list: icon · name · «сейчас»; under it the program icons. Actions show up on hover.</summary>
-    private Border ProfileRow(AppProfile p, int index, bool sel)
+    private Border ProfileCard(AppProfile p, int index)
     {
         bool active = p == _profile;
-        var sp = new StackPanel();
-        var top = new DockPanel();
+        var accent = AccentOf(p, index);
+        var root = new StackPanel();
 
-        // right cell: «● сейчас» normally, row actions on hover (same place, so the name never jumps)
-        var right = new Grid { VerticalAlignment = VerticalAlignment.Center };
-        var now = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Visibility = active ? Visibility.Visible : Visibility.Hidden };
-        now.Children.Add(new System.Windows.Shapes.Ellipse { Width = 7, Height = 7, Fill = R("OkBrush"), Margin = new Thickness(0, 1, 6, 0), VerticalAlignment = VerticalAlignment.Center });
-        now.Children.Add(new TextBlock { Text = "сейчас", FontSize = 12, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center });
-        right.Children.Add(now);
-        var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Opacity = 0 };
-        Button Mini(string glyph, string tip, Action a)
-        {
-            var b = new Button { Style = (Style)FindResource("GhostButton"), Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(1, 0, 0, 0), ToolTip = tip,
-                Content = new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 11, Foreground = R("MutedBrush") } };
-            b.Click += (_, e) => { e.Handled = true; a(); };
-            btns.Children.Add(b);
-            return b;
-        }
-        Mini("\uE70F", "Переименовать", () => { _viewName = p.Name; _renameNext = true; RefreshProfilesList(); });
-        Mini("\uE8C8", "Дублировать", () => DuplicateProfile(p));
-        Mini("\uEDE1", "Экспорт в файл .k13profile или как текст", () => ExportProfiles(new[] { p }));
-        Mini("\uE74D", "Удалить", () => DeleteProfile(p));
-        right.Children.Add(btns);
-        DockPanel.SetDock(right, Dock.Right);
-        top.Children.Add(right);
-
-        top.Children.Add(ProfileIcon(p, index, 28).With(x => x.Margin = new Thickness(0, 0, 10, 0)));
-        top.Children.Add(new TextBlock { Text = p.Name, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
-        sp.Children.Add(top);
-
-        // programs it switches on in: small icons, or one muted word
-        var rules = RulesOf(p);
-        var apps = new WrapPanel { Margin = new Thickness(38, 6, 0, 0) };
-        foreach (var r in rules.Take(5))
-            apps.Children.Add(AppIcon(r.ProcessName, r.IconPath, 16, r.DisplayName).With(x => { x.Margin = new Thickness(0, 0, 5, 0); x.ToolTip = AppMatch.Label(r); }));
-        if (rules.Count > 5) apps.Children.Add(new TextBlock { Text = $"+{rules.Count - 5}", FontSize = 11, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center });
-        if (rules.Count == 0)
-            apps.Children.Add(new TextBlock { Text = string.Equals(_store.Data.FallbackProfile, p.Name, StringComparison.OrdinalIgnoreCase) ? "в остальных программах" : "вручную", FontSize = 12, Foreground = R("MutedBrush") });
-        sp.Children.Add(apps);
-
-        var card = new Border { Child = sp, Padding = new Thickness(14, 12, 12, 11), Margin = new Thickness(0, 0, 0, 6), CornerRadius = new CornerRadius(14), Cursor = Cursors.Hand,
-            Background = sel ? R("SelBrush") : R("PanelBrush"), BorderBrush = sel ? R("AccentBrush") : Brushes.Transparent, BorderThickness = new Thickness(1.5),
-            ToolTip = active ? "Активный профиль" : "Щёлкните, чтобы открыть; двойной щелчок — сделать активным" };
-        void Show(bool on) { btns.Opacity = on ? 1 : 0; now.Opacity = on ? 0 : 1; btns.IsHitTestVisible = on; }
-        Show(false);
-        card.MouseEnter += (_, _) => { if (!sel) card.Background = R("HoverBrush"); Show(true); };
-        card.MouseLeave += (_, _) => { if (!sel) card.Background = R("PanelBrush"); Show(btns.IsKeyboardFocusWithin); };
-        btns.IsKeyboardFocusWithinChanged += (_, _) => Show(btns.IsKeyboardFocusWithin || card.IsMouseOver);
-        card.MouseLeftButtonUp += (_, e) => { if (e.OriginalSource is DependencyObject o && Ui.IsInside<Button>(o)) return; e.Handled = true; if (!sel) { _viewName = p.Name; Dispatcher.BeginInvoke(RefreshProfilesList); } };
-        card.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2 && !active) { e.Handled = true; ActivateProfile(p.Name, "вручную"); } };
-        card.Tag = "profile-row";
-        return card;
-    }
-
-    /// <summary>Right panel: the selected profile — head with one main action, preview, programs, actions on the PC.</summary>
-    private void BuildProfileDetail(AppProfile p, int index)
-    {
-        var host = ProfileDetailHost;
-        host.Children.Clear();
-        bool active = p == _profile;
-
-        // head: icon · name / one muted line …… main action
+        // head: icon · name (inline edit) · badge
         var head = new DockPanel();
-        FrameworkElement main;
-        if (active)
-            main = new TextBlock { Text = "✓  Сейчас используется", Foreground = R("MutedBrush"), FontSize = 13, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
-        else
-        {
-            var on = new Button { Style = (Style)FindResource("AccentButton"), Padding = new Thickness(16, 7, 16, 7), VerticalAlignment = VerticalAlignment.Center, Content = "Сделать активным",
-                ToolTip = "Переключиться на этот профиль (в клавиатуру ничего не пишется)" };
-            on.Click += (_, e) => { e.Handled = true; ActivateProfile(p.Name, "вручную"); };
-            main = on;
-        }
-        DockPanel.SetDock(main, Dock.Right);
-        head.Children.Add(main);
-        var icon = ProfileIcon(p, index, 44);
-        icon.Margin = new Thickness(0, 0, 14, 0); icon.Cursor = Cursors.Hand; icon.ToolTip = "Сменить цвет и значок";
+        // v5.7: no «активный» badge — the coloured outline and «✓ Сейчас используется» already say it
+        var icon = new Border { Width = 40, Height = 40, CornerRadius = new CornerRadius(12), Background = accent, Margin = new Thickness(0, 0, 12, 0), Cursor = Cursors.Hand, ToolTip = "Сменить цвет и значок",
+            Child = new TextBlock { Text = GlyphOf(p, index), FontFamily = Icons, FontSize = 16, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
         icon.MouseLeftButtonUp += (_, e) => { e.Handled = true; CycleLook(p, index); };
         head.Children.Add(icon);
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        var title = EditableTitle(p.Name, 20, n => RenameProfile(p, n), "Переименовать профиль");
-        titles.Children.Add(title);
-        titles.Children.Add(new TextBlock { Text = p.Comment.Length > 0 ? p.Comment : ModeLine(p), FontSize = 12.5, Foreground = R("MutedBrush"), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 0, 0) });
+        titles.Children.Add(EditableTitle(p.Name, 16, n => RenameProfile(p, n), "Переименовать профиль"));
+        int ruleCount = RulesOf(p).Count;
+        bool isFallback = string.Equals(_store.Data.FallbackProfile, p.Name, StringComparison.OrdinalIgnoreCase);
+        titles.Children.Add(new TextBlock { Text = p.Comment.Length > 0 ? p.Comment : ruleCount > 0 ? "включается сам — " + RuPlural.Of(ruleCount, "программа", "программы", "программ") + (isFallback ? " · по умолчанию" : "")
+                                                 : isFallback ? "по умолчанию, когда правило не подошло" : "включается вручную",
+            FontSize = 12, Foreground = R("MutedBrush"), TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap, Margin = new Thickness(0, 1, 0, 0) });
         head.Children.Add(titles);
-        host.Children.Add(head);
-        if (_renameNext)
-        {
-            _renameNext = false;
-            Dispatcher.BeginInvoke(() => Ui.Descendants<Button>(title).FirstOrDefault()?.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)),
-                System.Windows.Threading.DispatcherPriority.Loaded);
-        }
+        root.Children.Add(head);
 
-        // keypad preview + one muted line of facts
+        // mini keypad preview
         var cfg = p.Device ?? K13MemoryCodec.Decode(DefaultImage);
-        var dv = new DeviceView { Height = 150, MaxWidth = 460, IsHitTestVisible = false, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 20, 0, 8) };
+        var dv = new DeviceView { Height = 128, IsHitTestVisible = false, Margin = new Thickness(0, 14, 0, 10) };
         try { dv.Rebuild(cfg, p.Host, -1, showDots: true); } catch { }
-        host.Children.Add(dv);
+        var prevBox = new Border { CornerRadius = new CornerRadius(12), Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(0, 8, 0, 4), Child = dv }; // v5.7: no grey box inside the card
+        dv.Margin = new Thickness(0, 8, 0, 8);
+        root.Children.Add(prevBox);
+
+        // facts
         int changed = K13Layout.Controls.Count(c => cfg.GetKey(c.Column) != c.FactoryCode);
         int macros = Enumerable.Range(0, KeyCatalog.MacroCodeCount).Count(i => cfg.Macros[i].IsUsed);
-        int hostN = p.Host.Keys.Count(k => k.Tap.Kind != HostActionKind.None) + p.Host.Chords.Count;
-        host.Children.Add(new TextBlock
+        int host = p.Host.Keys.Count(k => k.Tap.Kind != HostActionKind.None) + p.Host.Chords.Count;
+        // v5.6: one muted line instead of four pills
+        var factText = string.Join("  ·  ", new[]
         {
-            Text = string.Join("  ·  ", new[]
-            {
-                changed > 0 ? RuPlural.Of(changed, "кнопка изменена", "кнопки изменены", "кнопок изменено") : "кнопки как с завода",
-                macros > 0 ? RuPlural.Of(macros, "макрос", "макроса", "макросов") : "",
-                K13Layout.LedModeName(cfg.Led.Mode).ToLowerInvariant(),
-            }.Where(x => x.Length > 0)),
-            FontSize = 12.5, Foreground = R("MutedBrush"), TextTrimming = TextTrimming.CharacterEllipsis,
-        });
+            changed > 0 ? RuPlural.Of(changed, "кнопка изменена", "кнопки изменены", "кнопок изменено") : "кнопки как с завода",
+            macros > 0 ? RuPlural.Of(macros, "макрос", "макроса", "макросов") : "",
+            host > 0 ? RuPlural.Of(host, "действие на ПК", "действия на ПК", "действий на ПК") : "",
+        }.Where(x => x.Length > 0));
+        var facts = new TextBlock { Text = factText, FontSize = 12, Foreground = R("MutedBrush"), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(2, 0, 0, 14),
+            ToolTip = $"Кнопок изменено: {changed}\nМакросов: {macros}\nДействий на ПК: {host}\nПодсветка: {K13Layout.LedModeName(cfg.Led.Mode)}" };
+        root.Children.Add(facts);
 
-        // «Включать в программах»
-        host.Children.Add(AppRulesSection(p, AccentOf(p, index)));
+        // v5.4: «Включать в программах»
+        root.Children.Add(AppRulesSection(p, accent));
 
-        // «Действия на компьютере»
-        host.Children.Add(HostSection(p, active));
+        // actions
+        var acts = new DockPanel();
+        Button Icon(string glyph, string tip, Action a)
+        {
+            var b = new Button { Style = (Style)FindResource("GhostButton"), Padding = new Thickness(8, 6, 8, 6), Margin = new Thickness(2, 0, 0, 0), ToolTip = tip,
+                Content = new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 12, Foreground = R("MutedBrush") } };
+            b.Click += (_, e) => { e.Handled = true; a(); };
+            return b;
+        }
+        var right = new StackPanel { Orientation = Orientation.Horizontal };
+        right.Children.Add(Icon("\uE8C8", "Дублировать", () => DuplicateProfile(p)));
+        right.Children.Add(Icon("\uEDE1", "Экспорт в файл .k13profile или как текст", () => ExportProfiles(new[] { p })));
+        right.Children.Add(Icon("\uE74D", "Удалить", () => DeleteProfile(p)));
+        DockPanel.SetDock(right, Dock.Right);
+        acts.Children.Add(right);
+        if (active)
+            acts.Children.Add(new TextBlock { Text = "✓  Сейчас используется", Foreground = accent, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        else
+        {
+            var on = new Button { Content = "Сделать активным", HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(14, 6, 14, 6) };
+            on.Click += (_, e) => { e.Handled = true; ActivateProfile(p.Name, "вручную"); };
+            acts.Children.Add(on);
+        }
+        root.Children.Add(acts);
+
+        var card = new Border
+        {
+            Child = new Grid { Children = { root } }, Width = 372, Padding = new Thickness(18, 16, 18, 16), Margin = new Thickness(0, 0, 14, 14), CornerRadius = new CornerRadius(18),
+            Background = R("PanelBrush"), BorderBrush = active ? accent : R("BorderBrush"), BorderThickness = new Thickness(active ? 2 : 1), // keep: card on page background
+        };
+        // coloured accent strip at the top edge
+        // v5.7: no coloured strip on top — the profile icon already carries the colour
+        card.MouseLeftButtonUp += (_, e) => { if (e.ClickCount == 1 && !active && e.OriginalSource is not TextBox) { } };
+        card.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2 && !active && e.OriginalSource is not TextBox) ActivateProfile(p.Name, "вручную"); };
+        return card;
     }
 
-    private FrameworkElement SectionHead(string title, string? help, params UIElement[] right)
-    {
-        var head = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
-        var r = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        foreach (var c in right) r.Children.Add(c);
-        DockPanel.SetDock(r, Dock.Right);
-        head.Children.Add(r);
-        var t = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        t.Children.Add(new TextBlock { Text = title, FontSize = 15, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-        if (help != null) t.Children.Add(InfoDot(help));
-        head.Children.Add(t);
-        return head;
-    }
+    // ───────────────────────────── v5.7.2: one quiet line under the cards instead of two big cards
+    private const string HostHelp =
+        "Запуск программ и ссылок, ввод текста, действие при удержании кнопки и диагонали джойстика — для активного профиля. " +
+        "Это выполняет сама программа, поэтому работает, пока она запущена (можно свернуть в трей и включить запуск вместе с Windows в главном меню ⋯).";
 
     private static string HostSummaryText(AppProfile p)
     {
         int n = p.Host.Keys.Count, c = p.Host.Chords.Count;
-        return n + c == 0 ? "Пока ничего — запуск программ, ссылки, текст, удержание кнопок." : RuPlural.Of(n + c, "действие настроено", "действия настроены", "действий настроено") + ".";
+        return n + c == 0 ? "пока ничего" : RuPlural.Of(n + c, "действие", "действия", "действий");
     }
 
-    private const string HostHelp =
-        "Запуск программ и ссылок, ввод текста, действие при удержании кнопки и диагонали джойстика. " +
-        "Это выполняет сама программа, поэтому работает, пока она запущена (можно свернуть в трей и включить запуск вместе с Windows).";
-
-    private FrameworkElement HostSection(AppProfile p, bool active)
+    private void BuildHostLine()
     {
-        var sp = new StackPanel { Margin = new Thickness(0, 26, 0, 0) };
-        var sw = new CheckBox { Style = (Style)FindResource("Switch"), IsChecked = p.Host.Enabled, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0), ToolTip = "Включить или выключить действия на компьютере для этого профиля" };
+        var host = HostLineHost;
+        host.Children.Clear();
+        var p = _profile;
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        var sw = new CheckBox { Style = (Style)FindResource("Switch"), IsChecked = p.Host.Enabled, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0),
+            ToolTip = "Включить или выключить действия на компьютере для активного профиля" };
         sw.Tag = "host-enabled";
-        void Set(bool v)
-        {
-            if (_loading || p.Host.Enabled == v) return;
-            p.Host.Enabled = v;
-            if (p == _profile) Changed(false); else SaveStore();
-        }
+        void Set(bool v) { if (_loading || p.Host.Enabled == v) return; p.Host.Enabled = v; Changed(false); }
         sw.Checked += (_, _) => Set(true);
         sw.Unchecked += (_, _) => Set(false);
-        sp.Children.Add(SectionHead("Действия на компьютере", HostHelp, sw));
-        _hostSummary = new TextBlock { Text = HostSummaryText(p), FontSize = 13, Foreground = R("MutedBrush"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) };
-        sp.Children.Add(_hostSummary);
-        var link = new Button { Style = (Style)FindResource("LinkButton"), HorizontalAlignment = HorizontalAlignment.Left, Content = active ? "Настроить…" : "Сделать активным и настроить…" };
-        link.Click += (_, e) =>
-        {
-            e.Handled = true;
-            if (p != _profile) ActivateProfile(p.Name, "вручную");
-            OpenHost_Click(link, new RoutedEventArgs());
-        };
-        sp.Children.Add(link);
-        return sp;
-    }
-
-    /// <summary>⋯ next to «Новый»: the rare whole-list actions.</summary>
-    private void ProfilesMore_Click(object sender, RoutedEventArgs e) => ProfilesMenu(ProfilesMoreBtn).IsOpen = true;
-
-    internal ContextMenu ProfilesMenu(FrameworkElement target)
-    {
-        var m = new ContextMenu { PlacementTarget = target, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
-        void Item(string glyph, string text, RoutedEventHandler click)
-        {
-            var header = new StackPanel { Orientation = Orientation.Horizontal };
-            header.Children.Add(new TextBlock { Text = glyph, FontFamily = Icons, Width = 26, VerticalAlignment = VerticalAlignment.Center });
-            header.Children.Add(new TextBlock { Text = text });
-            var mi = new MenuItem { Header = header };
-            mi.Click += click;
-            m.Items.Add(mi);
-        }
-        Item("\uE8B5", "Импорт из файла… (или перетащите файл в окно)", ImportProfileJson_Click);
-        Item("\uE77F", "Вставить профиль из буфера (Ctrl+V)", PasteProfile_Click);
-        Item("\uEDE1", "Экспорт всех профилей…", ExportAll_Click);
-        return m;
+        row.Children.Add(sw);
+        row.Children.Add(new TextBlock { Text = $"Действия на компьютере «{p.Name}»: {HostSummaryText(p)}", FontSize = 13, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center });
+        var link = new Button { Style = (Style)FindResource("LinkButton"), Content = "Настроить…", FontSize = 13, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+        link.Click += (_, e) => { e.Handled = true; OpenHost_Click(link, new RoutedEventArgs()); };
+        row.Children.Add(link);
+        row.Children.Add(InfoDot(HostHelp));
+        host.Children.Add(row);
     }
 
     private void CycleLook(AppProfile p, int index)
@@ -279,7 +173,6 @@ public partial class MainWindow
             if (h.Kind == HostActionKind.SwitchProfile && h.Value == p.Name) h.Value = name;
         if (_store.Data.ActiveProfile == p.Name) _store.Data.ActiveProfile = name;
         if (_store.Data.FallbackProfile == p.Name) _store.Data.FallbackProfile = name;
-        if (_viewName == p.Name) _viewName = name;
         Log($"Профиль «{p.Name}» переименован в «{name}».");
         p.Name = name;
         Dispatcher.BeginInvoke(() => ActivateProfile(_profile.Name, null));
@@ -318,7 +211,6 @@ public partial class MainWindow
         _store.Data.Profiles.Remove(p);
         _store.Data.AppRules.RemoveAll(r => r.ProfileName == p.Name);
         if (string.Equals(_store.Data.FallbackProfile, p.Name, StringComparison.OrdinalIgnoreCase)) _store.Data.FallbackProfile = "";
-        if (_viewName == p.Name) _viewName = null;
         ActivateProfile(p == _profile ? _store.Data.Profiles[0].Name : _profile.Name, null);
     }
 

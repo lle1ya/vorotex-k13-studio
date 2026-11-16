@@ -203,49 +203,41 @@
         </Border>
       </Grid>
 
-      <!-- Профили (v5.7.1: list on the left, the selected profile on the right — like «Макросы») -->
+      <!-- Профили (v5.7.2: v5.7 cards; slim header row, one quiet line under the cards) -->
       <Grid x:Name="PageProfiles" Visibility="Collapsed">
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="330"/>
-          <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
-        <DockPanel Margin="0,0,20,6">
-          <DockPanel DockPanel.Dock="Top" Margin="2,2,0,14">
-            <Button x:Name="ProfilesMoreBtn" DockPanel.Dock="Right" Style="{StaticResource GhostButton}" Click="ProfilesMore_Click" Padding="9,6" Margin="6,0,0,0" ToolTip="Импорт, вставка, экспорт всех профилей">
-              <TextBlock Text="&#xE712;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13" Foreground="{DynamicResource MutedBrush}"/>
-            </Button>
-            <Button DockPanel.Dock="Right" Style="{StaticResource AccentButton}" Click="NewProfile_Click" Padding="14,6" ToolTip="Новый профиль">
-              <StackPanel Orientation="Horizontal">
-                <TextBlock Text="&#xE710;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <TextBlock Text="Новый"/>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Margin="0,0,10,10" MaxWidth="1180">
+            <DockPanel Margin="2,2,14,16">
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <StackPanel x:Name="AutoSwitchHost" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,18,0"/>
+                <Button Style="{StaticResource AccentButton}" Click="NewProfile_Click" Padding="14,6" ToolTip="Новый профиль">
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE710;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock Text="Новый"/>
+                  </StackPanel>
+                </Button>
+                <Button x:Name="ProfilesMoreBtn" Style="{StaticResource GhostButton}" Click="ProfilesMore_Click" Padding="9,6" Margin="6,0,0,0" ToolTip="Импорт и экспорт, уведомление, «Кнопки по профилю»…">
+                  <TextBlock Text="&#xE712;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13" Foreground="{DynamicResource MutedBrush}"/>
+                </Button>
               </StackPanel>
-            </Button>
-            <StackPanel VerticalAlignment="Center">
-              <TextBlock Text="Профили" FontSize="20" FontWeight="SemiBold"/>
-              <TextBlock x:Name="ProfileCountText" Style="{StaticResource Muted}" FontSize="12"/>
-            </StackPanel>
-          </DockPanel>
-          <Border DockPanel.Dock="Bottom" Padding="4,12,4,0" Margin="0,8,0,0" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
-            <StackPanel x:Name="ActiveStatusHost"/>
-          </Border>
-          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel x:Name="ProfileCards" Margin="0,0,4,0"/>
-          </ScrollViewer>
-        </DockPanel>
-        <Border Grid.Column="1" Background="{DynamicResource PanelBrush}" CornerRadius="18" Margin="0,0,0,6" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
-          <ScrollViewer x:Name="ProfileScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Margin="28,24,28,24" MaxWidth="1040">
-              <StackPanel x:Name="ProfileDetailHost"/>
-              <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,26,0,22"/>
-              <StackPanel x:Name="AutoSwitchHost"/>
-              <StackPanel x:Name="AppSettingsPanel">
-                <CheckBox x:Name="TrayBox" Style="{StaticResource Switch}" Content="Сворачивать в трей при закрытии" Checked="Tray_Changed" Unchecked="Tray_Changed"/>
-                <CheckBox x:Name="AutostartBox" Style="{StaticResource Switch}" Content="Запускать вместе с Windows (в трей)" Checked="Autostart_Changed" Unchecked="Autostart_Changed"/>
-                <CheckBox x:Name="DarkBox" Style="{StaticResource Switch}" Content="Тёмная тема" Checked="Dark_Changed" Unchecked="Dark_Changed"/>
+              <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="Профили" FontSize="20" FontWeight="SemiBold"/>
+                <StackPanel x:Name="ActiveStatusHost" Margin="0,2,0,0"/>
               </StackPanel>
+            </DockPanel>
+
+            <StackPanel x:Name="AutoHintHost"/>
+            <WrapPanel x:Name="ProfileCards" Margin="0,0,0,4"/>
+            <StackPanel x:Name="HostLineHost" Margin="2,4,14,0"/>
+
+            <!-- v5.7.2: tray / autostart / theme live in the main ⋯ menu; the switches stay here hidden so their logic is unchanged -->
+            <StackPanel x:Name="AppSettingsPanel" Visibility="Collapsed">
+              <CheckBox x:Name="TrayBox" Style="{StaticResource Switch}" Content="Сворачивать в трей при закрытии" Checked="Tray_Changed" Unchecked="Tray_Changed"/>
+              <CheckBox x:Name="AutostartBox" Style="{StaticResource Switch}" Content="Запускать вместе с Windows (в трей)" Checked="Autostart_Changed" Unchecked="Autostart_Changed"/>
+              <CheckBox x:Name="DarkBox" Style="{StaticResource Switch}" Content="Тёмная тема" Checked="Dark_Changed" Unchecked="Dark_Changed"/>
             </StackPanel>
-          </ScrollViewer>
-        </Border>
+          </StackPanel>
+        </ScrollViewer>
       </Grid>
     </Grid>
 

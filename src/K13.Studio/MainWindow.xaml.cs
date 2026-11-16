@@ -188,7 +188,6 @@ public partial class MainWindow : Window
         if (_recording && p != _profile) ToggleRecording();
         _profile = p;
         _store.Data.ActiveProfile = p.Name;
-        if (reason != null && !auto) _viewName = null; // v5.7.1: a manual switch shows the profile it switched to
         _activeWhy = why ?? reason switch
         {
             null => _activeWhy.Length > 0 ? _activeWhy : "последний использованный",
@@ -297,7 +296,9 @@ public partial class MainWindow : Window
         (i switch { 1 => TabLight, 2 => TabMacro, 3 => TabProfiles, _ => TabLayout }).IsChecked = true;
     }
 
-    private void MoreBtn_Click(object sender, RoutedEventArgs e)
+    private void MoreBtn_Click(object sender, RoutedEventArgs e) => MainMenu().IsOpen = true;
+
+    internal ContextMenu MainMenu()
     {
         var m = new ContextMenu { PlacementTarget = MoreBtn, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
         MenuItem Item(string glyph, string text, RoutedEventHandler click, bool enabled = true)
@@ -312,6 +313,9 @@ public partial class MainWindow : Window
         }
         Item("\uE7C3", "Скрытые кнопки 16 и 17…", (_, _) => { ShowPage(0); SelectControl(16); });
         Item(_store.Data.DarkTheme ? "\uE706" : "\uE708", _store.Data.DarkTheme ? "Светлая тема" : "Тёмная тема", (_, _) => { DarkBox.IsChecked = !_store.Data.DarkTheme; });
+        // v5.7.2: moved here from the «Настройки» card on the Profiles page
+        Item(_store.Data.MinimizeToTray ? "\uE73E" : "", "Сворачивать в трей при закрытии", (_, _) => { TrayBox.IsChecked = !_store.Data.MinimizeToTray; });
+        Item(_store.Data.StartWithWindows ? "\uE73E" : "", "Запускать вместе с Windows (в трей)", (_, _) => { AutostartBox.IsChecked = !_store.Data.StartWithWindows; });
         m.Items.Add(new Separator());
         Item("\uE896", "Прочитать с клавиатуры", ReadBtn_Click, _connected && !_busy && !_offline);
         Item("\uE74E", "Сохранить резервную копию", BackupBtn_Click, _connected && !_busy && !_offline);
@@ -329,7 +333,7 @@ public partial class MainWindow : Window
         Item(ShowTech ? "\uE73E" : "\uE9D9", ShowTech ? "Скрыть технические подробности" : "Показать технические подробности", (_, _) => SetShowTech(!ShowTech));
         m.Items.Add(new Separator());
         Item("\uE7E8", "Выход", (_, _) => ExitApp());
-        m.IsOpen = true;
+        return m;
     }
 
     private void ApplyTitleBar()
@@ -379,10 +383,7 @@ public partial class MainWindow : Window
     internal IEnumerable<string> ProfileNames => _store.Data.Profiles.Select(p => p.Name);
     internal HostSettings Host => _profile.Host;
 
-    private void RefreshHostSummary()
-    {
-        if (_hostSummary != null) _hostSummary.Text = HostSummaryText(ViewProfile);
-    }
+    private void RefreshHostSummary() => BuildHostLine();
 
     private void OpenHost_Click(object sender, RoutedEventArgs e)
     {

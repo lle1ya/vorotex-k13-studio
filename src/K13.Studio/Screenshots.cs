@@ -321,13 +321,13 @@ internal static class Screenshots
         }
     }
 
-    /// <summary>v5.7.1: the redesigned Profiles page — list + selected profile, settings for all profiles, another profile selected.</summary>
-    public static int RenderV571(string folder)
+    /// <summary>v5.7.2: the Profiles page — v5.7 cards, slim header, one line under the cards (light + dark, PC mode, ⋯ menu).</summary>
+    public static int RenderV572(string folder)
     {
         try
         {
             Directory.CreateDirectory(folder);
-            var tmp = Path.Combine(Path.GetTempPath(), "vorotex-screens571-" + Environment.ProcessId);
+            var tmp = Path.Combine(Path.GetTempPath(), "vorotex-screens572-" + Environment.ProcessId);
             var shots = new List<string>();
             foreach (var dark in new[] { false, true })
             {
@@ -341,21 +341,11 @@ internal static class Screenshots
                 w.DemoV55();
                 w.SetAutoSwitchHintSeen(true);
                 string sfx = dark ? "-dark" : "";
-                w.SelectProfileView(null);
                 w.ScrollProfiles(0);
                 shots.Add(Shot(w, 3, Path.Combine(folder, $"01-profiles{sfx}.png"), 1.5));
-                if (!dark)
-                {
-                    w.SelectProfileView("Игры");
-                    w.ScrollProfiles(0);
-                    shots.Add(Shot(w, 3, Path.Combine(folder, "02-profiles-other.png"), 1.5));
-                    w.SelectProfileView(null);
-                    w.SetProfilesAdvancedOpen(true);
-                    w.ScrollProfiles(2000);
-                    shots.Add(Shot(w, 3, Path.Combine(folder, "03-profiles-settings.png"), 1.5));
-                    w.SetProfilesAdvancedOpen(false);
-                    w.ScrollProfiles(0);
-                }
+                w.ScrollProfiles(2000);
+                shots.Add(Shot(w, 3, Path.Combine(folder, $"02-profiles-bottom{sfx}.png"), 1.5));
+                w.ScrollProfiles(0);
                 w.ExitApp();
             }
             File.WriteAllText(Path.Combine(folder, "screens.txt"), string.Join(Environment.NewLine, shots));

@@ -81,86 +81,131 @@ public partial class MainWindow
     // ───────────────────────────── the card above the profiles (v5.6: calm, one line per setting)
     private const double RowLabelWidth = 190;
 
-    /// <summary>v5.7.1: «Для всех профилей» under the selected profile (flat rows, rare options under «Дополнительно»)
-    /// and the «Сейчас ● Фото — почему» line at the bottom of the list.</summary>
+    /// <summary>v5.7.2: the slim header — «Автопереключение [switch] (?)» next to «+ Новый» and ⋯,
+    /// one muted line «Сейчас «Фото» — по программе Photoshop.exe» under the title. Everything else is in ⋯.</summary>
     private void BuildAutoSwitchCard()
     {
         var host = AutoSwitchHost;
         host.Children.Clear();
         var d = _store.Data;
+        bool paused = d.AutoSwitch && _fg.Engine.Paused;
 
-        // the active profile and why — under the list
+        if (paused)
+        {
+            var resume = new Button { Style = (Style)FindResource("LinkButton"), Content = "на паузе — продолжить", FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0),
+                ToolTip = "Снова переключать профили по программам" };
+            resume.Click += (_, _) => SetAutoPaused(false);
+            host.Children.Add(resume);
+        }
+        host.Children.Add(new TextBlock { Text = "Автопереключение", FontSize = 13, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) });
+        var sw = new CheckBox { Style = (Style)FindResource("Switch"), IsChecked = d.AutoSwitch, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0),
+            ToolTip = d.AutoSwitch ? "Выключить автопереключение по программам" : "Включить автопереключение по программам" };
+        sw.Checked += (_, _) => SetAutoSwitch(true);
+        sw.Unchecked += (_, _) => SetAutoSwitch(false);
+        host.Children.Add(sw);
+        host.Children.Add(InfoDot(AutoSwitchHelp));
+
         ActiveStatusHost.Children.Clear();
         ActiveStatusHost.Children.Add(StatusLine(d));
 
-        host.Children.Add(SectionHead("Для всех профилей", null));
-
-        // «Автопереключение» [switch] [Пауза] (?)
-        var sw = new CheckBox { Style = (Style)FindResource("Switch"), IsChecked = d.AutoSwitch, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0),
-            ToolTip = d.AutoSwitch ? "Выключить автопереключение" : "Включить автопереключение" };
-        sw.Checked += (_, _) => SetAutoSwitch(true);
-        sw.Unchecked += (_, _) => SetAutoSwitch(false);
-        var parts = new List<UIElement> { sw };
-        if (d.AutoSwitch)
-        {
-            bool paused = _fg.Engine.Paused;
-            var pause = new Button { Style = (Style)FindResource("GhostButton"), Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = paused ? "Снова переключать профили по программам" : "Временно не переключать (до продолжения или перезапуска). То же — в меню значка в трее.",
-                Content = new StackPanel { Orientation = Orientation.Horizontal, Children =
-                {
-                    new TextBlock { Text = paused ? "\uE768" : "\uE769", FontFamily = Icons, FontSize = 10, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0), Foreground = R("MutedBrush") },
-                    new TextBlock { Text = paused ? "Продолжить" : "Пауза", FontSize = 12.5, Foreground = paused ? R("AccentBrush") : R("MutedBrush") },
-                } } };
-            pause.Click += (_, _) => SetAutoPaused(!_fg.Engine.Paused);
-            parts.Add(pause);
-        }
-        parts.Add(InfoDot(AutoSwitchHelp));
-        host.Children.Add(SettingRow("Автопереключение", parts.ToArray()));
-
-        // one-time hint
+        // one-time hint (quiet line above the cards)
+        AutoHintHost.Children.Clear();
         if (!d.AutoSwitchHintSeen)
         {
-            var hint = new DockPanel { Margin = new Thickness(0, 6, 0, 4) };
+            var hint = new DockPanel { Margin = new Thickness(2, 0, 14, 14) };
             var ok = new Button { Style = (Style)FindResource("LinkButton"), Content = "Понятно", VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(12, 0, 0, 0), Cursor = Cursors.Hand };
             ok.Click += (_, _) => { d.AutoSwitchHintSeen = true; SaveStore(); BuildAutoSwitchCard(); };
             DockPanel.SetDock(ok, Dock.Right);
             hint.Children.Add(ok);
-            hint.Children.Add(new TextBlock { Text = "\uE946", FontFamily = Icons, FontSize = 12, Foreground = R("MutedBrush"), Margin = new Thickness(2, 1, 8, 0), VerticalAlignment = VerticalAlignment.Top });
+            hint.Children.Add(new TextBlock { Text = "\uE946", FontFamily = Icons, FontSize = 12, Foreground = R("MutedBrush"), Margin = new Thickness(0, 1, 8, 0), VerticalAlignment = VerticalAlignment.Top });
             hint.Children.Add(new TextBlock { Text = Layer.Active ? "При смене профиля сразу меняются кнопки (через ПК) и действия на ПК. Подсветка в клавиатуре — только по «Записать»."
-                                                                 : "При смене профиля сразу меняются действия на ПК. Кнопки — тоже, если включить «Кнопки по профилю»; иначе они в клавиатуре и меняются по «Записать».",
+                                                                 : "При смене профиля сразу меняются действия на ПК. Кнопки — тоже, если включить «Кнопки по профилю» (в ⋯); иначе они в клавиатуре и меняются по «Записать».",
                 FontSize = 12, Foreground = R("MutedBrush"), TextWrapping = TextWrapping.Wrap });
-            host.Children.Add(hint);
+            AutoHintHost.Children.Add(hint);
         }
-
-        // «В других программах»  [dropdown]
-        const string keep = "Оставлять текущий профиль";
-        var items = new List<string> { keep };
-        items.AddRange(d.Profiles.Select(p => p.Name));
-        var combo = new ComboBox { ItemsSource = items, SelectedItem = d.FallbackProfile.Length > 0 && items.Contains(d.FallbackProfile) ? d.FallbackProfile : keep, IsEnabled = d.AutoSwitch, Width = 230,
-            ToolTip = "Какой профиль включать в программах, для которых нет правила" };
-        combo.SelectionChanged += (_, _) =>
-        {
-            if (combo.SelectedItem is not string s) return;
-            d.FallbackProfile = s == keep ? "" : s;
-            SaveStore(); _fg.Engine.Reset();
-            Log(d.FallbackProfile.Length > 0 ? $"Профиль по умолчанию (нет правила): «{d.FallbackProfile}»." : "Без правила профиль больше не меняется.");
-            Dispatcher.BeginInvoke(RefreshProfilesList, System.Windows.Threading.DispatcherPriority.Background);
-        };
-        host.Children.Add(SettingRow("В других программах", combo));
-        host.Children.Add(PcModeRow());
-
-        // rare: notification, tray, autostart, theme
-        if (AppSettingsPanel.Parent is Panel pp) pp.Children.Remove(AppSettingsPanel);
-        var adv = new StackPanel();
-        adv.Children.Add(ToastSettingsRow());
-        AppSettingsPanel.Margin = new Thickness(0, 8, 0, 0);
-        adv.Children.Add(AppSettingsPanel);
-        host.Children.Add(Advanced(adv, "Дополнительно", _profAdvOpen, v => _profAdvOpen = v).With(x => x.Margin = new Thickness(0, 14, 0, 0)));
         _tray?.SetAutoSwitch(d.AutoSwitch, _fg.Engine.Paused);
     }
 
+    /// <summary>⋯ next to «+ Новый»: import/export, then the rarely changed auto-switch settings.</summary>
+    private void ProfilesMore_Click(object sender, RoutedEventArgs e) => ProfilesMenu(ProfilesMoreBtn).IsOpen = true;
+
+    internal ContextMenu ProfilesMenu(FrameworkElement target)
+    {
+        var d = _store.Data;
+        var m = new ContextMenu { PlacementTarget = target, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        MenuItem Make(string glyph, string text, Action? click, bool enabled = true, string? note = null)
+        {
+            var header = new StackPanel { Orientation = Orientation.Horizontal };
+            header.Children.Add(new TextBlock { Text = glyph, FontFamily = Icons, Width = 26, VerticalAlignment = VerticalAlignment.Center });
+            header.Children.Add(new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center });
+            if (note != null) header.Children.Add(new TextBlock { Text = "  " + note, Foreground = R("MutedBrush"), FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
+            var mi = new MenuItem { Header = header, IsEnabled = enabled };
+            if (click != null) mi.Click += (_, _) => click();
+            return mi;
+        }
+        const string check = "\uE73E";
+
+        m.Items.Add(Make("\uE8B5", "Импорт из файла…", () => ImportProfileJson_Click(this, new RoutedEventArgs()), note: "или перетащите файл"));
+        m.Items.Add(Make("\uE77F", "Вставить профиль из буфера", () => PasteProfile_Click(this, new RoutedEventArgs()), note: "Ctrl+V"));
+        m.Items.Add(Make("\uEDE1", "Экспорт всех профилей…", () => ExportAll_Click(this, new RoutedEventArgs())));
+        m.Items.Add(new Separator());
+
+        // «В других программах» ▸
+        const string keep = "Оставлять текущий профиль";
+        var fb = Make("\uE8AB", "В других программах", null, d.AutoSwitch, d.FallbackProfile.Length > 0 ? d.FallbackProfile : "текущий");
+        fb.Tag = "fallback";
+        foreach (var name in new[] { keep }.Concat(d.Profiles.Select(p => p.Name)))
+        {
+            string target2 = name == keep ? "" : name;
+            bool sel = string.Equals(d.FallbackProfile, target2, StringComparison.OrdinalIgnoreCase);
+            fb.Items.Add(Make(sel ? check : "", name, () =>
+            {
+                d.FallbackProfile = target2;
+                SaveStore(); _fg.Engine.Reset();
+                Log(d.FallbackProfile.Length > 0 ? $"Профиль по умолчанию (нет правила): «{d.FallbackProfile}»." : "Без правила профиль больше не меняется.");
+                Dispatcher.BeginInvoke(RefreshProfilesList, System.Windows.Threading.DispatcherPriority.Background);
+            }));
+        }
+        m.Items.Add(fb);
+        if (d.AutoSwitch)
+            m.Items.Add(Make(_fg.Engine.Paused ? "\uE768" : "\uE769", _fg.Engine.Paused ? "Продолжить автопереключение" : "Пауза автопереключения", () => SetAutoPaused(!_fg.Engine.Paused)));
+
+        // «Уведомление при смене» ▸
+        var toast = Make("\uEA8F", "Уведомление при смене", null, true, d.SwitchToast ? SwitchToastLogic.PlacementName(d.ToastPlacement).ToLowerInvariant() : "выключено");
+        toast.Tag = "toast";
+        toast.Items.Add(Make(d.SwitchToast ? check : "", "Показывать", () =>
+        {
+            bool v = !d.SwitchToast;
+            SetToastSettings(enabled: v);
+            Log(v ? "Уведомление при смене профиля включено." : "Уведомление при смене профиля выключено.");
+            if (!v) _toast?.HideNow();
+            Dispatcher.BeginInvoke(RefreshProfilesList, System.Windows.Threading.DispatcherPriority.Background);
+        }));
+        toast.Items.Add(new Separator());
+        foreach (var pl in Enum.GetValues<ToastPlacement>())
+            toast.Items.Add(Make(d.ToastPlacement == pl ? check : "", SwitchToastLogic.PlacementName(pl), () =>
+            {
+                SetToastSettings(placement: pl);
+                Log("Уведомление о смене профиля: " + SwitchToastLogic.PlacementName(d.ToastPlacement).ToLowerInvariant() + ".");
+                ShowToastPreview();
+            }, d.SwitchToast));
+        toast.Items.Add(new Separator());
+        foreach (var o in ToastMenu(target).Items.OfType<MenuItem>().ToList())
+        {
+            ((ContextMenu)o.Parent).Items.Remove(o);
+            toast.Items.Add(o);
+        }
+        m.Items.Add(toast);
+
+        // «Кнопки по профилю (через ПК)» — a confirm dialog comes first, as with the old switch
+        bool on = Layer.Active;
+        m.Items.Add(Make(on ? check : "", "Кнопки по профилю (через ПК)", async () => { if (Layer.Active) await RestoreKeypad(); else await PrepareKeypad(); BuildAutoSwitchCard(); },
+            true, on ? RuPlural.Of(Layer.Keys.Count, "кнопка", "кнопки", "кнопок") : "выключено").With(x => { x.Tag = "pcmode"; x.ToolTip = PcModeHelp; }));
+        return m;
+    }
+
     private const string AutoSwitchHelp =
-        "Профиль включается сам, когда вы переходите в программу из его списка «Включать в программах».\n\n" +
+        "Профиль включается сам, когда вы переходите в программу из его списка «Включать в программах» (на карточке профиля). Профиль для остальных программ, пауза и уведомление — в ⋯ рядом с «Новый».\n\n" +
         "Сразу меняются действия на ПК: кольцо, сочетания, запуск программ и ссылок, макросы на компьютере (F13–F24).\n\n" +
         "Кнопки меняются вместе с профилем, если включены «Кнопки по профилю» (через ПК). Иначе кнопки, как и подсветка, хранятся в самой клавиатуре и меняются только по «Записать» — " +
         "автопереключение в клавиатуру никогда не пишет (частая запись изнашивает её память).";
@@ -207,14 +252,14 @@ public partial class MainWindow
     }
 
     /// <summary>v5.7: «Дополнительно ▾» — a quiet link that unfolds rarely used options (collapsed by default).</summary>
-    internal FrameworkElement Advanced(FrameworkElement content, string title = "Дополнительно", bool open = false, Action<bool>? toggled = null)
+    internal FrameworkElement Advanced(FrameworkElement content, string title = "Дополнительно", bool open = false)
     {
         var sp = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
         var link = new Button { Style = (Style)FindResource("LinkButton"), HorizontalAlignment = HorizontalAlignment.Left, FontSize = 13 };
         content.Margin = new Thickness(0, 4, 0, 0);
         void Sync() { link.Content = title + (content.Visibility == Visibility.Visible ? " ▴" : " ▾"); }
         content.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        link.Click += (_, _) => { content.Visibility = content.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; Sync(); toggled?.Invoke(content.Visibility == Visibility.Visible); };
+        link.Click += (_, _) => { content.Visibility = content.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; Sync(); };
         Sync();
         sp.Children.Add(link); sp.Children.Add(content);
         sp.Tag = "advanced";
@@ -224,23 +269,16 @@ public partial class MainWindow
     /// <summary>Marks «?» buttons (value = help text) so the smoke test can find and click them.</summary>
     internal static readonly DependencyProperty AutomationHelpKey = DependencyProperty.RegisterAttached("InfoDotHelp", typeof(string), typeof(MainWindow));
 
+    /// <summary>v5.7.2: one muted line under «Профили»: «Сейчас: Фото — по программе Photoshop.exe».</summary>
     private FrameworkElement StatusLine(ProfileStoreData d)
     {
-        int idx = Math.Max(0, d.Profiles.IndexOf(_profile));
-        var accent = AccentOf(_profile, idx);
-        var line = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
-        line.Children.Add(new TextBlock { Text = "Сейчас", FontSize = 13, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
-        var chip = new StackPanel { Orientation = Orientation.Horizontal };
-        chip.Children.Add(new Border { Width = 18, Height = 18, CornerRadius = new CornerRadius(6), Background = accent, Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center,
-            Child = new TextBlock { Text = GlyphOf(_profile, idx), FontFamily = Icons, FontSize = 9, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } });
-        chip.Children.Add(new TextBlock { Text = _profile.Name, FontSize = 13, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-        line.Children.Add(new Border { Child = chip, Background = R("Panel2Brush"), CornerRadius = new CornerRadius(11), Padding = new Thickness(4, 3, 11, 3), VerticalAlignment = VerticalAlignment.Center,
+        var line = new StackPanel { Orientation = Orientation.Horizontal };
+        line.Children.Add(new TextBlock { Text = $"Сейчас: {_profile.Name}", FontSize = 12.5, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center,
             ToolTip = "Активный профиль — " + (_activeWhy.Length > 0 ? _activeWhy : "последний использованный") });
-        _fgLabel = new TextBlock { FontSize = 12.5, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(9, 0, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 300 };
+        line.Children.Add(new TextBlock { Text = " — ", FontSize = 12.5, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center });
+        _fgLabel = new TextBlock { FontSize = 12.5, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 520 };
         line.Children.Add(_fgLabel);
         RefreshForegroundLabel();
-        if (d.AutoSwitch && _fg.Engine.Paused) line.Children.Add(Pill("\uE769", "на паузе", false).With(x => { x.Margin = new Thickness(10, 0, 0, 0); x.VerticalAlignment = VerticalAlignment.Center; }));
-        else if (!d.AutoSwitch) line.Children.Add(Pill("", "автопереключение выключено", false).With(x => { x.Margin = new Thickness(10, 0, 0, 0); x.VerticalAlignment = VerticalAlignment.Center; }));
         return line;
     }
 
@@ -254,32 +292,33 @@ public partial class MainWindow
     }
 
     // ───────────────────────────── «Включать в программах» on a profile card
-    private const string RulesHelp =
-        "Профиль включается сам, когда вы переходите в одну из этих программ. Работает, пока включено «Автопереключение» (ниже, «Для всех профилей»).";
-
     private FrameworkElement AppRulesSection(AppProfile p, Brush accent)
     {
-        var sp = new StackPanel { Margin = new Thickness(0, 26, 0, 0) };
-        var add = new Button { Style = (Style)FindResource("GhostButton"), Padding = new Thickness(10, 4, 11, 5), ToolTip = "Добавить программу, в которой этот профиль включается сам",
+        var sp = new StackPanel { Margin = new Thickness(0, 0, 0, 12) };
+        var head = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+        var add = new Button { Style = (Style)FindResource("GhostButton"), Padding = new Thickness(9, 3, 10, 4), ToolTip = "Добавить программу, в которой этот профиль включается сам",
             Content = new StackPanel { Orientation = Orientation.Horizontal, Children =
             {
                 new TextBlock { Text = "\uE710", FontFamily = Icons, FontSize = 10, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) },
-                new TextBlock { Text = "Программа", FontSize = 12.5 },
+                new TextBlock { Text = "Программа", FontSize = 12 },
             } } };
         add.Click += (_, e) => { e.Handled = true; BuildAppPicker(p).ShowDialog(); };
-        sp.Children.Add(SectionHead("Включать в программах", RulesHelp, add));
+        DockPanel.SetDock(add, Dock.Right);
+        head.Children.Add(add);
+        head.Children.Add(new TextBlock { Text = "Включать в программах", FontSize = 12.5, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center }); // v5.7: quieter label
+        sp.Children.Add(head);
 
         var rules = RulesOf(p);
         if (rules.Count == 0)
         {
             bool fb = string.Equals(_store.Data.FallbackProfile, p.Name, StringComparison.OrdinalIgnoreCase);
-            sp.Children.Add(T(fb ? "Во всех программах без своего профиля." : "Пока нет — профиль включается вручную. Нажмите «+ Программа», чтобы он включался сам.", 13, muted: true));
+            sp.Children.Add(T(fb ? "Во всех остальных." : "Пока нет — только вручную.", 12.5));
             return sp;
         }
         var wrap = new WrapPanel();
         foreach (var r in rules) wrap.Children.Add(RuleChip(r));
         sp.Children.Add(wrap);
-        if (!_store.Data.AutoSwitch) sp.Children.Add(T("Автопереключение выключено — правила сейчас не действуют.", 12, muted: true).With(t => t.Margin = new Thickness(0, 2, 0, 0)));
+        if (!_store.Data.AutoSwitch) sp.Children.Add(T("Автопереключение выключено — правила сейчас не действуют.", 11.5, muted: true).With(t => t.Margin = new Thickness(0, 2, 0, 0)));
         return sp;
     }
 
