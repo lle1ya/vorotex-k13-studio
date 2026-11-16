@@ -94,6 +94,13 @@ public partial class App : Application
             return;
         }
 
+        int r571 = Array.IndexOf(e.Args, "--render-v571");
+        if (r571 >= 0)
+        {
+            int code = Screenshots.RenderV571(r571 + 1 < e.Args.Length ? e.Args[r571 + 1] : Path.Combine(DataFolder, "screens-v5.7.1"));
+            Shutdown(code);
+            return;
+        }
         int r56k = Array.IndexOf(e.Args, "--render-v56-keys");
         if (r56k >= 0)
         {

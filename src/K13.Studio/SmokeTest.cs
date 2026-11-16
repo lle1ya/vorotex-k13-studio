@@ -193,6 +193,24 @@ public static class SmokeTest
                 var m = w.ToastMenu(w);
                 if (m.Items.Count != 2) throw new InvalidOperationException("в меню ⋯ ожидалось 2 пункта, а не " + m.Items.Count);
             });
+            // v5.7.1: profiles — list on the left, the selected profile on the right
+            Step($"{th}: профили — список и выбранный профиль", () =>
+            {
+                w.SelectProfileView(null); Render(w, 3);
+                var rows = Find<Border>(w).Where(b => (b.Tag as string) == "profile-row").ToList();
+                if (rows.Count != w.AllProfiles().Count) throw new InvalidOperationException($"строк профилей {rows.Count}, профилей {w.AllProfiles().Count}");
+                if (w.ViewProfile != w.ActiveProfileForTest) throw new InvalidOperationException("по умолчанию открыт не активный профиль");
+                var other = w.AllProfiles().First(p => p != w.ActiveProfileForTest);
+                w.SelectProfileView(other.Name); Render(w, 3);
+                if (w.ViewProfile != other) throw new InvalidOperationException("выбор профиля не открыл его");
+                if (w.ActiveProfileForTest == other) throw new InvalidOperationException("выбор профиля сделал его активным");
+                var all = AllText(w);
+                if (!all.Contains("Сделать активным") || !all.Contains("Включать в программах") || !all.Contains("Действия на компьютере") || !all.Contains("Для всех профилей"))
+                    throw new InvalidOperationException("нет разделов выбранного профиля");
+                if (w.ProfilesMenu(w).Items.Count != 3) throw new InvalidOperationException("в меню ⋯ профилей ожидалось 3 пункта");
+                if (w.TrayBoxForTest.IsVisible) throw new InvalidOperationException("редкие настройки не свёрнуты в «Дополнительно»");
+                w.SelectProfileView(null); Render(w, 3);
+            });
             // v5.6.1: «?» help — hover tooltip + click popup; no ToolTip with StaysOpen=false anywhere (throws on real Windows)
             Step($"{th}: «?» открывается кликом, подсказки без StaysOpen=false", () =>
             {

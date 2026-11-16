@@ -8,6 +8,28 @@ namespace Vorotex.Studio;
 
 internal static class Ui
 {
+    /// <summary>True when <paramref name="o"/> is (inside) a <typeparamref name="T"/> — e.g. a click on a row button.</summary>
+    public static bool IsInside<T>(System.Windows.DependencyObject? o) where T : System.Windows.DependencyObject
+    {
+        while (o != null)
+        {
+            if (o is T) return true;
+            o = o is System.Windows.Media.Visual || o is System.Windows.Media.Media3D.Visual3D ? System.Windows.Media.VisualTreeHelper.GetParent(o) : System.Windows.LogicalTreeHelper.GetParent(o);
+        }
+        return false;
+    }
+
+    /// <summary>All logical descendants of a type (works before the element is shown).</summary>
+    public static IEnumerable<T> Descendants<T>(System.Windows.DependencyObject root) where T : System.Windows.DependencyObject
+    {
+        foreach (var c in System.Windows.LogicalTreeHelper.GetChildren(root))
+            if (c is System.Windows.DependencyObject d)
+            {
+                if (d is T t) yield return t;
+                foreach (var x in Descendants<T>(d)) yield return x;
+            }
+    }
+
     public static Window MakeWindow(Window? owner, string title, double w, double h)
     {
         var win = new Window

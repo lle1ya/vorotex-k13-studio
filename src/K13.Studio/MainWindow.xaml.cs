@@ -188,6 +188,7 @@ public partial class MainWindow : Window
         if (_recording && p != _profile) ToggleRecording();
         _profile = p;
         _store.Data.ActiveProfile = p.Name;
+        if (reason != null && !auto) _viewName = null; // v5.7.1: a manual switch shows the profile it switched to
         _activeWhy = why ?? reason switch
         {
             null => _activeWhy.Length > 0 ? _activeWhy : "последний использованный",
@@ -270,7 +271,6 @@ public partial class MainWindow : Window
             AutostartBox.IsChecked = _store.Data.StartWithWindows;
             DarkBox.IsChecked = _store.Data.DarkTheme;
             SafeText.Visibility = ShowTech ? Visibility.Visible : Visibility.Collapsed; // v5.7: the same text is in the «Записать» tooltip
-            HostEnabledBox.IsChecked = _profile.Host.Enabled;
             _tray?.SetProfiles(_store.Data.Profiles.Select(p => p.Name), _profile.Name);
             _tray?.SetTooltip("VOROTEX K13 — " + _profile.Name);
             RefreshLayout();
@@ -381,17 +381,7 @@ public partial class MainWindow : Window
 
     private void RefreshHostSummary()
     {
-        int n = _profile.Host.Keys.Count, c = _profile.Host.Chords.Count;
-        HostSummary.Text = n + c == 0
-            ? "Запуск программ, ссылки, текст, удержание и диагонали джойстика. Работает, пока программа запущена (можно в трее)."
-            : RuPlural.Of(n + c, "действие настроено", "действия настроены", "действий настроено") + ". Работают, пока программа запущена (можно в трее)."; // v5.7: no «триггеры/аккорды»
-    }
-
-    private void HostEnabled_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_loading) return;
-        _profile.Host.Enabled = HostEnabledBox.IsChecked == true;
-        Changed(false);
+        if (_hostSummary != null) _hostSummary.Text = HostSummaryText(ViewProfile);
     }
 
     private void OpenHost_Click(object sender, RoutedEventArgs e)
