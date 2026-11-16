@@ -201,7 +201,7 @@ public partial class MainWindow
             glyph = "\uE8AB"; color = R("AccentBrush");
             head = "Нажатие стика → переключение Normal / Game (заводское)";
             body = "Normal — заводские клавиши, Game — ваши назначения (горит синий индикатор между Tab и 9). После подключения клавиатура начинает в Normal; " +
-                   "нажатие стика переключает режим, при подключении программа сама включает Game." +
+                   "нажатие стика переключает режим; с настройкой «Автоматически включать Game при подключении» программа включает Game сама." +
                    (dev != null && dev != code ? "\nВ клавиатуре сейчас другое — нажмите «Записать»." : "");
         }
         else if (ring && code != ProfileMigrations.StickCode)
@@ -224,7 +224,7 @@ public partial class MainWindow
         {
             glyph = "\uE946"; color = R("AccentBrush");
             head = "Нажатие стика: " + Labels.For(code, Cfg, _profile.Host).Text;
-            body = $"Стик посылает {KeyCatalog.Name(code)}. Заводское переключение Normal / Game со стика при этом не работает: после подключения нажмите «Включить Game» в меню ⋯ или оставьте включение Game при подключении.";
+            body = $"Стик посылает {KeyCatalog.Name(code)}. Заводское переключение Normal / Game со стика при этом не работает: после подключения нажмите ⋯ → «Включить Game сейчас» или оставьте настройку «Автоматически включать Game при подключении».";
         }
         var sp = new StackPanel();
         var h = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };

@@ -223,7 +223,7 @@ public static class SmokeTest
                 {
                     Render(w, 0);
                     if (!AllText(w).Contains("в режиме Normal")) throw new InvalidOperationException("нет предупреждения о режиме Normal");
-                    if (!AllText(w).Contains("Включить Game")) throw new InvalidOperationException("нет кнопки «Включить Game» в предупреждении");
+                    if (!AllText(w).Contains("Включить Game сейчас")) throw new InvalidOperationException("нет кнопки «Включить Game сейчас» в предупреждении");
                 }
                 finally { w.SimulateForeignKey(0); }
             });
@@ -239,8 +239,13 @@ public static class SmokeTest
             Step($"{th}: меню ⋯ — включение Game и тест команды", () =>
             {
                 var main = AllText(w.MainMenu());
-                foreach (var t in new[] { "Включить режим Game (ваши назначения)", "Включать режим Game при подключении", "Тест: какая команда включает Game" })
+                foreach (var t in new[] { "Включить Game сейчас", "Автоматически включать Game при подключении", "Тест: какая команда включает Game" })
                     if (!main.Contains(t)) throw new InvalidOperationException("нет пункта " + t);
+                // v5.8.2: action first, then a separator, then the setting
+                var items = w.MainMenu().Items.Cast<object>().ToList();
+                int Idx(string t) => items.FindIndex(i => i is MenuItem mi && AllText(mi).Contains(t));
+                int act = Idx("Включить Game сейчас"), set = Idx("Автоматически включать Game");
+                if (act < 0 || set != act + 2 || items[act + 1] is not Separator) throw new InvalidOperationException($"пункты Game не разделены чертой ({act}, {set})");
             });
             // v5.8: stick press — factory Normal/Game toggle or the ring, with an honest note
             Step($"{th}: нажатие стика — выбор Normal/Game или кольцо", () =>

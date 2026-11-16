@@ -331,8 +331,13 @@ public partial class MainWindow : Window
         Item("\uE896", "Прочитать с клавиатуры", ReadBtn_Click, _connected && !_busy && !_offline);
         Item("\uE74E", "Сохранить резервную копию", BackupBtn_Click, _connected && !_busy && !_offline);
         Item("\uE72C", "Кнопки не печатают? Вернуть обычный режим", Unstick_Click, _connected && !_busy && !_offline);
-        Item("\uE768", "Включить режим Game (ваши назначения)", async (_, _) => await ActivateKeypad(auto: false), _connected && !_busy && !_offline);
-        Item(_store.Data.ActivateOnConnect ? "\uE73E" : "", "Включать режим Game при подключении", (_, _) => SetActivateOnConnect(!_store.Data.ActivateOnConnect));
+        // v5.8.2: one-shot action and the setting are visually apart (makers ticked the setting instead of the action)
+        Item("\uE768", "Включить Game сейчас", async (_, _) => await ActivateKeypad(auto: false), _connected && !_busy && !_offline)
+            .ToolTip = "Разово переключить клавиатуру в режим Game (ваши назначения). Только чтение, без записи.";
+        m.Items.Add(new Separator());
+        Item(_store.Data.ActivateOnConnect ? "\uE73E" : "", "Автоматически включать Game при подключении", (_, _) => SetActivateOnConnect(!_store.Data.ActivateOnConnect))
+            .ToolTip = "Настройка: при каждом подключении клавиатуры программа сама переключает её в Game. Галочка — включено.";
+        m.Items.Add(new Separator());
         Item("\uE9CE", "Тест: какая команда включает Game…", (_, _) => RunBisect(), _connected && !_busy && !_offline);
         Item("\uE9D9", "План записи (пробный прогон)", PlanBtn_Click);
         m.Items.Add(new Separator());
