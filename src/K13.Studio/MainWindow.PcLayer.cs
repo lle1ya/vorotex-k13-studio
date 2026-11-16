@@ -188,6 +188,9 @@ public partial class MainWindow
                          "Прочитать память", async () => { if (await ReadDevice(auto: false) != null) { _kpForeignVk = 0; _activationFailed = false; RefreshModeBanner(); } })
                 : Banner(true, $"Клавиатура прислала «{VkName(_kpForeignVk)}», а в её памяти такой клавиши нет — она работает по заводской раскладке. «Активировать» включит записанную (только чтение, без записи).",
                          "Активировать", async () => await ActivateKeypad(auto: false));
+        if (kp != null && StickTilts.Unassigned(kp) is { Count: > 0 } emptyTilts && _connected && !_offline)
+            return Banner(true, $"Наклоны стика в клавиатуре не назначены ({emptyTilts.Count} из 4) — с записанной раскладкой они ничего не посылают. " +
+                                "Нажмите «Записать», чтобы прописать стрелки.", "Записать", async () => await WriteDevice());
         if (kp != null)
         {
             var mism = PcLayerPlanner.Compare(Cfg, Layer, kp);
@@ -271,6 +274,21 @@ public partial class MainWindow
     /// <summary>v5.7.3: a key the keypad sent that its memory (last read / written image) cannot produce.</summary>
     private ushort _kpForeignVk;
     private int _ringLogged;
+    /// <summary>v5.7.5: a tilt key came from the K13 itself (Raw Input) while the ring was open.</summary>
+    private bool _ringTiltFromK13;
+    private DateTime _ringOpenedAt;
+
+    private void OnRingOpened() { _ringTiltFromK13 = false; _ringOpenedAt = DateTime.Now; }
+
+    private void OnRingClosed()
+    {
+        if (_ringTiltFromK13 || (DateTime.Now - _ringOpenedAt).TotalSeconds < 2) return;
+        var kp = KeypadCfg;
+        var empty = kp == null ? new List<int>() : StickTilts.Unassigned(kp);
+        Log("[ring] от стика K13 не пришло ни одного наклона (стрелки других клавиатур не считаются) — проверьте назначение наклонов" +
+            (empty.Count > 0 ? $": в памяти клавиатуры не назначены {string.Join(", ", empty.Select(DeviceView.ControlName))} — нажмите «Записать»." : "."));
+        if (empty.Count > 0) StatusText.Text = "От стика не пришло ни одного наклона: наклоны в клавиатуре не назначены — нажмите «Записать».";
+    }
 
     private void CheckForeignKey(ushort vk)
     {
@@ -335,6 +353,7 @@ public partial class MainWindow
         if (!down) return;
         if (_k13Logged < 300) { _k13Logged++; Log($"[k13] клавиатура прислала VK 0x{vk:X2} (скан 0x{scan:X2}) «{VkName(vk)}»" + (Layer.Active ? " — мимо режима «через ПК»" : "")); }
         if (_bisectKeys != null) _bisectKeys.Add(vk);
+        if (_ringOverlay?.IsOpen == true && vk is not (0x1B or 0x0D) && _ringOverlay.WantsKey(vk)) _ringTiltFromK13 = true;
         if (_ringOverlay?.IsOpen == true && _ringLogged < 60) { _ringLogged++; Log($"[ring] при открытом кольце клавиатура прислала «{VkName(vk)}» (VK 0x{vk:X2})" + (_ringOverlay.WantsKey(vk) ? " — наклон/выбор" : " — не наклон стика")); }
         if (!Layer.Active) { CheckForeignKey(vk); return; }
         var h = PcLayerHealth.Check(Layer, KeypadCfg, vk);

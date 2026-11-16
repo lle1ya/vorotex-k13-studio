@@ -72,7 +72,7 @@ public partial class MainWindow : Window
             _mapper.UiLog += m => LogText.AppendLine($"{DateTime.Now:HH:mm:ss} {m}");
             _mapper.SwitchProfileRequested += n => ActivateProfile(n, "действие клавиши");
             _mapper.MacroProvider = i => i >= 0 && i < Cfg.Macros.Count ? Cfg.Macros[i] : null;
-            _ringOverlay = new RingOverlay(_mapper) { StickKeys = StickVks };
+            _ringOverlay = new RingOverlay(_mapper) { StickKeys = StickVks, Opened = OnRingOpened, Closed = OnRingClosed };
             _mapper.Ring = _ringOverlay;
             _mapper.LayerRouted += OnLayerRouted;
             _k13Keys = new K13KeyMonitor();
@@ -214,6 +214,12 @@ public partial class MainWindow : Window
 
     internal void Changed(bool refreshLayout = true)
     {
+        if (StickTilts.Fill(Cfg) is { Count: > 0 } filled)
+        {   // v5.7.5: an empty tilt sends nothing on the keypad — keep the arrow instead
+            refreshLayout = true;
+            StatusText.Text = "Наклон стика не может быть пустым: без назначения он ничего не посылает. Назначена стрелка.";
+            Log("Наклоны стика без назначения → стрелки: " + string.Join(", ", filled.Select(DeviceView.ControlName)));
+        }
         SaveStore();
         if (refreshLayout) RefreshLayout();
         RefreshDirty();
@@ -649,6 +655,7 @@ public partial class MainWindow : Window
             Log($"Прочитано 0x{img.Length:X} байт ({sent.Count} кадров, только 00/05/01). Резервная копия: {path}");
             if (_freshStore && auto && TryDecode(img) is { } decoded)
             {
+                StickTilts.Fill(decoded); // v5.7.5
                 _profile.Device = decoded;
                 _freshStore = false;
                 Log("Профиль «" + _profile.Name + "» заполнен настройками с клавиатуры.");

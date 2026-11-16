@@ -376,6 +376,7 @@ public static class ProfileMigrations
             bool same = old != null && slot < old.Macros.Count && slot < fresh.Macros.Count && SameMacro(old.Macros[slot], fresh.Macros[slot]);
             if (!same) p.MacroNames.Remove(slot);
         }
+        StickTilts.Fill(fresh); // v5.7.5: FF tilts in the keypad → arrows in the profile (one «Записать» fixes the keypad)
         p.Device = fresh;
     }
 
@@ -397,6 +398,10 @@ public static class ProfileMigrations
             foreach (var p in data.Profiles)
                 if (EnsureStickRing(p)) notes.Add($"Профиль «{p.Name}»: нажатие стика → F13 → Кольцо действий.");
         }
+        // v5.7.5: every load — unassigned stick tilts become arrows (FF would make the tilt send nothing)
+        foreach (var p in data.Profiles)
+            if (p.Device != null && StickTilts.Fill(p.Device) is { Count: > 0 } t)
+                notes.Add($"Профиль «{p.Name}»: наклонам стика без назначения ({t.Count}) назначены стрелки.");
         data.SchemaVersion = Math.Max(data.SchemaVersion, CurrentVersion);
         return notes;
     }

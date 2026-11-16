@@ -72,6 +72,18 @@ public partial class MainWindow
     /// <summary>After «Прочитать → заменить»: the UI now shows the keypad memory. If the header is not the vendor one, say what that means.</summary>
     private void AfterReadNote(byte[] img)
     {
+        if (TryDecode(img) is { } mem)
+        {
+            var empty = StickTilts.UnassignedControls(mem);
+            if (empty.Count > 0)
+                Log("[read] В памяти не назначены (FF, ничего не посылают): " + string.Join(", ", empty.Select(c => DeviceView.ControlName(c.Column))) +
+                    (StickTilts.Unassigned(mem).Count > 0 ? ". Наклонам стика в профиле назначены стрелки — нажмите «Записать»." : "."));
+            if (StickTilts.Unassigned(mem).Count > 0)
+            {
+                StatusText.Text = "Наклоны стика в клавиатуре не назначены — нажмите «Записать», чтобы прописать стрелки.";
+                return;
+            }
+        }
         var h = K13Header.Inspect(img);
         if (h.Verdict == HeaderVerdict.Exact) return;
         Log($"[read] Заголовок памяти {h.RawHex}: не E1 1E. Программа фирмы пишет туда E1 1E; v5.7.3 тоже (при следующей записи).");

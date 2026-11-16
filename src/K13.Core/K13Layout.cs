@@ -83,3 +83,36 @@ public static class K13Layout
 
     public static int Align8(int v) => (v + 7) & ~7;
 }
+
+/// <summary>v5.7.5: stick tilts (keymap columns 12–15, row 0). Factory memory has FF there (both units: ours 12.11, the makers' 16.11);
+/// with the stored layout active FF = the tilt sends nothing (VOROTEX, 16.11.2026 15:15). The built-in factory table (0x0020)
+/// has arrows. So a tilt is never written as FF: an unassigned tilt becomes its arrow.</summary>
+public static class StickTilts
+{
+    public static readonly int[] Columns = { 12, 13, 14, 15 };
+    public static byte Arrow(int col) => K13Layout.FactoryColumnCodes[col];
+    public static bool IsTilt(int col) => col is >= 12 and <= 15;
+
+    public static List<int> Unassigned(K13DeviceConfig c) => Columns.Where(col => c.GetKey(col) == KeyCatalog.Disabled).ToList();
+
+    /// <summary>FF tilts → arrows, in place. Returns the columns changed.</summary>
+    public static List<int> Fill(K13DeviceConfig c)
+    {
+        var changed = Unassigned(c);
+        foreach (var col in changed) c.SetKey(col, Arrow(col));
+        return changed;
+    }
+
+    /// <summary>Copy of a keymap with FF tilts replaced by arrows (encoder safety net).</summary>
+    public static byte[] WithArrows(byte[] keymap)
+    {
+        var k = (byte[])keymap.Clone();
+        foreach (var col in Columns)
+            if (k[col * K13Layout.KeymapRows] == KeyCatalog.Disabled) k[col * K13Layout.KeymapRows] = Arrow(col);
+        return k;
+    }
+
+    /// <summary>Main keys and tilts (columns 0–15) that send nothing (FF) — for the «не назначена» warning.</summary>
+    public static List<K13Control> UnassignedControls(K13DeviceConfig c) =>
+        K13Layout.Controls.Where(x => x.Column <= 15 && c.GetKey(x.Column) == KeyCatalog.Disabled).ToList();
+}

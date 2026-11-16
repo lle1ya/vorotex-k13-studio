@@ -295,6 +295,18 @@ public partial class MainWindow
         }
         CurrentBlock(icon, text, curDesc, code != ctl.FactoryCode,
             () => { Cfg.SetKey(_selCol, ctl.FactoryCode); Changed(); RefreshMacros(); });
+        // v5.7.5: say plainly when a key sends nothing, and when the keypad itself has empty tilts
+        if (code == KeyCatalog.Disabled && _selCol <= 15)
+            EditorHost.Children.Add(T("Кнопка не назначена — она ничего не посылает.", 12, muted: true).With(t => t.Margin = new Thickness(0, 6, 0, 0)));
+        if (DeviceView.IsStick(_selCol))
+        {
+            EditorHost.Children.Add(T("Наклоны: ↑ " + KeyCatalog.Name(Cfg.GetKey(15)) + " · ↓ " + KeyCatalog.Name(Cfg.GetKey(14)) +
+                                      " · ← " + KeyCatalog.Name(Cfg.GetKey(12)) + " · → " + KeyCatalog.Name(Cfg.GetKey(13)) + " (без назначения — стрелки)", 12, muted: true)
+                .With(t => t.Margin = new Thickness(0, 6, 0, 0)));
+            if (KeypadCfg is { } kp && StickTilts.Unassigned(kp).Count > 0)
+                EditorHost.Children.Add(T("В клавиатуре наклоны стика не назначены — сейчас они ничего не посылают. Нажмите «Записать», чтобы прописать стрелки.", 12)
+                    .With(t => { t.Margin = new Thickness(0, 6, 0, 0); t.Foreground = R("WarnBrush"); t.TextWrapping = TextWrapping.Wrap; }));
+        }
 
         EditorHost.Children.Add(T("Выберите действие", 13, muted: true, bottom: 8).With(t => t.Margin = new Thickness(0, 14, 0, 8)));
         string cur = TileOf(code, Cfg, _profile.Host);

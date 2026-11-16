@@ -227,6 +227,14 @@ public static class SmokeTest
                 }
                 finally { w.SimulateForeignKey(0); }
             });
+            // v5.7.5: stick tilts are shown and never empty
+            Step($"{th}: наклоны стика — стрелки по умолчанию и видны в редакторе", () =>
+            {
+                w.ShowPage(0); w.SelectControl(15); Render(w, 0);
+                var t = AllText(w);
+                if (!t.Contains("Наклоны: ↑ ↑ · ↓ ↓ · ← ← · → →")) throw new InvalidOperationException("в редакторе стика нет строки наклонов со стрелками");
+                w.SelectControl(-1);
+            });
             // v5.7.4: activation setting + bisect test in the main ⋯ menu
             Step($"{th}: меню ⋯ — активация раскладки и тест команды", () =>
             {

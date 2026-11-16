@@ -46,6 +46,8 @@ public sealed class RingOverlay : Window, IRingHost
     public Func<(ushort[] Up, ushort[] Down, ushort[] Left, ushort[] Right)> StickKeys { get; set; } = () => (new ushort[] { 0x26 }, new ushort[] { 0x28 }, new ushort[] { 0x25 }, new ushort[] { 0x27 });
 
     public bool IsOpen => _open;
+    /// <summary>v5.7.5: open/close notifications (UI thread) — the main window checks whether the K13 stick sent any tilt.</summary>
+    public Action? Opened, Closed;
 
     public RingOverlay(HostMapper mapper)
     {
@@ -147,6 +149,7 @@ public sealed class RingOverlay : Window, IRingHost
         PlaceAtCursor(true);
         Dispatcher.BeginInvoke(() => PlaceAtCursor(false), DispatcherPriority.Loaded); // again after a possible DPI change (other monitor)
         _open = true; _stickUsed = false; _mouseUsed = false; _stick.Clear(); _openedAt = DateTime.Now;
+        Opened?.Invoke();
         GetCursorPos(out _lastMouse);
         var dur = TimeSpan.FromMilliseconds(170);
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
@@ -208,6 +211,7 @@ public sealed class RingOverlay : Window, IRingHost
     {
         if (!_open) return;
         _open = false; _holding = false; _timer.Stop(); _stick.Clear();
+        try { Closed?.Invoke(); } catch (Exception ex) { App.Log("[ring] Closed: " + ex.Message); }
         var an = new DoubleAnimation(0, TimeSpan.FromMilliseconds(ran ? 90 : 130));
         an.Completed += (_, _) => { if (!_open) { Hide(); Left = -10000; } };
         BeginAnimation(OpacityProperty, an);
