@@ -19,13 +19,21 @@ public sealed class PcLayerState
     public List<PcLayerKey> Keys { get; set; } = new();
     public DateTime? PreparedAt { get; set; }
 
+    /// <summary>0 = v5.6 scheme (keymap cells F14–F24 — this K13 firmware does NOT send them, proven 16.11.2026);
+    /// 1 = v5.6.3 scheme: each key runs a keypad macro «Scroll Lock + F1…F11» that the PC recognises.</summary>
+    public int Scheme { get; set; }
+    public const int ChordScheme = 1;
+
+    /// <summary>Prepared with the old F14–F24 scheme — must be prepared again.</summary>
+    public bool Legacy => Active && Scheme != ChordScheme;
+
     /// <summary>The keypad was prepared → keys go through the PC.</summary>
     public bool Active => Keys.Count > 0;
 
     public int CodeColumn(byte code) => Keys.FirstOrDefault(k => k.Code == code)?.Column ?? -1;
     public bool IsMapped(int column) => Keys.Any(k => k.Column == column);
 
-    public PcLayerState Clone() => new() { Keys = Keys.Select(k => new PcLayerKey { Column = k.Column, Code = k.Code }).ToList(), PreparedAt = PreparedAt };
+    public PcLayerState Clone() => new() { Keys = Keys.Select(k => new PcLayerKey { Column = k.Column, Code = k.Code }).ToList(), PreparedAt = PreparedAt, Scheme = Scheme };
 
     /// <summary>Drops anything a hand-edited / damaged file could contain: unknown columns, codes outside the pool, duplicates.</summary>
     public List<string> Normalize()
@@ -34,7 +42,7 @@ public sealed class PcLayerState
         Keys ??= new();
         int before = Keys.Count;
         var cols = new HashSet<int>(); var codes = new HashSet<byte>();
-        Keys = Keys.Where(k => k != null && PcLayerPlanner.Columns.Contains(k.Column) && PcLayerPlanner.Pool.Contains(k.Code) && cols.Add(k.Column) && codes.Add(k.Code)).ToList();
+        Keys = Keys.Where(k => k != null && PcLayerPlanner.Columns.Contains(k.Column) && (Scheme == ChordScheme ? PcLayerPlanner.ChordPool : PcLayerPlanner.Pool).Contains(k.Code) && cols.Add(k.Column) && codes.Add(k.Code)).ToList();
         if (Keys.Count != before) notes.Add($"Кнопки через ПК: отброшено неверных записей — {before - Keys.Count}.");
         if (Keys.Count == 0) PreparedAt = null;
         return notes;
@@ -54,6 +62,40 @@ public static class PcLayerPlanner
     /// <summary>F14…F24 — no ordinary keyboard has them; F13 is the stick press (ring).</summary>
     public static readonly byte[] Pool = Enumerable.Range(0x69, 11).Select(i => (byte)i).ToArray();
 
+    /// <summary>v5.6.3 scheme. The K13 firmware only sends the standard 104-key codes (+ F13): a keymap cell with F14–F24
+    /// is ignored and the key sends its factory code (log 16.11.2026 12:45:56: Tab key with F23 in its cell sent «Tab»).
+    /// So each key runs a keypad macro «Scroll Lock ↓, F<i> ↓↑, Scroll Lock ↑» — only standard codes — and the PC turns
+    /// «F<i> while Scroll Lock is held» into the active profile's action.</summary>
+    public const byte ChordPrefix = 0x47;      // Scroll Lock
+    public const ushort ChordPrefixVk = 0x91;
+    public static readonly byte[] ChordPool = Enumerable.Range(0x3A, 11).Select(i => (byte)i).ToArray(); // F1…F11
+
+    /// <summary>The keypad macro a prepared key runs in the chord scheme.</summary>
+    public static MacroSlot ChordMacro(byte fkey) => new()
+    {
+        Repeat = 1,
+        Events =
+        {
+            new() { Down = true, Code = ChordPrefix, Delay = 1 }, new() { Down = true, Code = fkey, Delay = 1 },
+            new() { Down = false, Code = fkey, Delay = 1 }, new() { Down = false, Code = ChordPrefix, Delay = 1 },
+        },
+    };
+
+    /// <summary>A new state for «Подготовить клавиатуру» (chord scheme).</summary>
+    public static PcLayerState NewState(IEnumerable<K13DeviceConfig> profiles)
+    {
+        var legacy = Plan(profiles.ToList(), ignoreAvoid: true);
+        return new PcLayerState
+        {
+            Scheme = PcLayerState.ChordScheme,
+            Keys = legacy.Select((k, i) => new PcLayerKey { Column = k.Column, Code = ChordPool[i] }).ToList(),
+        };
+    }
+
+    /// <summary>Keymap cell a mapped key gets in the keypad.</summary>
+    public static byte CellFor(PcLayerState state, PcLayerKey k) =>
+        state.Scheme == PcLayerState.ChordScheme ? (byte)(KeyCatalog.FirstMacro + state.Keys.IndexOf(k)) : k.Code;
+
     /// <summary>The 12 keys (joystick and stick press stay in the keypad — they drive the actions ring).</summary>
     public static readonly int[] Columns = K13Layout.Controls.Where(c => c.Kind == ControlKind.Key).Select(c => c.Column).ToArray();
 
@@ -68,7 +110,9 @@ public static class PcLayerPlanner
     /// Which keys go through the PC. There are 12 keys and 11 free codes, so one key may stay in the keypad: the one
     /// that is the same in every profile (preferably a plain key), otherwise the one that differs least.
     /// </summary>
-    public static List<PcLayerKey> Plan(IEnumerable<K13DeviceConfig> profiles)
+    public static List<PcLayerKey> Plan(IEnumerable<K13DeviceConfig> profiles) => Plan(profiles, ignoreAvoid: false);
+
+    private static List<PcLayerKey> Plan(IEnumerable<K13DeviceConfig> profiles, bool ignoreAvoid)
     {
         var cfgs = profiles.Where(c => c != null).ToList();
         if (cfgs.Count == 0) cfgs.Add(new K13DeviceConfig());
@@ -84,7 +128,7 @@ public static class PcLayerPlanner
         }).ToList();
         // codes the joystick / stick press already send in some profile cannot double as key codes
         var avoid = new HashSet<byte>(cfgs.SelectMany(c => K13Layout.Controls.Where(k => !Columns.Contains(k.Column)).Select(k => c.GetKey(k.Column))));
-        var pool = Pool.Where(p => !avoid.Contains(p)).ToArray();
+        var pool = ignoreAvoid ? Pool : Pool.Where(p => !avoid.Contains(p)).ToArray();
         var stay = new HashSet<int>(scored.OrderBy(s => s.keepScore).ThenByDescending(s => s.col).Take(Math.Max(0, Columns.Length - pool.Length)).Select(s => s.col));
         // keys that only ever do firmware things (all profiles) are better left in the keypad too
         foreach (var s in scored.Where(s => s.keepScore <= -1000)) stay.Add(s.col);
@@ -106,6 +150,20 @@ public static class PcLayerPlanner
     {
         var c = profile.Clone();
         if (!state.Active) return c;
+        if (state.Scheme == PcLayerState.ChordScheme)
+        {
+            // every keypad macro slot is a chord now; a macro left on a key that stays in the keypad cannot be kept
+            for (int col = 0; col < K13Layout.KeymapColumns; col++)
+                for (int row = 0; row < K13Layout.KeymapRows; row++)
+                    if (KeyCatalog.IsMacro(c.GetKey(col, row))) c.SetKey(col, KeyCatalog.Disabled, row);
+            for (int s2 = 0; s2 < c.Macros.Count; s2++) c.Macros[s2] = new MacroSlot();
+            for (int i = 0; i < state.Keys.Count && i < c.Macros.Count; i++)
+            {
+                c.SetKey(state.Keys[i].Column, (byte)(KeyCatalog.FirstMacro + i));
+                c.Macros[i] = ChordMacro(state.Keys[i].Code);
+            }
+            return c;
+        }
         foreach (var k in state.Keys) c.SetKey(k.Column, k.Code);
         var used = new HashSet<int>();
         for (int col = 0; col < K13Layout.KeymapColumns; col++)
@@ -165,7 +223,11 @@ public static class PcLayerPlanner
 
     /// <summary>Does the keypad look prepared for this state (every mapped key sends its code)?</summary>
     public static bool LooksPrepared(PcLayerState state, K13DeviceConfig keypad) =>
-        state.Active && state.Keys.All(k => keypad.GetKey(k.Column) == k.Code);
+        state.Active && state.Keys.All(k => keypad.GetKey(k.Column) == CellFor(state, k)) &&
+        (state.Scheme != PcLayerState.ChordScheme || state.Keys.Select((k, i) => (k, i)).All(p => p.i < keypad.Macros.Count && SameMacro(keypad.Macros[p.i], ChordMacro(p.k.Code))));
+
+    private static bool SameMacro(MacroSlot a, MacroSlot b) =>
+        a.Events.Count == b.Events.Count && a.Events.Zip(b.Events).All(p => p.First.Down == p.Second.Down && p.First.Code == p.Second.Code);
 }
 
 public enum PcOutKind { KeyDown, KeyUp, HostDown, HostUp, StartMacro, StartMacroHeld, StopMacro, Shell, FirmwareOnly }
@@ -189,8 +251,16 @@ public sealed class PcLayerRouter
     private Dictionary<ushort, int> _map = new();
     private readonly Dictionary<ushort, Held> _held = new();
 
+    private bool _chord, _prefix;
+    private long _prefixUpAt = long.MinValue / 2;
+    private readonly HashSet<ushort> _chordDown = new();
+    /// <summary>F&lt;i&gt; counts as a keypad key this long after Scroll Lock was released (macro events come ~8 ms apart).</summary>
+    public const int ChordGraceMs = 120;
+
     public void SetLayer(PcLayerState state)
     {
+        _chord = state.Scheme == PcLayerState.ChordScheme && state.Active;
+        _prefix = false; _chordDown.Clear();
         var m = new Dictionary<ushort, int>();
         foreach (var k in state.Keys) { ushort v = KeyCatalog.ToVirtualKey(k.Code); if (v != 0) m[v] = k.Column; }
         _map = m;
@@ -202,6 +272,39 @@ public sealed class PcLayerRouter
     public int HeldCount => _held.Count;
 
     /// <param name="isHostTrigger">The code is a PC-action trigger in the active profile (F13–F24 binding, chord, ring).</param>
+    /// <summary>
+    /// Every hook event goes here. <paramref name="swallow"/> = the event belongs to the keypad layer (do not pass it on).
+    /// Chord scheme: Scroll Lock is always taken while the mode is on; F1…F11 only while it is held (or right after).
+    /// </summary>
+    public List<PcOut> Feed(ushort vk, bool down, K13DeviceConfig profile, Func<ushort, bool> isHostTrigger, long? nowMs, out bool swallow)
+    {
+        if (!_chord)
+        {
+            swallow = Owns(vk);
+            return swallow ? Route(vk, down, profile, isHostTrigger, nowMs) : new List<PcOut>();
+        }
+        if (vk == PcLayerPlanner.ChordPrefixVk)
+        {
+            swallow = true;
+            if (down) _prefix = true; else { _prefix = false; _prefixUpAt = nowMs ?? _prefixUpAt; }
+            return new List<PcOut>();
+        }
+        if (down && _map.ContainsKey(vk) && (_prefix || _chordDown.Contains(vk) || nowMs is long t && t - _prefixUpAt <= ChordGraceMs))
+        {
+            swallow = true; _chordDown.Add(vk);
+            return Route(vk, true, profile, isHostTrigger, nowMs);
+        }
+        if (!down && _chordDown.Remove(vk))
+        {
+            swallow = true;
+            return Route(vk, false, profile, isHostTrigger, nowMs);
+        }
+        swallow = false;
+        return new List<PcOut>();
+    }
+
+    public bool IsChord => _chord;
+
     /// <param name="nowMs">Event time (ms, monotonic); null = treat every down while held as auto-repeat.</param>
     public List<PcOut> Route(ushort vk, bool down, K13DeviceConfig profile, Func<ushort, bool> isHostTrigger, long? nowMs = null)
     {
@@ -257,6 +360,7 @@ public sealed class PcLayerRouter
     /// <summary>Keys still held (e.g. on exit / when the mode is switched off) → their releases.</summary>
     public List<PcOut> ReleaseAll()
     {
+        _prefix = false; _chordDown.Clear();
         var o = new List<PcOut>();
         foreach (var h in _held.Values) Release(h, o);
         _held.Clear();
@@ -273,6 +377,7 @@ public static class PcLayerHealth
     public static PcHealth Check(PcLayerState state, K13DeviceConfig? keypad, ushort vk)
     {
         if (state.Keys.Any(k => KeyCatalog.ToVirtualKey(k.Code) == vk)) return PcHealth.Routed;
+        if (state.Scheme == PcLayerState.ChordScheme && vk == PcLayerPlanner.ChordPrefixVk) return PcHealth.Routed;
         if (vk == ProfileMigrations.StickVk) return PcHealth.Native;
         if (keypad != null)
             for (int col = 0; col < K13Layout.KeymapColumns; col++)

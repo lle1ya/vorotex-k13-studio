@@ -7,7 +7,7 @@ using Vorotex.K13;
 namespace Vorotex.Studio;
 
 /// <summary>
-/// v5.6: «Кнопки по профилю (через ПК)». After a one-time «Подготовить клавиатуру» write the keys send F14–F24 and the
+/// v5.6: «Кнопки по профилю (через ПК)». After a one-time «Подготовить клавиатуру» write each key runs a keypad macro «Scroll Lock + F<i>» (v5.6.3; F14–F24 did not work) and the
 /// keyboard hook runs what the ACTIVE profile assigns — so a profile switch changes the keys instantly, without writes.
 /// «В клавиатуре» (classic) writes the real keys again so the keypad works without the app.
 /// </summary>
@@ -43,8 +43,9 @@ public partial class MainWindow
     internal async Task<bool> PrepareKeypad()
     {
         if (_offline || !_connected) { MessageBox.Show(this, "Подключите клавиатуру — подготовка записывает её один раз.", Title, MessageBoxButton.OK, MessageBoxImage.Information); return false; }
-        var plan = PcLayerPlanner.Plan(_store.Data.Profiles.Select(p => p.Device ?? K13MemoryCodec.Decode(DefaultImage)));
-        var state = new PcLayerState { Keys = plan, PreparedAt = DateTime.Now };
+        var state = PcLayerPlanner.NewState(_store.Data.Profiles.Select(p => p.Device ?? K13MemoryCodec.Decode(DefaultImage)));
+        state.PreparedAt = DateTime.Now;
+        var plan = state.Keys;
         MessageBox.Build(this, PrepareText(state), "Подготовить клавиатуру", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes, out var ans,
             new[] { "Подготовить и записать", "Отмена" }).ShowDialog();
         if (ans() != MessageBoxResult.Yes) { BuildAutoSwitchCard(); return false; }
@@ -53,7 +54,7 @@ public partial class MainWindow
         {
             _store.Data.PcLayer = state; SaveStore();
             Log($"Кнопки через ПК: клавиатура подготовлена ({plan.Count} кнопок).");
-            StatusText.Text = "Клавиатура подготовлена: после переподключения кнопки меняются вместе с профилем.";
+            StatusText.Text = "Клавиатура подготовлена: кнопки меняются вместе с профилем. Нажмите любую — внизу будет видно, что она сделала.";
         }
         PushMapper(); RefreshAll(); RefreshDirty();
         return ok;
@@ -65,18 +66,20 @@ public partial class MainWindow
         var native = PcLayerPlanner.Columns.Where(c => !state.IsMapped(c)).ToList();
         return
             "Кнопки будут меняться вместе с профилем — сразу, без записи в клавиатуру.\n\n" +
-            "Для этого клавиатура один раз записывается так, что каждая кнопка посылает свой редкий код (F14–F24), " +
-            "а программа выполняет то, что назначено кнопке в активном профиле: клавишу, сочетание, макрос, медиа, действие на ПК.\n\n" +
+            "Для этого клавиатура один раз записывается так, что каждая кнопка запускает свой короткий макрос «Scroll Lock + F1…F11», " +
+            "а программа узнаёт кнопку и выполняет то, что назначено ей в активном профиле: клавишу, сочетание, макрос, медиа, действие на ПК.\n\n" +
             $"• Через ПК: {KeyList(plan.Select(k => k.Column))}.\n" +
-            (native.Count > 0 ? $"• Остаётся в клавиатуре (кодов F14–F24 всего 11): {KeyList(native)}.\n" : "") +
-            "• Джойстик и нажатие стика (кольцо) остаются в клавиатуре, подсветка — тоже.\n" +
-            "• Без запущенной программы эти кнопки ничего не делают. Программа может запускаться вместе с Windows (в трей).\n\n" +
-            "Перед записью сохраняется резервная копия, после — проверка чтением. Затем выньте и вставьте USB-кабель клавиатуры.";
+            (native.Count > 0 ? $"• Остаётся в клавиатуре (макросов в клавиатуре всего 11): {KeyList(native)}.\n" : "") +
+            "• Джойстик и нажатие стика (кольцо) остаются в клавиатуре, подсветка — тоже. Все 11 макросов клавиатуры заняты этим режимом.\n" +
+            "• Кнопка срабатывает как нажатие; при удержании не повторяется.\n" +
+            "• Пока режим включён, Scroll Lock обычной клавиатуры не действует.\n" +
+            "• Программа должна быть запущена (можно вместе с Windows, в трей): без неё кнопки нажимают Scroll Lock + F1…F11.\n\n" +
+            "Перед записью сохраняется резервная копия, после — проверка чтением. Переподключать кабель не нужно.";
     }
 
     internal Window BuildPrepareDialog()
     {
-        var state = new PcLayerState { Keys = PcLayerPlanner.Plan(_store.Data.Profiles.Select(p => p.Device ?? K13MemoryCodec.Decode(DefaultImage))) };
+        var state = new PcLayerState { Scheme = PcLayerState.ChordScheme, Keys = PcLayerPlanner.NewState(_store.Data.Profiles.Select(p => p.Device ?? K13MemoryCodec.Decode(DefaultImage))).Keys };
         return MessageBox.Build(IsLoaded ? this : null, PrepareText(state), "Подготовить клавиатуру", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes, out _,
             new[] { "Подготовить и записать", "Отмена" });
     }
@@ -126,7 +129,7 @@ public partial class MainWindow
     /// <summary>Screenshots / smoke test: pretend the keypad was prepared (no device involved).</summary>
     internal void DemoPcLayer(bool on)
     {
-        _store.Data.PcLayer = on ? new PcLayerState { Keys = PcLayerPlanner.Plan(_store.Data.Profiles.Select(p => p.Device ?? K13MemoryCodec.Decode(DefaultImage))), PreparedAt = DateTime.Now } : new PcLayerState();
+        _store.Data.PcLayer = on ? new PcLayerState { Scheme = PcLayerState.ChordScheme, Keys = PcLayerPlanner.NewState(_store.Data.Profiles.Select(p => p.Device ?? K13MemoryCodec.Decode(DefaultImage))).Keys, PreparedAt = DateTime.Now } : new PcLayerState();
         _kpUnexpectedVk = 0; _k13RoutedSeen = false;
         SaveStore(); PushMapper(); RefreshAll();
     }
@@ -149,7 +152,7 @@ public partial class MainWindow
     }
 
     private const string PcModeHelp =
-        "Через ПК: клавиатура один раз подготавливается («Подготовить клавиатуру»), и каждая кнопка посылает свой редкий код F14–F24. " +
+        "Через ПК: клавиатура один раз подготавливается («Подготовить клавиатуру»), и каждая кнопка запускает свой короткий макрос «Scroll Lock + F1…F11», который узнаёт программа. " +
         "Программа выполняет то, что назначено кнопке в активном профиле, — смена профиля меняет кнопки сразу, без записи. " +
         "Нужна запущенная программа (можно в трее, с запуском вместе с Windows).\n\n" +
         "В клавиатуре: кнопки записаны в саму клавиатуру и работают без программы, но для другого профиля их нужно снова записать.\n\n" +
@@ -168,8 +171,10 @@ public partial class MainWindow
         var kp = KeypadCfg;
         if (Layer.Active)
         {
+            if (Layer.Legacy)
+                return Banner(true, "Режим «через ПК» подготовлен по-старому (коды F14–F24) — эта клавиатура их не посылает. Подготовьте её заново.", "Подготовить снова", async () => await PrepareKeypad());
             if (_kpUnexpectedVk != 0)
-                return Banner(true, $"Клавиатура прислала «{VkName(_kpUnexpectedVk)}» вместо своего кода F14–F24 — кнопки через ПК сейчас не работают. Выньте и вставьте кабель; если не помогло — «Кнопки по профилю» → выкл. (вернуть кнопки в клавиатуру).", null, null);
+                return Banner(true, $"Клавиатура прислала «{VkName(_kpUnexpectedVk)}» вместо своего сигнала — кнопки через ПК сейчас не работают. Нажмите «Подготовить снова» или выключите «Кнопки по профилю».", null, null);
             if (kp != null && !PcLayerPlanner.LooksPrepared(Layer, kp))
                 return Banner(true, "Клавиатура не подготовлена для режима «через ПК» — кнопки сейчас делают то, что в ней записано.", "Подготовить снова", async () => await PrepareKeypad());
             var mism = kp == null ? new() : PcLayerPlanner.Compare(Cfg, Layer, kp);
@@ -226,7 +231,7 @@ public partial class MainWindow
             muted = a.Kind == PcKeyKind.Macro ? $"Через ПК: макрос выполняет компьютер, пока программа запущена. В другом профиле кнопка делает своё."
                                               : $"Через ПК: в профиле «{_profile.Name}» — {PcLayerPlanner.Describe(a)}. В другом профиле кнопка делает своё.";
             if (a.Kind == PcKeyKind.FirmwareOnly) warn = $"«{KeyCatalog.Name(a.Code)}» умеет только сама клавиатура — в режиме «через ПК» эта кнопка ничего не сделает.";
-            if (kp != null && kp.GetKey(col) != Layer.Keys.First(k => k.Column == col).Code) warn = $"Клавиатура не подготовлена: сейчас эта кнопка посылает «{KpName(kp.GetKey(col))}».";
+            if (kp != null && kp.GetKey(col) != PcLayerPlanner.CellFor(Layer, Layer.Keys.First(k => k.Column == col))) warn = $"Клавиатура не подготовлена: сейчас эта кнопка посылает «{KpName(kp.GetKey(col))}».";
         }
         else
         {
@@ -308,8 +313,8 @@ public partial class MainWindow
         if (h == PcHealth.Unexpected && _kpUnexpectedVk != vk)
         {
             _kpUnexpectedVk = vk;
-            Log($"[k13] режим «через ПК» не действует: кнопка клавиатуры прислала «{VkName(vk)}» вместо своего кода F14–F24.");
-            StatusText.Text = $"Клавиатура прислала «{VkName(vk)}» вместо кода F14–F24 — подготовка в ней не действует.";
+            Log($"[k13] режим «через ПК» не действует: кнопка клавиатуры прислала «{VkName(vk)}» вместо своего сигнала (Scroll Lock + F1…F11).");
+            StatusText.Text = $"Клавиатура прислала «{VkName(vk)}» вместо своего сигнала — подготовка в ней не действует.";
             RefreshModeBanner();
         }
     }

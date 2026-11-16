@@ -137,6 +137,7 @@ public sealed class HostMapper : IDisposable
     public event Action<int, ushort, string, PcKeyAction?>? LayerRouted;
     private readonly HashSet<ushort> _routedDown = new();
     private int _pressLogs, _strayLogs;
+    private bool _prefixLogged;
 
     /// <summary>Key injection and logging leave the hook thread: anything slow inside a low-level hook makes Windows
     /// skip the hook for that event (the keypad's raw code — or its release — then gets lost).</summary>
@@ -165,15 +166,20 @@ public sealed class HostMapper : IDisposable
             if (_routerFor == null || !SameKeys(_routerFor.State, l.State)) _router.SetLayer(l.State);
             _routerFor = l;
         }
-        if (!_router.Owns(vk))
+        var before = _router.LastResolved;
+        var outs = _router.Feed(vk, down, l.Cfg, v => _settings.Enabled && IsTrigger(v), timeMs, out bool mine);
+        if (!mine)
         {
             if (down && vk is >= 0x7D and <= 0x87 && _strayLogs++ < 50) Diag($"F{vk - 0x6F} пришёл, но ни одной кнопке «через ПК» не назначен");
             return false;
         }
+        if (vk == PcLayerPlanner.ChordPrefixVk && _router.IsChord)
+        {
+            if (down && !_prefixLogged) { _prefixLogged = true; Diag("Scroll Lock от клавиатуры — режим «через ПК» (Scroll Lock + F1…F11) принимает кнопки"); }
+            return true;
+        }
         bool fresh = down && !_routedDown.Contains(vk);
         if (down) _routedDown.Add(vk); else _routedDown.Remove(vk);
-        var before = _router.LastResolved;
-        var outs = _router.Route(vk, down, l.Cfg, v => _settings.Enabled && IsTrigger(v), timeMs);
         foreach (var o in outs) Do(o, l);
         if (down && (fresh || !ReferenceEquals(before, _router.LastResolved)) && _pressLogs < 400)
         {
@@ -186,7 +192,7 @@ public sealed class HostMapper : IDisposable
     }
 
     private static bool SameKeys(PcLayerState a, PcLayerState b) =>
-        a.Keys.Count == b.Keys.Count && a.Keys.Zip(b.Keys).All(p => p.First.Column == p.Second.Column && p.First.Code == p.Second.Code);
+        a.Scheme == b.Scheme && a.Keys.Count == b.Keys.Count && a.Keys.Zip(b.Keys).All(p => p.First.Column == p.Second.Column && p.First.Code == p.Second.Code);
 
     private void Do(PcOut o, LayerSnapshot? l)
     {
