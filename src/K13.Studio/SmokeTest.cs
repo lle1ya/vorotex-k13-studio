@@ -70,6 +70,39 @@ public static class SmokeTest
                 var img = (byte[])MainWindow.DefaultImage.Clone(); img[0xD0] = 0xDA; img[0xD4] = 0xFF;
                 Dialog(w.BuildLayoutDialog(K13Header.Inspect(img, 0xE0), @"C:\backups\k13-prewrite.bin", out _));
             });
+            // v5.7: calmer UI — technical details hidden by default, rare options folded, rare step types under «Ещё»
+            Step($"{th}: v5.7 технические подробности скрыты", () =>
+            {
+                if (w.ShowTech) throw new Exception("по умолчанию подробности включены");
+                w.ShowPage(2); Pump();
+                if (w.MemText.Visibility == Visibility.Visible) throw new Exception("байты памяти макросов видны");
+                if (w.SafeText.Visibility == Visibility.Visible) throw new Exception("служебная строка внизу видна");
+                var img = (byte[])MainWindow.DefaultImage.Clone(); img[0xD0] = 0xDA;
+                var d = w.BuildLayoutDialog(K13Header.Inspect(img, 0xE0), null, out _);
+                if (AllText(d).Contains("0xD0")) throw new Exception("адрес 0xD0 в диалоге без подробностей");
+                w.SetShowTech(true); Pump();
+                if (w.MemText.Visibility != Visibility.Visible || w.SafeText.Visibility != Visibility.Visible) throw new Exception("подробности не показались");
+                var d2 = w.BuildLayoutDialog(K13Header.Inspect(img, 0xE0), null, out _);
+                if (!AllText(d2).Contains("0xD0")) throw new Exception("нет адреса 0xD0 с подробностями");
+                w.SetShowTech(false); Pump();
+                if (w.MemText.Visibility == Visibility.Visible) throw new Exception("подробности не скрылись");
+            });
+            Step($"{th}: v5.7 «Добавить шаг» — 4 частых + «Ещё»", () =>
+            {
+                w.ShowPage(2); Pump();
+                var t = AllText(w.MacroAddBar);
+                foreach (var need in new[] { "Клавиша", "Текст", "Пауза", "Щелчок", "Ещё" }) if (!t.Contains(need)) throw new Exception("нет кнопки " + need);
+                if (t.Contains("Прокрутка") || t.Contains("Отпустить")) throw new Exception("редкие шаги на виду");
+            });
+            Step($"{th}: v5.7 выбор программы — заголовок окна свёрнут", () =>
+            {
+                var d = w.BuildAppPicker(w.ProfileByName("Игры")!);
+                d.Owner = null; d.Left = -32000; d.Top = -32000; d.ShowActivated = false; d.WindowStartupLocation = WindowStartupLocation.Manual; d.Show(); Pump(); d.UpdateLayout();
+                var cb = Find<CheckBox>(d).FirstOrDefault(c => (c.Content as string)?.StartsWith("Только если") == true) ?? throw new Exception("нет условия по заголовку");
+                if (cb.IsVisible) throw new Exception("условие по заголовку не свёрнуто");
+                if (!AllText(d).Contains("Дополнительно")) throw new Exception("нет «Дополнительно»");
+                d.Close();
+            });
             // v5.6.4: read passes disagree → dialog with «Сохранить диагностику» / «Открыть папку»; F14–F24 hidden from the key list
             Step($"{th}: диалог «проходы чтения расходятся»", () =>
             {
@@ -239,6 +272,30 @@ public static class SmokeTest
         var root = (FrameworkElement)VisualTreeHelper.GetChild(w, 0);
         var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(Math.Max(1, (int)root.ActualWidth), Math.Max(1, (int)root.ActualHeight), 96, 96, PixelFormats.Pbgra32);
         rtb.Render(root);
+    }
+
+    /// <summary>All texts (TextBlock, string content) in a logical tree.</summary>
+    internal static string AllText(DependencyObject root)
+    {
+        var sb = new System.Text.StringBuilder();
+        void Walk(object o)
+        {
+            if (o is TextBlock tb) sb.AppendLine(tb.Text);
+            if (o is ContentControl { Content: string str }) sb.AppendLine(str);
+            if (o is DependencyObject d) foreach (var c in LogicalTreeHelper.GetChildren(d)) Walk(c);
+        }
+        Walk(root);
+        return sb.ToString();
+    }
+
+    internal static IEnumerable<T> Find<T>(DependencyObject root) where T : DependencyObject
+    {
+        foreach (var c in LogicalTreeHelper.GetChildren(root))
+            if (c is DependencyObject d)
+            {
+                if (d is T t) yield return t;
+                foreach (var x in Find<T>(d)) yield return x;
+            }
     }
 
     private static void Dialog(Window d)

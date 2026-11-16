@@ -36,9 +36,13 @@ public partial class MainWindow
         var ring = _profile.Host.Ring;
         if (ring.Slots.Count == 0) ring.Slots = RingSettings.CreateDefault().Slots;
         _ringSel = Math.Clamp(_ringSel, 0, ring.Slots.Count - 1);
-        EditorHost.Children.Add(T("Кольцо действий", 16, semi: true).With(t => { t.Margin = new Thickness(0, 14, 0, 4); t.Foreground = R("AccentBrush"); }));
-        EditorHost.Children.Add(T("Зажмите кнопку — у курсора появится кольцо. Наведите мышь (или наклоните стик) и отпустите — действие выполнится. " +
-                                  "Короткое нажатие (до 0,25 с, без движения) оставит кольцо открытым — выберите щелчком. Esc, × или щелчок мимо — отмена.", 12.5, muted: true, bottom: 6));
+        // v5.7: one short line; the full how-to is behind «?»
+        var rt = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 14, 0, 2) };
+        rt.Children.Add(T("Кольцо действий", 16, semi: true).With(t => t.Foreground = R("AccentBrush")));
+        rt.Children.Add(InfoDot("Зажмите кнопку — у курсора появится кольцо. Наведите мышь (или наклоните стик) и отпустите — действие выполнится. " +
+                                "Короткое нажатие (до 0,25 с, без движения) оставит кольцо открытым — выберите щелчком. Esc, × или щелчок мимо — отмена."));
+        EditorHost.Children.Add(rt);
+        EditorHost.Children.Add(T("Зажмите кнопку, наведите и отпустите.", 12.5, muted: true, bottom: 6));
 
         // preview
         var view = new RingView(App.IsDark, tooltips: false, editor: true) { CenterHint = "Выберите ячейку" };
@@ -177,9 +181,11 @@ public partial class MainWindow
         var sp = new StackPanel();
         var h = new DockPanel();
         h.Children.Add(new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 14, Foreground = color, Margin = new Thickness(0, 1, 8, 0) });
+        // v5.7: the explanation is behind «?» (shown inline only with «Технические подробности»)
+        if (!ShowTech) { var dot = InfoDot(body); DockPanel.SetDock(dot, Dock.Right); h.Children.Add(dot); }
         h.Children.Add(T(head, 13, semi: true));
         sp.Children.Add(h);
-        sp.Children.Add(T(body, 12, muted: true).With(t => t.Margin = new Thickness(22, 2, 0, 0)));
+        if (ShowTech) sp.Children.Add(T(body, 12, muted: true).With(t => t.Margin = new Thickness(22, 2, 0, 0)));
         var probe = new Button { Style = (Style)FindResource("LinkButton"), Content = "Проверить, что посылает кнопка…", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(22, 6, 0, 0), FontSize = 13 };
         probe.Click += (_, _) => ProbeKey(_selCol);
         sp.Children.Add(probe);
@@ -286,7 +292,7 @@ public partial class MainWindow
             }
             host.Children.Add(g2);
             bool sure = MouseCodes.IsConfirmed(_mouseBtn);
-            host.Children.Add(T(sure
+            if (ShowTech) host.Children.Add(T(sure // v5.7: code provenance only with «Технические подробности»
                 ? "Код левой кнопки подтверждён: именно так её записывает родная программа (ваш прежний макрос «ЛКМ»)."
                 : "Код этой кнопки определён по анализу родной программы — будет проверено при первой записи.", 12, muted: true).With(t => t.Margin = new Thickness(0, 12, 0, 0)));
             host.Children.Add(T("Щелчок хранится в клавиатуре как маленький макрос и работает без программы.", 12, muted: true).With(t => t.Margin = new Thickness(0, 4, 0, 0)));

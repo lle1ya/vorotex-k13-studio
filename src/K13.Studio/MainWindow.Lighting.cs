@@ -60,14 +60,14 @@ public partial class MainWindow
             var stripBorder = new Border { CornerRadius = new CornerRadius(6), Background = new SolidColorBrush(Color.FromRgb(0x24, 0x25, 0x29)), Padding = new Thickness(4), Height = 26, Child = strip };
             var sp = new StackPanel();
             sp.Children.Add(stripBorder);
-            sp.Children.Add(new TextBlock { Text = K13Layout.LedModeName(m), FontWeight = FontWeights.SemiBold, FontSize = 12, Margin = new Thickness(2, 6, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
-            sp.Children.Add(new TextBlock { Text = m < ModeDescriptions.Length ? ModeDescriptions[m] : $"Режим {m}", FontSize = 11, Foreground = R("MutedBrush"), Margin = new Thickness(2, 1, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
+            sp.Children.Add(new TextBlock { Text = CardName(m), FontWeight = FontWeights.SemiBold, FontSize = 12, Margin = new Thickness(2, 6, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
+            // v5.7: the one-line description is in the tooltip only (it was always cut off)
             var card = new Border
             {
                 Width = 151, Margin = new Thickness(0, 0, 10, 10), Padding = new Thickness(7), CornerRadius = new CornerRadius(12),
                 Background = R("PanelBrush"), BorderBrush = R("BorderBrush"), BorderThickness = new Thickness(1), Child = sp,
                 Cursor = System.Windows.Input.Cursors.Hand,
-                ToolTip = (m < ModeDescriptions.Length ? ModeDescriptions[m] + "\n" : "") + "Превью примерное — настоящий эффект рисует сама клавиатура.",
+                ToolTip = K13Layout.LedModeName(m) + "\n" + (m < ModeDescriptions.Length ? ModeDescriptions[m] + "\n" : "") + "Превью примерное — настоящий эффект рисует сама клавиатура.",
             };
             int mode = m;
             card.MouseLeftButtonUp += (_, _) => { Cfg.Led.Mode = mode; Changed(false); RefreshLed(); };
@@ -75,6 +75,15 @@ public partial class MainWindow
             _modeCards.Add((m, card, cells));
         }
     }
+
+    /// <summary>v5.7: short names that fit the effect cards (the full name is in the tooltip and elsewhere).</summary>
+    internal static string CardName(int mode) => K13Layout.LedModeName(mode) switch
+    {
+        "Подсветка выключена" => "Выключена",
+        "Подсветка включена" => "Постоянная",
+        "Монохроматическая волна" => "Волна",
+        var n => n,
+    };
 
     private void AnimateModeCards(double t)
     {
@@ -100,8 +109,8 @@ public partial class MainWindow
         foreach (var (mode, card, _) in _modeCards)
         {
             bool sel = mode == led.Mode;
-            card.BorderBrush = R(sel ? "AccentBrush" : "BorderBrush");
-            card.BorderThickness = new Thickness(sel ? 2 : 1);
+            card.BorderBrush = sel ? R("AccentBrush") : Brushes.Transparent; // v5.7: outline only on the chosen effect
+            card.BorderThickness = new Thickness(2);
             card.Background = R(sel ? "AccentSoftBrush" : "PanelBrush");
         }
         BrightSlider.Value = led.BrightnessLevel;

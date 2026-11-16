@@ -210,7 +210,7 @@ public partial class MainWindow
         var root = new DockPanel { Margin = new Thickness(24, 12, 24, 20) };
         var top = new StackPanel();
         top.Children.Add(T(pv.Items.Count == 1 ? "Импорт профиля" : $"Импорт: {RuPlural.Of(pv.Items.Count, "профиль", "профиля", "профилей")}", 18, semi: true, bottom: 4));
-        top.Children.Add(T($"Источник: {pv.Source}" + (pv.FormatVersion > 0 ? $" · формат {pv.FormatVersion}" : " · файл прежних версий") + ". Сначала посмотрите, что внутри — до «Импортировать» ничего не меняется.", 13, muted: true, bottom: 12));
+        top.Children.Add(T($"Из «{pv.Source}»" + (ShowTech ? (pv.FormatVersion > 0 ? $" · формат {pv.FormatVersion}" : " · файл прежних версий") : "") + ". До «Импортировать» ничего не меняется.", 13, muted: true, bottom: 12));
         DockPanel.SetDock(top, Dock.Top);
         root.Children.Add(top);
 

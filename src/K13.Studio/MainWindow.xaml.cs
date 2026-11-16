@@ -269,6 +269,7 @@ public partial class MainWindow : Window
             TrayBox.IsChecked = _store.Data.MinimizeToTray;
             AutostartBox.IsChecked = _store.Data.StartWithWindows;
             DarkBox.IsChecked = _store.Data.DarkTheme;
+            SafeText.Visibility = ShowTech ? Visibility.Visible : Visibility.Collapsed; // v5.7: the same text is in the «Записать» tooltip
             HostEnabledBox.IsChecked = _profile.Host.Enabled;
             _tray?.SetProfiles(_store.Data.Profiles.Select(p => p.Name), _profile.Name);
             _tray?.SetTooltip("VOROTEX K13 — " + _profile.Name);
@@ -325,6 +326,7 @@ public partial class MainWindow : Window
         Item("\uE7F8", "Действия на компьютере…", OpenHost_Click);
         Item("\uE897", "Как пользоваться", (_, _) => ShowWelcome(true));
         Item("\uE950", "Устройство и журнал…", (_, _) => DeviceWindow.Show(this, DeviceInfo(), _deviceImage, LogText.ToString()));
+        Item(ShowTech ? "\uE73E" : "\uE9D9", ShowTech ? "Скрыть технические подробности" : "Показать технические подробности", (_, _) => SetShowTech(!ShowTech));
         m.Items.Add(new Separator());
         Item("\uE7E8", "Выход", (_, _) => ExitApp());
         m.IsOpen = true;
@@ -382,7 +384,7 @@ public partial class MainWindow : Window
         int n = _profile.Host.Keys.Count, c = _profile.Host.Chords.Count;
         HostSummary.Text = n + c == 0
             ? "Запуск программ, ссылки, текст, удержание и диагонали джойстика. Работает, пока программа запущена (можно в трее)."
-            : $"Триггеров: {n}, аккордов (диагоналей): {c}. Работает, пока программа запущена (можно в трее).";
+            : RuPlural.Of(n + c, "действие настроено", "действия настроены", "действий настроено") + ". Работают, пока программа запущена (можно в трее)."; // v5.7: no «триггеры/аккорды»
     }
 
     private void HostEnabled_Changed(object sender, RoutedEventArgs e)
@@ -608,6 +610,16 @@ public partial class MainWindow : Window
         catch (Exception ex) { MessageBox.Show(this, "Не удалось сохранить диагностику: " + ex.Message, Title, MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
 
+    /// <summary>v5.7: bytes, codes, addresses and hex are shown only when this is on (⋯ menu). Off by default.</summary>
+    internal bool ShowTech => _store.Data.ShowTechDetails;
+
+    internal void SetShowTech(bool on)
+    {
+        _store.Data.ShowTechDetails = on; SaveStore();
+        SafeText.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        RefreshAll();
+    }
+
     internal string DeviceInfo() =>
         $"Интерфейс: {(_devicePath ?? "—")}\nVID:PID 30FA:2350, коллекция FF01/1, Report ID 7\n" +
         $"Статус: {(_status?.Hex ?? "—")}\n" +
@@ -784,9 +796,12 @@ public partial class MainWindow : Window
     /// <summary>v5.2: themed «layout not certain» dialog — names the bytes found at 0xD0 and what did not match.</summary>
     internal Window BuildLayoutDialog(K13HeaderInfo h, string? backup, out Func<MessageBoxResult> answer)
     {
+        // v5.7: addresses and hex only with «Технические подробности»
         var text = "Память этой клавиатуры устроена не совсем так, как у проверенной K13, поэтому программа спрашивает перед записью.\n\n" +
-                   $"Заголовок по адресу 0xD0:\n{h.RawHex.Replace(' ', '\u00A0')}  (у проверенной K13: E1\u00A01E\u00A0E0\u00A000\u00A0F0\u00A00F\u00A000\u00A000)\n\n" +
-                   string.Join("\n", h.Problems.Concat(h.Notes).Select(x => "• " + x)) + "\n\n" +
+                   (ShowTech
+                       ? $"Заголовок по адресу 0xD0:\n{h.RawHex.Replace(' ', '\u00A0')}  (у проверенной K13: E1\u00A01E\u00A0E0\u00A000\u00A0F0\u00A00F\u00A000\u00A000)\n\n" +
+                         string.Join("\n", h.Problems.Concat(h.Notes).Select(x => "• " + x)) + "\n\n"
+                       : "Подробности (адреса и байты) — «⋯ → Показать технические подробности».\n\n") +
                    (backup != null ? $"Резервная копия памяти уже сохранена:\n{backup}\n\n" : "") +
                    "Если продолжить, будут записаны только изменённые блоки, затем они будут прочитаны и сверены; при расхождении память вернётся из резервной копии. " +
                    "Для этого заголовка вопрос больше задаваться не будет.";

@@ -202,6 +202,21 @@ public partial class MainWindow
         return b;
     }
 
+    /// <summary>v5.7: «Дополнительно ▾» — a quiet link that unfolds rarely used options (collapsed by default).</summary>
+    internal FrameworkElement Advanced(FrameworkElement content, string title = "Дополнительно", bool open = false)
+    {
+        var sp = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
+        var link = new Button { Style = (Style)FindResource("LinkButton"), HorizontalAlignment = HorizontalAlignment.Left, FontSize = 13 };
+        content.Margin = new Thickness(0, 4, 0, 0);
+        void Sync() { link.Content = title + (content.Visibility == Visibility.Visible ? " ▴" : " ▾"); }
+        content.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        link.Click += (_, _) => { content.Visibility = content.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; Sync(); };
+        Sync();
+        sp.Children.Add(link); sp.Children.Add(content);
+        sp.Tag = "advanced";
+        return sp;
+    }
+
     /// <summary>Marks «?» buttons (value = help text) so the smoke test can find and click them.</summary>
     internal static readonly DependencyProperty AutomationHelpKey = DependencyProperty.RegisterAttached("InfoDotHelp", typeof(string), typeof(MainWindow));
 
@@ -248,14 +263,14 @@ public partial class MainWindow
         add.Click += (_, e) => { e.Handled = true; BuildAppPicker(p).ShowDialog(); };
         DockPanel.SetDock(add, Dock.Right);
         head.Children.Add(add);
-        head.Children.Add(new TextBlock { Text = "Включать в программах", FontSize = 13, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        head.Children.Add(new TextBlock { Text = "Включать в программах", FontSize = 12.5, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center }); // v5.7: quieter label
         sp.Children.Add(head);
 
         var rules = RulesOf(p);
         if (rules.Count == 0)
         {
             bool fb = string.Equals(_store.Data.FallbackProfile, p.Name, StringComparison.OrdinalIgnoreCase);
-            sp.Children.Add(T(fb ? "Включается в остальных программах (по умолчанию)." : "Пока нет — только вручную.", 12, muted: true));
+            sp.Children.Add(T(fb ? "Во всех остальных." : "Пока нет — только вручную.", 12.5));
             return sp;
         }
         var wrap = new WrapPanel();
@@ -390,9 +405,12 @@ public partial class MainWindow
         var titleBox = new TextBox { Padding = new Thickness(10, 6, 10, 6), IsEnabled = false };
         useTitle.Checked += (_, _) => { titleBox.IsEnabled = true; titleBox.Focus(); };
         useTitle.Unchecked += (_, _) => titleBox.IsEnabled = false;
-        bottom.Children.Add(useTitle);
-        bottom.Children.Add(titleBox);
-        bottom.Children.Add(T("Например, «YouTube» для вкладки браузера. Если игра или программа, запущенная от администратора, не определяется по имени, оставьте имя пустым и укажите заголовок.", 12, muted: true).With(t => t.Margin = new Thickness(0, 6, 0, 0)));
+        // v5.7: the window-title condition is rare — folded under «Дополнительно»
+        var adv = new StackPanel();
+        adv.Children.Add(useTitle);
+        adv.Children.Add(titleBox);
+        adv.Children.Add(T("Например, «YouTube» для вкладки браузера. Если игра или программа, запущенная от администратора, не определяется по имени, оставьте имя пустым и укажите заголовок.", 12, muted: true).With(t => t.Margin = new Thickness(0, 6, 0, 0)));
+        bottom.Children.Add(Advanced(adv, "Дополнительно: условие по заголовку окна"));
         var err = T("", 12.5); err.Foreground = R("WarnBrush"); err.Margin = new Thickness(0, 8, 0, 0);
         bottom.Children.Add(err);
         var bar = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };

@@ -103,9 +103,14 @@ public partial class MainWindow
         close.Click += (_, _) => SelectControl(-1);
         DockPanel.SetDock(close, Dock.Right);
         head.Children.Add(close);
-        head.Children.Add(new TextBlock { Text = $"Что делает {DeviceView.ControlName(_selCol)}?", FontSize = 20, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center });
+        _keyModeHelp = null;
+        var modeNote = KeyModeNote(_selCol);
+        var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
+        titleRow.Children.Add(new TextBlock { Text = $"Что делает {DeviceView.ControlName(_selCol)}?", FontSize = 20, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center });
+        if (_keyModeHelp != null) titleRow.Children.Add(InfoDot(_keyModeHelp));
+        head.Children.Add(titleRow);
         EditorHost.Children.Add(head);
-        if (KeyModeNote(_selCol) is { } modeNote) EditorHost.Children.Add(modeNote);
+        if (modeNote != null) EditorHost.Children.Add(modeNote);
 
         if (_tile == null)
         {
@@ -215,9 +220,11 @@ public partial class MainWindow
         var sp = new StackPanel();
         var h = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
         h.Children.Add(new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 14, Foreground = color, Margin = new Thickness(0, 1, 8, 0) });
-        h.Children.Add(T(head, 13, semi: true));
+        h.Children.Add(T(head, 13, semi: true).With(t => t.VerticalAlignment = VerticalAlignment.Center));
         sp.Children.Add(h);
-        sp.Children.Add(T(body, 12, muted: true).With(t => t.Margin = new Thickness(22, 0, 0, 0)));
+        // v5.7: codes and cell numbers only with «Технические подробности»; otherwise behind «?»
+        if (ShowTech || dev == 0xF4) sp.Children.Add(T(body, 12, muted: true).With(t => t.Margin = new Thickness(22, 0, 0, 0)));
+        else { var dot = InfoDot(body); DockPanel.SetDock(dot, Dock.Right); h.Children.Insert(0, dot); }
         var probe = new Button { Style = (Style)FindResource("LinkButton"), Content = "Проверить, что приходит от стика…", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(22, 6, 0, 0), FontSize = 13 };
         probe.Click += (_, _) => ProbeKey(DeviceView.StickPress);
         sp.Children.Add(probe);
@@ -289,7 +296,7 @@ public partial class MainWindow
         CurrentBlock(icon, text, curDesc, code != ctl.FactoryCode,
             () => { Cfg.SetKey(_selCol, ctl.FactoryCode); Changed(); RefreshMacros(); });
 
-        EditorHost.Children.Add(T("Выберите, что она будет делать:", 13, muted: true, bottom: 8).With(t => t.Margin = new Thickness(0, 14, 0, 8)));
+        EditorHost.Children.Add(T("Выберите действие", 13, muted: true, bottom: 8).With(t => t.Margin = new Thickness(0, 14, 0, 8)));
         string cur = TileOf(code, Cfg, _profile.Host);
         var order = Tiles.ToList();
         if (_selCol == DeviceView.StickPress) { var ring = order.First(t => t.Id == "ring"); order.Remove(ring); order.Insert(0, ring); }
@@ -305,8 +312,8 @@ public partial class MainWindow
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         g.ColumnDefinitions.Add(new ColumnDefinition());
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var ic = new Border { Width = 40, Height = 40, CornerRadius = new CornerRadius(10), Background = current ? R("AccentBrush") : R("AccentSoftBrush"), Margin = new Thickness(0, 0, 14, 0),
-            Child = new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 16, Foreground = current ? Brushes.White : R("AccentBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+        var ic = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(10), Background = current ? R("AccentBrush") : R("AccentSoftBrush"), Margin = new Thickness(0, 0, 14, 0),
+            Child = new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 15, Foreground = current ? Brushes.White : R("AccentBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
         var tx = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         var tl = new StackPanel { Orientation = Orientation.Horizontal };
         tl.Children.Add(new TextBlock { Text = title, FontSize = 14, FontWeight = FontWeights.SemiBold });
@@ -319,8 +326,9 @@ public partial class MainWindow
         var chev = new TextBlock { Text = "\uE76C", FontFamily = Icons, FontSize = 12, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
         Grid.SetColumn(tx, 1); Grid.SetColumn(chev, 2);
         g.Children.Add(ic); g.Children.Add(tx); g.Children.Add(chev);
-        var b = new Border { Child = g, Padding = new Thickness(12, 10, 12, 10), CornerRadius = new CornerRadius(12), Margin = new Thickness(0, 0, 0, 6), Cursor = Cursors.Hand,
-            Background = R("PanelBrush"), BorderBrush = current ? R("AccentBrush") : R("BorderBrush"), BorderThickness = new Thickness(current ? 1.5 : 1) };
+        // v5.7: a calm list — no outline per tile, only the current choice is outlined
+        var b = new Border { Child = g, Padding = new Thickness(10, 8, 10, 8), CornerRadius = new CornerRadius(12), Margin = new Thickness(0, 0, 0, 2), Cursor = Cursors.Hand,
+            Background = R("PanelBrush"), BorderBrush = current ? R("AccentBrush") : Brushes.Transparent, BorderThickness = new Thickness(1.5) };
         var shift = new TranslateTransform();
         b.RenderTransform = shift;
         b.MouseEnter += (_, _) => { b.Background = R("HoverBrush"); shift.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(3, TimeSpan.FromMilliseconds(140)) { EasingFunction = new CubicEase() }); };

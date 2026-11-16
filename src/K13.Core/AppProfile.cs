@@ -225,6 +225,8 @@ public sealed class ProfileStoreData
     public bool AutoSwitchHintSeen { get; set; }
     /// <summary>v5.6: keys go through the PC (keypad prepared with F14–F24) — they follow the active profile.</summary>
     public PcLayerState PcLayer { get; set; } = new();
+    /// <summary>v5.7: show technical details (bytes, codes, addresses, hex). Off by default — calmer screens.</summary>
+    public bool ShowTechDetails { get; set; }
     public bool MinimizeToTray { get; set; } = true;
     public bool DarkTheme { get; set; }
     public bool WelcomeShown { get; set; }

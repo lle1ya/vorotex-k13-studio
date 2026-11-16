@@ -129,7 +129,7 @@
                 <Grid Margin="0,0,0,8">
                   <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="80"/>
-                    <ColumnDefinition Width="72"/>
+                    <ColumnDefinition Width="86"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="60"/>
                   </Grid.ColumnDefinitions>
@@ -176,15 +176,15 @@
           <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
             <TextBox x:Name="MacroSearch" TextChanged="MacroSearch_TextChanged" Padding="30,7,10,7"/>
             <TextBlock Text="&#xE721;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="11,0,0,0" IsHitTestVisible="False"/>
-            <TextBlock x:Name="MacroSearchHint" Text="Поиск по названию, клавише, кнопке" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="31,0,0,0" IsHitTestVisible="False"/>
+            <TextBlock x:Name="MacroSearchHint" Text="Поиск" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="31,0,0,0" IsHitTestVisible="False"/>
           </Grid>
-          <Border DockPanel.Dock="Bottom" Background="{DynamicResource PanelBrush}" CornerRadius="14" Padding="16,12" Margin="0,12,0,0" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+          <Border DockPanel.Dock="Bottom" Padding="4,10,4,0" Margin="0,8,0,0" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
             <StackPanel>
-              <DockPanel Margin="0,0,0,8">
-                <TextBlock x:Name="MemPct" DockPanel.Dock="Right" FontWeight="SemiBold" FontSize="12"/>
-                <TextBlock Text="Память клавиатуры для макросов" FontSize="13" FontWeight="SemiBold"/>
+              <DockPanel Margin="0,0,0,6">
+                <TextBlock x:Name="MemPct" DockPanel.Dock="Right" Style="{StaticResource Muted}" FontSize="12"/>
+                <TextBlock Text="Память макросов" Style="{StaticResource Muted}" FontSize="12"/>
               </DockPanel>
-              <ProgressBar x:Name="MemBar" Height="8" Minimum="0" Maximum="1"/>
+              <ProgressBar x:Name="MemBar" Height="4" Minimum="0" Maximum="1"/>
               <TextBlock x:Name="MemText" Style="{StaticResource Muted}" FontSize="12" Margin="0,7,0,0" TextWrapping="Wrap"/>
             </StackPanel>
           </Border>
@@ -259,12 +259,12 @@
                     <TextBlock Text="Действия на компьютере" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
                   </DockPanel>
                   <TextBlock x:Name="HostSummary" Style="{StaticResource Muted}" Margin="0,4,0,10" TextWrapping="Wrap"/>
-                  <Button Content="Подробные настройки…" HorizontalAlignment="Left" Click="OpenHost_Click" Style="{StaticResource GhostButton}"/>
+                  <Button Content="Настроить…" HorizontalAlignment="Left" Click="OpenHost_Click" Style="{StaticResource LinkButton}"/>
                 </StackPanel>
               </Border>
               <Border Grid.Column="2" Style="{StaticResource Card}">
                 <StackPanel>
-                  <TextBlock Text="Программа" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                  <TextBlock Text="Настройки" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
                   <CheckBox x:Name="TrayBox" Style="{StaticResource Switch}" Content="Сворачивать в трей при закрытии" Checked="Tray_Changed" Unchecked="Tray_Changed"/>
                   <CheckBox x:Name="AutostartBox" Style="{StaticResource Switch}" Content="Запускать вместе с Windows (в трей)" Checked="Autostart_Changed" Unchecked="Autostart_Changed"/>
                   <CheckBox x:Name="DarkBox" Style="{StaticResource Switch}" Content="Тёмная тема" Checked="Dark_Changed" Unchecked="Dark_Changed"/>

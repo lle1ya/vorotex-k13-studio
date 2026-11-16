@@ -120,6 +120,7 @@ public partial class MainWindow
             MemBar.Value = frac;
             MemPct.Text = frac < 0.01 && used > 0 ? "<1%" : $"{frac:P0}";
             MemText.Text = $"Занято {used:N0} из {MacroMemory:N0} байт · один шаг ≈ 2 байта, прокрутка/курсор 4–6";
+            MemText.Visibility = ShowTech ? Visibility.Visible : Visibility.Collapsed; // v5.7: bytes only with «Технические подробности»
             BuildMacroEditor();
         }
         finally { _loading = old; }
@@ -153,19 +154,19 @@ public partial class MainWindow
 
         // step preview
         var prev = new WrapPanel { Margin = new Thickness(38, 8, 0, 0) };
-        foreach (var g in groups.Take(5)) prev.Children.Add(MiniCap(GroupShort(m.Events, g)));
-        if (groups.Count > 5) prev.Children.Add(new TextBlock { Text = $"+{groups.Count - 5}", FontSize = 11, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 0, 4) });
+        foreach (var g in groups.Take(4)) prev.Children.Add(MiniCap(GroupShort(m.Events, g)));
+        if (groups.Count > 4) prev.Children.Add(new TextBlock { Text = $"+{groups.Count - 4}", FontSize = 11, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 0, 4) });
         if (groups.Count == 0) prev.Children.Add(new TextBlock { Text = "нет шагов — нажмите «Записать»", FontSize = 12, Foreground = R("MutedBrush") });
         sp.Children.Add(prev);
 
         // bound keys
         var kp = new WrapPanel { Margin = new Thickness(38, 4, 0, 0) };
-        if (keys.Count == 0) kp.Children.Add(new TextBlock { Text = "не назначен на кнопку", FontSize = 12, Foreground = R("MutedBrush") });
+        // v5.7: only when assigned — «не назначен» is already in the header of the open macro
         foreach (var k in keys) kp.Children.Add(Pill("\uE765", k));
-        sp.Children.Add(kp);
+        if (keys.Count > 0) sp.Children.Add(kp);
 
         var card = new Border { Child = sp, Padding = new Thickness(14, 12, 14, 10), Margin = new Thickness(0, 0, 0, 8), CornerRadius = new CornerRadius(14), Cursor = Cursors.Hand,
-            Background = sel ? R("SelBrush") : R("PanelBrush"), BorderBrush = sel ? R("AccentBrush") : R("BorderBrush"), BorderThickness = new Thickness(sel ? 1.5 : 1) };
+            Background = sel ? R("SelBrush") : R("PanelBrush"), BorderBrush = sel ? R("AccentBrush") : Brushes.Transparent, BorderThickness = new Thickness(1.5) };
         card.MouseEnter += (_, _) => { if (slot != _selMacro) card.Background = R("HoverBrush"); };
         card.MouseLeave += (_, _) => { if (slot != _selMacro) card.Background = R("PanelBrush"); };
         card.MouseLeftButtonUp += (_, e) => { e.Handled = true; if (_recording || slot == _selMacro) return; _selMacro = slot; _pendingPauseMs = 0; Dispatcher.BeginInvoke(RefreshMacros); };
@@ -266,7 +267,8 @@ public partial class MainWindow
         var run = new Grid();
         run.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
         run.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var runCard = new Border { Background = R("Panel2Brush"), CornerRadius = new CornerRadius(16), Padding = new Thickness(16), Margin = new Thickness(0, 0, 0, 12), Child = run };
+        var runCard = new Border { Padding = new Thickness(2, 4, 0, 8), Margin = new Thickness(0, 0, 0, 12), Child = run,
+            BorderBrush = R("BorderBrush"), BorderThickness = new Thickness(0, 0, 0, 1) }; // v5.7: one divider instead of a grey card
         void Row(string label, FrameworkElement content, string? icon = null, double labelTop = 9)
         {
             if (run.RowDefinitions.Count > 0) run.RowDefinitions.Add(new RowDefinition { Height = new GridLength(16) });
@@ -306,7 +308,6 @@ public partial class MainWindow
         Row("Запись", recRow, "\uE7C8");
         if (!_recording) Row("Повтор", RepeatSelector(sel, slot), "\uE8EE", 14);
         var runWrap = new StackPanel();
-        runWrap.Children.Add(T("Запуск", 13, semi: true).With(t => t.Margin = new Thickness(2, 0, 0, 8)));
         runWrap.Children.Add(runCard);
         MacroHeader.Children.Add(runWrap);
         if (slot.Unsupported)
@@ -427,10 +428,13 @@ public partial class MainWindow
         Mini("\uE74D", "Удалить шаг", () => { ev.RemoveRange(g.Start, g.Count); SyncMacro(); });
         Grid.SetColumn(btns, 5); row.Children.Add(btns);
 
-        var border = new Border { Child = row, CornerRadius = new CornerRadius(12), Padding = new Thickness(8, 6, 8, 6), Margin = new Thickness(0, 0, 0, 6),
-            Background = R("PanelBrush"), BorderBrush = R("BorderBrush"), BorderThickness = new Thickness(1), AllowDrop = !ro };
-        border.MouseEnter += (_, _) => border.Background = R("Panel2Brush");
-        border.MouseLeave += (_, _) => border.Background = R("PanelBrush");
+        var border = new Border { Child = row, CornerRadius = new CornerRadius(10), Padding = new Thickness(8, 7, 8, 7), Margin = new Thickness(0, 0, 0, 2),
+            Background = R("PanelBrush"), BorderBrush = R("BorderBrush"), BorderThickness = new Thickness(0, 0, 0, 1), AllowDrop = !ro };
+        // v5.7: calmer list — no outline per step; move/edit/delete show up on hover (or keyboard focus)
+        btns.Opacity = 0.0;
+        border.MouseEnter += (_, _) => { border.Background = R("Panel2Brush"); btns.Opacity = 1; };
+        border.MouseLeave += (_, _) => { border.Background = R("PanelBrush"); if (!btns.IsKeyboardFocusWithin) btns.Opacity = 0; };
+        btns.IsKeyboardFocusWithinChanged += (_, _) => btns.Opacity = btns.IsKeyboardFocusWithin || border.IsMouseOver ? 1 : 0;
 
         // drag to reorder (by the grip)
         if (!ro)
@@ -569,6 +573,9 @@ public partial class MainWindow
     {
         var wp = new WrapPanel();
         bool en = !_recording && !slot.Unsupported;
+        wp.Children.Add(T("Добавить шаг:", 13, muted: true).With(t => { t.VerticalAlignment = VerticalAlignment.Center; t.Margin = new Thickness(0, 0, 10, 6); }));
+        var rare = new List<(string Glyph, string Text, Action A)>();
+        void More(string glyph, string text, string tip, Action a) => rare.Add((glyph, text, a));
         void Add(string glyph, string text, string tip, Action a)
         {
             var c = new StackPanel { Orientation = Orientation.Horizontal };
@@ -579,8 +586,8 @@ public partial class MainWindow
             wp.Children.Add(b);
         }
         Add("\uE765", "Клавиша", "Нажать и отпустить клавишу", () => AddKey(0));
-        Add("\uE74B", "Зажать", "Зажать клавишу (например, Ctrl перед буквой)", () => AddKey(1));
-        Add("\uE74A", "Отпустить", "Отпустить ранее зажатую клавишу", () => AddKey(2));
+        More("\uE74B", "Зажать клавишу", "Зажать клавишу (например, Ctrl перед буквой)", () => AddKey(1));
+        More("\uE74A", "Отпустить клавишу", "Отпустить ранее зажатую клавишу", () => AddKey(2));
         Add("\uE8D2", "Текст", "Напечатать текст (латиница, цифры; русские буквы — при русской раскладке на ПК)", AddText);
         Add("\uE916", "Пауза", "Пауза перед следующим шагом", AddPause);
         Add("\uE962", "Щелчок", "Щелчок кнопкой мыши", () =>
@@ -594,7 +601,7 @@ public partial class MainWindow
             }
             m.IsOpen = true;
         });
-        Add("\uE7C2", "Курсор", "Сдвинуть курсор мыши на X/Y точек", () =>
+        More("\uE7C2", "Сдвинуть курсор", "Сдвинуть курсор мыши на X/Y точек", () =>
         {
             var s = Ui.Input(this, "Сдвиг курсора", "Сдвиг по X и Y в точках, через пробел (например: 100 -50):", "100 0");
             if (s == null) return;
@@ -604,7 +611,22 @@ public partial class MainWindow
             SetMove(e, dx, dy);
             AddEvents(new() { e });
         });
-        Add("\uE70D", "Прокрутка", "Прокрутка колесом мыши", () => EditStep(-1, presetType: 2));
+        More("\uE70D", "Прокрутка колесом", "Прокрутка колесом мыши", () => EditStep(-1, presetType: 2));
+        // v5.7: rare step types under «Ещё»
+        Add("\uE712", "Ещё", "Зажать / отпустить клавишу, сдвинуть курсор, прокрутка", () =>
+        {
+            var m = new ContextMenu();
+            foreach (var (g, t, a) in rare)
+            {
+                var hd = new StackPanel { Orientation = Orientation.Horizontal };
+                hd.Children.Add(new TextBlock { Text = g, FontFamily = Icons, FontSize = 12, Width = 24, Foreground = R("AccentBrush"), VerticalAlignment = VerticalAlignment.Center });
+                hd.Children.Add(new TextBlock { Text = t });
+                var mi = new MenuItem { Header = hd };
+                var act = a; mi.Click += (_, _) => act();
+                m.Items.Add(mi);
+            }
+            m.IsOpen = true;
+        });
         wp.MaxWidth = 1040;
         MacroAddBar.Child = wp;
     }

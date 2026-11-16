@@ -39,13 +39,7 @@ public partial class MainWindow
 
         // head: icon · name (inline edit) · badge
         var head = new DockPanel();
-        if (active)
-        {
-            var badge = new Border { CornerRadius = new CornerRadius(10), Background = accent, Padding = new Thickness(9, 2, 9, 3), VerticalAlignment = VerticalAlignment.Top,
-                Child = new TextBlock { Text = "активный", FontSize = 11, Foreground = Brushes.White, FontWeight = FontWeights.SemiBold } };
-            DockPanel.SetDock(badge, Dock.Right);
-            head.Children.Add(badge);
-        }
+        // v5.7: no «активный» badge — the coloured outline and «✓ Сейчас используется» already say it
         var icon = new Border { Width = 40, Height = 40, CornerRadius = new CornerRadius(12), Background = accent, Margin = new Thickness(0, 0, 12, 0), Cursor = Cursors.Hand, ToolTip = "Сменить цвет и значок",
             Child = new TextBlock { Text = GlyphOf(p, index), FontFamily = Icons, FontSize = 16, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
         icon.MouseLeftButtonUp += (_, e) => { e.Handled = true; CycleLook(p, index); };
@@ -64,7 +58,7 @@ public partial class MainWindow
         var cfg = p.Device ?? K13MemoryCodec.Decode(DefaultImage);
         var dv = new DeviceView { Height = 128, IsHitTestVisible = false, Margin = new Thickness(0, 14, 0, 10) };
         try { dv.Rebuild(cfg, p.Host, -1, showDots: true); } catch { }
-        var prevBox = new Border { Background = R("Panel2Brush"), CornerRadius = new CornerRadius(12), Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(0, 12, 0, 10), Child = dv };
+        var prevBox = new Border { CornerRadius = new CornerRadius(12), Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(0, 8, 0, 4), Child = dv }; // v5.7: no grey box inside the card
         dv.Margin = new Thickness(0, 8, 0, 8);
         root.Children.Add(prevBox);
 
@@ -90,8 +84,8 @@ public partial class MainWindow
         var acts = new DockPanel();
         Button Icon(string glyph, string tip, Action a)
         {
-            var b = new Button { Style = (Style)FindResource("GhostButton"), Padding = new Thickness(9, 6, 9, 6), Margin = new Thickness(4, 0, 0, 0), ToolTip = tip,
-                Content = new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 13 } };
+            var b = new Button { Style = (Style)FindResource("GhostButton"), Padding = new Thickness(8, 6, 8, 6), Margin = new Thickness(2, 0, 0, 0), ToolTip = tip,
+                Content = new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 12, Foreground = R("MutedBrush") } };
             b.Click += (_, e) => { e.Handled = true; a(); };
             return b;
         }
@@ -114,11 +108,10 @@ public partial class MainWindow
         var card = new Border
         {
             Child = new Grid { Children = { root } }, Width = 372, Padding = new Thickness(18, 16, 18, 16), Margin = new Thickness(0, 0, 14, 14), CornerRadius = new CornerRadius(18),
-            Background = R("PanelBrush"), BorderBrush = active ? accent : R("BorderBrush"), BorderThickness = new Thickness(active ? 2 : 1),
+            Background = R("PanelBrush"), BorderBrush = active ? accent : R("BorderBrush"), BorderThickness = new Thickness(active ? 2 : 1), // keep: card on page background
         };
         // coloured accent strip at the top edge
-        var strip = new Border { Height = 4, CornerRadius = new CornerRadius(2), Background = accent, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, -10, 0, 0), Opacity = active ? 1 : 0.55 };
-        ((Grid)card.Child).Children.Insert(0, strip);
+        // v5.7: no coloured strip on top — the profile icon already carries the colour
         card.MouseLeftButtonUp += (_, e) => { if (e.ClickCount == 1 && !active && e.OriginalSource is not TextBox) { } };
         card.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2 && !active && e.OriginalSource is not TextBox) ActivateProfile(p.Name, "вручную"); };
         return card;

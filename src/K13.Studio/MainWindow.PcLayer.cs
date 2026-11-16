@@ -240,9 +240,10 @@ public partial class MainWindow
             if (kp != null && kp.GetKey(col) != DeviceTarget.GetKey(col))
                 warn = $"Сейчас в клавиатуре: «{KpName(kp.GetKey(col))}». Нажмите «Записать», чтобы было как здесь" + (Layer.Active || !key ? "." : ", или включите «Кнопки по профилю».");
         }
-        if (muted == null && warn == null) return null;
+        _keyModeHelp = muted; // v5.7: the calm explanation goes into «?» next to the title; only warnings stay on screen
+        if (warn == null) return null;
+        muted = null;
         var sp = new StackPanel { Margin = new Thickness(0, 2, 0, 6) };
-        if (muted != null) sp.Children.Add(new TextBlock { Text = muted, FontSize = 12, Foreground = R("MutedBrush"), TextWrapping = TextWrapping.Wrap });
         if (warn != null)
         {
             var w = new DockPanel { Margin = new Thickness(0, muted != null ? 6 : 0, 0, 0) };
@@ -252,6 +253,8 @@ public partial class MainWindow
         }
         return sp;
     }
+
+    private string? _keyModeHelp;
 
     /// <summary>Name of a code read from the keypad; macros are numbered from 1 like the macro cells, not by catalog index.</summary>
     private static string KpName(byte c) => KeyCatalog.IsMacro(c) ? $"макрос из ячейки {KeyCatalog.MacroSlotOf(c) + 1}" : KeyCatalog.Name(c);
