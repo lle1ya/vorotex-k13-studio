@@ -337,6 +337,9 @@ public partial class MainWindow : Window
         m.Items.Add(new Separator());
         Item(_store.Data.ActivateOnConnect ? "\uE73E" : "", "Автоматически включать Game при подключении", (_, _) => SetActivateOnConnect(!_store.Data.ActivateOnConnect))
             .ToolTip = "Настройка: при каждом подключении клавиатуры программа сама переключает её в Game. Галочка — включено.";
+        // v5.9: experimental factory flag «remember mode» (EEPROM 0x000F bit 1)
+        Item("\uE7BA", RememberMenuText(), (_, _) => ShowRememberDialog())
+            .ToolTip = "Эксперимент: заводской флаг клавиатуры, чтобы она помнила режим Game после переподключения. Откроется окно с объяснением; запись — только после подтверждения.";
         m.Items.Add(new Separator());
         Item("\uE9CE", "Тест: какая команда включает Game…", (_, _) => RunBisect(), _connected && !_busy && !_offline);
         Item("\uE9D9", "План записи (пробный прогон)", PlanBtn_Click);
@@ -638,6 +641,7 @@ public partial class MainWindow : Window
         $"Статус: {(_status?.Hex ?? "—")}\n" +
         $"Режим: {K13Mode.Name(_hwMode)} (байт 3 статуса, бит 7: 1 = Game, 0 = Normal)\n" +
         $"Образ памяти: {(_deviceImage != null ? $"0x{_deviceImage.Length:X} байт" : "не прочитан")}\n" +
+        RememberInfo() + "\n" +
         $"Запись: включена (бэкап перед записью, проверка после)\nРезервные копии: {BackupStore.DefaultFolder}";
 
     private async Task<byte[]?> ReadDevice(bool auto, string? prefix = null)

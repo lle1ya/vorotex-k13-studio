@@ -127,6 +127,9 @@ public sealed class K13Device : IDisposable
     private void Send(byte[] frame)
     {
         bool readOnly = K13Protocol.IsReadOnlyFrame(frame) || K13Protocol.IsSessionEndFrame(frame);
+        // v5.9: hard guard, independent of the write gate — EEPROM 0x0000–0x0007 (magic, PID, VID) is never written
+        if (!readOnly && K13Protocol.IsProtectedWriteFrame(frame))
+            throw new WriteBlockedException($"Команда {string.Join(" ", frame.Select(b => b.ToString("X2")))} заблокирована: адреса 0x0000–0x0007 (тип памяти, VID/PID) не записываются никогда.");
         if (!readOnly && !K13WriteGate.IsOpen)
             throw new WriteBlockedException($"Команда {string.Join(" ", frame.Select(b => b.ToString("X2")))} заблокирована: режим только чтения.");
         SentLog.Add((byte[])frame.Clone());

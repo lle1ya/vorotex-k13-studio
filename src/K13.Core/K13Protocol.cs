@@ -42,8 +42,20 @@ public static class K13Protocol
 
     // ---- write path (vendor Apply, PROTOCOL.md §13). NEVER sent unless the write gate is open. ----
     /// <param name="programmingMode">Send the vendor's leading 07 09 41 (+200 ms). exp15 proved writes work without it.</param>
+    /// <summary>v5.9: EEPROM 0x0000–0x0007 (type magic, USB PID, VID) — never written by this app.</summary>
+    public const int ProtectedEnd = 0x0008;
+
+    public static bool TouchesProtected(int address, int length) => length > 0 && address < ProtectedEnd && address + length > 0;
+
+    /// <summary>A write-type frame (07 18 03 / 09 / 81) whose block starts inside 0x0000–0x0007.</summary>
+    public static bool IsProtectedWriteFrame(ReadOnlySpan<byte> f) =>
+        f.Length >= 8 && f[0] == 7 && f[1] == 0x18 && (f[2] is 0x03 or 0x09 or 0x81) && (f[4] | f[5] << 8) < ProtectedEnd;
+
     public static List<HidFrame> BuildApplyFrames(IReadOnlyList<WriteBlock> plan, bool programmingMode = false)
     {
+        foreach (var blk in plan)
+            if (TouchesProtected(blk.Address, blk.Data.Length))
+                throw new WriteBlockedException($"Запись в 0x{blk.Address:X4} отклонена: байты 0x0000–0x0007 (тип памяти, VID/PID) программа не записывает никогда.");
         var frames = new List<HidFrame>();
         if (programmingMode) frames.Add(new(new byte[] { 7, 0x09, 0x41, 0, 0, 0, 0, 0 }, 200, "режим программирования (07 09 41)"));
         foreach (var blk in plan)

@@ -247,6 +247,30 @@ public static class SmokeTest
                 int act = Idx("Включить Game сейчас"), set = Idx("Автоматически включать Game");
                 if (act < 0 || set != act + 2 || items[act + 1] is not Separator) throw new InvalidOperationException($"пункты Game не разделены чертой ({act}, {set})");
             });
+            // v5.9: experimental «remember mode» — menu item next to the Game items, dialog with explanation, nothing written
+            Step($"{th}: меню ⋯ — «Запоминать режим (эксперимент)» и окно", () =>
+            {
+                var items = w.MainMenu().Items.Cast<object>().ToList();
+                int set = items.FindIndex(i => i is MenuItem mi && AllText(mi).Contains("Автоматически включать Game"));
+                if (set < 0 || items.Count <= set + 1 || items[set + 1] is not MenuItem rm || !AllText(rm).Contains("Запоминать режим (эксперимент)"))
+                    throw new InvalidOperationException("нет пункта «Запоминать режим (эксперимент)» после настройки Game");
+                foreach (var (val, btn) in new (byte, string)[] { (0x91, "Включить (эксперимент)"), (0x93, "Выключить") })
+                {
+                    var dlg = w.RememberDialog(val, true, out var ans);
+                    var t = AllText(dlg);
+                    foreach (var must in new[] { "ЭКСПЕРИМЕНТ", "0x000F", "синий индикатор", "Автоматически включать Game при подключении", "0x0000–0x0007", btn, "Восстановить из копии…", "Закрыть" })
+                        if (!t.Contains(must)) throw new InvalidOperationException($"в окне (0x{val:X2}) нет «{must}»");
+                    if (ans() != MessageBoxResult.Cancel) throw new InvalidOperationException("по умолчанию окно должно ничего не делать");
+                    dlg.Close();
+                }
+                var off = w.RememberDialog(null, false, out _);
+                if (AllText(off).Contains("Включить (эксперимент)")) throw new InvalidOperationException("без клавиатуры не должно быть кнопки записи");
+                off.Close();
+                var odd = w.RememberDialog(0x55, true, out _);
+                if (!AllText(odd).Contains("незнакомое") || AllText(odd).Contains("Включить (эксперимент)")) throw new InvalidOperationException("незнакомое значение должно блокировать запись");
+                odd.Close();
+                if (!w.DeviceInfo().Contains("EEPROM 0x000F")) throw new InvalidOperationException("нет 0x000F в сведениях об устройстве");
+            });
             // v5.8: stick press — factory Normal/Game toggle or the ring, with an honest note
             Step($"{th}: нажатие стика — выбор Normal/Game или кольцо", () =>
             {
