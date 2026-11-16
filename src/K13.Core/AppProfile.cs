@@ -237,6 +237,11 @@ public sealed class ProfileStoreData
     /// <summary>v5.7.3: after a successful write — check the keypad memory once more when it is reconnected (replug test).
     /// Null = nothing pending. Old profiles.json files have no such field and load unchanged.</summary>
     public PendingReplugCheck? ReplugCheck { get; set; }
+    /// <summary>v5.7.4: on (re)connect send the short read-only exchange that makes the makers' K13 apply its saved layout
+    /// (PROTOCOL.md §28). Default on; old profiles.json files get it on.</summary>
+    public bool ActivateOnConnect { get; set; } = true;
+    /// <summary>v5.7.4: the «turn on autostart so it works after boot» hint was shown.</summary>
+    public bool ActivateAutostartHintSeen { get; set; }
     public List<AppProfile> Profiles { get; set; } = new();
     public string ActiveProfile { get; set; } = "";
     public List<AppSwitchRule> AppRules { get; set; } = new();
@@ -558,6 +563,8 @@ public static class KeypadOutputCheck
         yield return vk;
         if (NumpadNav.TryGetValue(vk, out var nav)) yield return nav;
     }
+
+    public static bool IsModifier(ushort vk) => Modifiers.Contains(vk);
 
     public static bool Explains(K13DeviceConfig memory, ushort vk)
     {

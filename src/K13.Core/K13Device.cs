@@ -154,6 +154,21 @@ public sealed class K13Device : IDisposable
         while (System.Diagnostics.Stopwatch.GetTimestamp() < end) Thread.SpinWait(20);
     }
 
+    /// <summary>v5.7.4: sends one frame that our read / session end already uses (07 18 00 / 05 / 01, 07 18 11, 07 20).
+    /// Anything else is refused even with the write gate open.</summary>
+    public void SendSafe(byte[] frame)
+    {
+        if (!(K13Protocol.IsReadOnlyFrame(frame) || K13Protocol.IsSessionEndFrame(frame)))
+            throw new WriteBlockedException($"Команда {string.Join(" ", frame.Select(b => b.ToString("X2")))} не входит в чтение — не отправлена.");
+        lock (_lock) Send(frame);
+    }
+
+    /// <summary>v5.7.4: GetFeature(RID7, 8 bytes) — the answer to 07 18 05.</summary>
+    public byte[] ReadAnswer()
+    {
+        lock (_lock) { var r = new byte[8]; r[0] = K13Layout.ReportId; _t.GetFeature(r); return r; }
+    }
+
     public K13Status GetStatus()
     {
         lock (_lock)

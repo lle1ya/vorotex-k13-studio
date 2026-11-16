@@ -183,8 +183,11 @@ public partial class MainWindow
             return Banner(false, $"Кнопки меняются вместе с профилем (через ПК) — сейчас «{_profile.Name}».", null, null);
         }
         if (_kpForeignVk != 0)
-            return Banner(true, $"Клавиатура прислала «{VkName(_kpForeignVk)}», а в её памяти такой клавиши нет — похоже, она работает по заводской раскладке и не применяет записанное. " +
-                                "Сохраните диагностику и пришлите нам.", "Сохранить диагностику", () => { SaveDiagnostics(); return Task.CompletedTask; });
+            return _activationFailed
+                ? Banner(true, $"После активации клавиатура всё ещё присылает «{VkName(_kpForeignVk)}» — заводская раскладка. Попробуйте полное чтение памяти; если не поможет — ⋯ → «Сохранить диагностику».",
+                         "Прочитать память", async () => { if (await ReadDevice(auto: false) != null) { _kpForeignVk = 0; _activationFailed = false; RefreshModeBanner(); } })
+                : Banner(true, $"Клавиатура прислала «{VkName(_kpForeignVk)}», а в её памяти такой клавиши нет — она работает по заводской раскладке. «Активировать» включит записанную (только чтение, без записи).",
+                         "Активировать", async () => await ActivateKeypad(auto: false));
         if (kp != null)
         {
             var mism = PcLayerPlanner.Compare(Cfg, Layer, kp);
@@ -271,8 +274,9 @@ public partial class MainWindow
 
     private void CheckForeignKey(ushort vk)
     {
-        if (_kpForeignVk != 0 || KeypadCfg is not { } kp || KeypadOutputCheck.Explains(kp, vk)) return;
+        if (_bisecting || _kpForeignVk != 0 || KeypadCfg is not { } kp || KeypadOutputCheck.Explains(kp, vk)) return;
         _kpForeignVk = vk;
+        if (_activatedAt > DateTime.MinValue && (DateTime.Now - _activatedAt).TotalMinutes < 10) _activationFailed = true;
         Log($"[k13] ВНИМАНИЕ: клавиатура прислала «{VkName(vk)}» (VK 0x{vk:X2}), но в её памяти (последнее чтение/запись) такой клавиши нет ни в кнопках, ни в макросах. " +
             $"Похоже, прошивка работает по заводской раскладке. Заголовок памяти: {HeaderHex(_deviceImage)}.");
         StatusText.Text = $"Клавиатура прислала «{VkName(vk)}» — такого нет в её памяти (заводская раскладка?).";
@@ -330,6 +334,7 @@ public partial class MainWindow
     {
         if (!down) return;
         if (_k13Logged < 300) { _k13Logged++; Log($"[k13] клавиатура прислала VK 0x{vk:X2} (скан 0x{scan:X2}) «{VkName(vk)}»" + (Layer.Active ? " — мимо режима «через ПК»" : "")); }
+        if (_bisectKeys != null) _bisectKeys.Add(vk);
         if (_ringOverlay?.IsOpen == true && _ringLogged < 60) { _ringLogged++; Log($"[ring] при открытом кольце клавиатура прислала «{VkName(vk)}» (VK 0x{vk:X2})" + (_ringOverlay.WantsKey(vk) ? " — наклон/выбор" : " — не наклон стика")); }
         if (!Layer.Active) { CheckForeignKey(vk); return; }
         var h = PcLayerHealth.Check(Layer, KeypadCfg, vk);

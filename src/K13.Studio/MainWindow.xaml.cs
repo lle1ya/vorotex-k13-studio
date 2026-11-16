@@ -322,6 +322,9 @@ public partial class MainWindow : Window
         Item("\uE896", "Прочитать с клавиатуры", ReadBtn_Click, _connected && !_busy && !_offline);
         Item("\uE74E", "Сохранить резервную копию", BackupBtn_Click, _connected && !_busy && !_offline);
         Item("\uE72C", "Кнопки не печатают? Вернуть обычный режим", Unstick_Click, _connected && !_busy && !_offline);
+        Item("\uE768", "Активировать раскладку из памяти", async (_, _) => await ActivateKeypad(auto: false), _connected && !_busy && !_offline);
+        Item(_store.Data.ActivateOnConnect ? "\uE73E" : "", "Активировать раскладку при подключении", (_, _) => SetActivateOnConnect(!_store.Data.ActivateOnConnect));
+        Item("\uE9CE", "Тест: какая команда включает раскладку…", (_, _) => RunBisect(), _connected && !_busy && !_offline);
         Item("\uE9D9", "План записи (пробный прогон)", PlanBtn_Click);
         m.Items.Add(new Separator());
         Item("\uE8B5", "Импорт из config.ini…", ImportIni_Click);
@@ -489,7 +492,7 @@ public partial class MainWindow : Window
             catch (Exception ex) { Log("Статус: " + ex.Message); }
             UpdateConn();
             _kpForeignVk = 0;
-            Dispatcher.BeginInvoke(AskReplugCheck, DispatcherPriority.Background); // v5.7.3: asks first, reads only on «Проверить»
+            Dispatcher.BeginInvoke(OnConnectedAsync, DispatcherPriority.Background); // v5.7.4: activate (read-type frames), then v5.7.3 replug question
             // v4.5: NO automatic memory read on connect. Our read session left the firmware in its transfer state and the
             // keypad stopped typing until replug (13.11.2026 15:50). Show the last known image instead; read on demand / before a write.
             if (_deviceImage == null && LoadLastKnownImage() is { } last)

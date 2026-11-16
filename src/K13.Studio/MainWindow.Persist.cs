@@ -33,7 +33,7 @@ public partial class MainWindow
     private async void AskReplugCheck()
     {
         var pending = _store.Data.ReplugCheck;
-        if (pending == null || _replugAsked || _busy || _offline || !_connected || !IsLoaded) return;
+        if (pending == null || _replugAsked || _bisecting || _busy || _offline || !_connected || !IsLoaded) return;
         _replugAsked = true;
         Log($"Ожидается проверка после переподключения (запись {pending.WrittenAt:dd.MM HH:mm}, {pending.Blocks.Count} блок(ов)).");
         MessageBox.Build(this, "Клавиатура снова подключена.\n\nПроверить, сохранились ли записанные настройки? Программа только прочитает память (≈ 10 с) и сверит её с записанным.",

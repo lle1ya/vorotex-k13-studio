@@ -223,8 +223,16 @@ public static class SmokeTest
                 {
                     Render(w, 0);
                     if (!AllText(w).Contains("заводской раскладке")) throw new InvalidOperationException("нет предупреждения о заводской раскладке");
+                    if (!AllText(w).Contains("Активировать")) throw new InvalidOperationException("нет кнопки «Активировать» в предупреждении");
                 }
                 finally { w.SimulateForeignKey(0); }
+            });
+            // v5.7.4: activation setting + bisect test in the main ⋯ menu
+            Step($"{th}: меню ⋯ — активация раскладки и тест команды", () =>
+            {
+                var main = AllText(w.MainMenu());
+                foreach (var t in new[] { "Активировать раскладку из памяти", "Активировать раскладку при подключении", "Тест: какая команда включает раскладку" })
+                    if (!main.Contains(t)) throw new InvalidOperationException("нет пункта " + t);
             });
             // v5.6.1: «?» help — hover tooltip + click popup; no ToolTip with StaysOpen=false anywhere (throws on real Windows)
             Step($"{th}: «?» открывается кликом, подсказки без StaysOpen=false", () =>
