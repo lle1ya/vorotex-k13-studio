@@ -39,8 +39,9 @@ public partial class MainWindow
         if (_deviceImage == null || _offline) return "";
         try
         {
-            K13MemoryCodec.Encode(Cfg, _deviceImage, out var plan);
-            return K13Protocol.DiffPlan(plan, _deviceImage).Count > 0 ? "Кнопки и подсветка в клавиатуре прежние — «Записать», если нужно." : "";
+            K13MemoryCodec.Encode(DeviceTarget, _deviceImage, out var plan);
+            if (K13Protocol.DiffPlan(plan, _deviceImage).Count == 0) return "";
+            return _store.Data.PcLayer.Active ? "Кнопки уже переключены (через ПК); подсветка в клавиатуре прежняя — «Записать», если нужно." : "Кнопки и подсветка в клавиатуре прежние — «Записать», если нужно.";
         }
         catch { return ""; }
     }
@@ -126,7 +127,9 @@ public partial class MainWindow
             DockPanel.SetDock(ok, Dock.Right);
             hint.Children.Add(ok);
             hint.Children.Add(new TextBlock { Text = "\uE946", FontFamily = Icons, FontSize = 12, Foreground = R("MutedBrush"), Margin = new Thickness(2, 1, 8, 0), VerticalAlignment = VerticalAlignment.Top });
-            hint.Children.Add(new TextBlock { Text = "При смене профиля сразу меняются действия на ПК. Кнопки и подсветка в самой клавиатуре — только по «Записать».", FontSize = 12, Foreground = R("MutedBrush"), TextWrapping = TextWrapping.Wrap });
+            hint.Children.Add(new TextBlock { Text = Layer.Active ? "При смене профиля сразу меняются кнопки (через ПК) и действия на ПК. Подсветка в клавиатуре — только по «Записать»."
+                                                                 : "При смене профиля сразу меняются действия на ПК. Кнопки — тоже, если включить «Кнопки по профилю» ниже; иначе они в клавиатуре и меняются по «Записать».",
+                FontSize = 12, Foreground = R("MutedBrush"), TextWrapping = TextWrapping.Wrap });
             host.Children.Add(hint);
         }
 
@@ -148,13 +151,15 @@ public partial class MainWindow
         };
         host.Children.Add(SettingRow("В других программах", combo));
         host.Children.Add(ToastSettingsRow());
+        host.Children.Add(PcModeRow());
         _tray?.SetAutoSwitch(d.AutoSwitch, _fg.Engine.Paused);
     }
 
     private const string AutoSwitchHelp =
         "Профиль включается сам, когда вы переходите в программу из его списка «Включать в программах» (на карточке профиля).\n\n" +
         "Сразу меняются действия на ПК: кольцо, сочетания, запуск программ и ссылок, макросы на компьютере (F13–F24).\n\n" +
-        "Кнопки и подсветка хранятся в самой клавиатуре и меняются только по «Записать» — частая запись изнашивает её память, поэтому автопереключение в клавиатуру не пишет.";
+        "Кнопки меняются вместе с профилем, если включены «Кнопки по профилю» (через ПК). Иначе кнопки, как и подсветка, хранятся в самой клавиатуре и меняются только по «Записать» — " +
+        "автопереключение в клавиатуру никогда не пишет (частая запись изнашивает её память).";
 
     /// <summary>Label column + control, the same height and spacing for every setting.</summary>
     private FrameworkElement SettingRow(string label, params UIElement[] controls)

@@ -142,6 +142,25 @@ public static class SmokeTest
                 var m = w.ToastMenu(w);
                 if (m.Items.Count != 2) throw new InvalidOperationException("в меню ⋯ ожидалось 2 пункта, а не " + m.Items.Count);
             });
+            // v5.6: keys through the PC
+            Step($"{th}: кнопки через ПК — демо и вкладка «Кнопки»", () =>
+            {
+                w.DemoV56(); w.DemoPcLayer(true);
+                if (!w.LayerState.Active || w.LayerState.Keys.Count != 11) throw new InvalidOperationException("план: " + w.LayerState.Keys.Count);
+                w.DemoKeypadHolds("Основной");
+                w.ShowPage(0); w.SelectControl(9); Render(w, 0);
+                w.SelectControl(16); Render(w, 0); w.SelectControl(-1);
+                if (!PcLayerPlanner.LooksPrepared(w.LayerState, K13MemoryCodec.Decode(K13MemoryCodec.Encode(w.DeviceTarget, MainWindow.DefaultImage)))) throw new InvalidOperationException("цель записи не подготовлена");
+                Render(w, 3);
+            });
+            Step($"{th}: кнопки через ПК — расхождение и диалог подготовки", () =>
+            {
+                w.DemoPcLayer(false);
+                w.DemoKeypadHolds("Основной");
+                w.ShowPage(0); w.SelectControl(9); Render(w, 0); w.SelectControl(-1);
+                Dialog(w.BuildPrepareDialog());
+                w.DemoKeypadHolds(null);
+            });
             Step($"{th}: маленькое окно 960×640", () => { w.Width = 960; w.Height = 640; for (int p = 0; p < 4; p++) Render(w, p); });
             Step($"{th}: выход", () => w.ExitApp());
         }

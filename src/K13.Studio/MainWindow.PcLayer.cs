@@ -1,0 +1,243 @@
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using Vorotex.K13;
+
+namespace Vorotex.Studio;
+
+/// <summary>
+/// v5.6: «Кнопки по профилю (через ПК)». After a one-time «Подготовить клавиатуру» write the keys send F14–F24 and the
+/// keyboard hook runs what the ACTIVE profile assigns — so a profile switch changes the keys instantly, without writes.
+/// «В клавиатуре» (classic) writes the real keys again so the keypad works without the app.
+/// </summary>
+public partial class MainWindow
+{
+    private PcLayerState Layer => _store.Data.PcLayer;
+
+    /// <summary>What the keypad must contain for the active profile in the current mode.</summary>
+    internal K13DeviceConfig DeviceTarget => Layer.Active ? PcLayerPlanner.Apply(Cfg, Layer) : Cfg;
+
+    private byte[]? _kpImageRef;
+    private K13DeviceConfig? _kpCfg;
+    /// <summary>The keypad contents as last read/written (decoded once per image), or null when unknown.</summary>
+    private K13DeviceConfig? KeypadCfg
+    {
+        get
+        {
+            if (_deviceImage == null) return null;
+            if (!ReferenceEquals(_deviceImage, _kpImageRef)) { _kpImageRef = _deviceImage; try { _kpCfg = K13MemoryCodec.Decode(_deviceImage); } catch { _kpCfg = null; } }
+            return _kpCfg;
+        }
+    }
+
+    private void PushMapper()
+    {
+        _mapper?.Update(_profile.Host, _profile.Name);
+        _mapper?.UpdateLayer(Layer, Cfg, _profile.Name);
+    }
+
+    private static string KeyList(IEnumerable<int> cols) => string.Join(", ", cols.Select(DeviceView.ControlName));
+
+    // ───────────────────────────── switching modes (both need one write, confirmation, backup, replug)
+    internal async Task<bool> PrepareKeypad()
+    {
+        if (_offline || !_connected) { MessageBox.Show(this, "Подключите клавиатуру — подготовка записывает её один раз.", Title, MessageBoxButton.OK, MessageBoxImage.Information); return false; }
+        var plan = PcLayerPlanner.Plan(_store.Data.Profiles.Select(p => p.Device ?? K13MemoryCodec.Decode(DefaultImage)));
+        var state = new PcLayerState { Keys = plan, PreparedAt = DateTime.Now };
+        MessageBox.Build(this, PrepareText(state), "Подготовить клавиатуру", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes, out var ans,
+            new[] { "Подготовить и записать", "Отмена" }).ShowDialog();
+        if (ans() != MessageBoxResult.Yes) { BuildAutoSwitchCard(); return false; }
+        bool ok = await WriteDevice(target: PcLayerPlanner.Apply(Cfg, state));
+        if (ok)
+        {
+            _store.Data.PcLayer = state; SaveStore();
+            Log($"Кнопки через ПК: клавиатура подготовлена ({plan.Count} кнопок).");
+            StatusText.Text = "Клавиатура подготовлена: после переподключения кнопки меняются вместе с профилем.";
+        }
+        PushMapper(); RefreshAll(); RefreshDirty();
+        return ok;
+    }
+
+    private string PrepareText(PcLayerState state)
+    {
+        var plan = state.Keys;
+        var native = PcLayerPlanner.Columns.Where(c => !state.IsMapped(c)).ToList();
+        return
+            "Кнопки будут меняться вместе с профилем — сразу, без записи в клавиатуру.\n\n" +
+            "Для этого клавиатура один раз записывается так, что каждая кнопка посылает свой редкий код (F14–F24), " +
+            "а программа выполняет то, что назначено кнопке в активном профиле: клавишу, сочетание, макрос, медиа, действие на ПК.\n\n" +
+            $"• Через ПК: {KeyList(plan.Select(k => k.Column))}.\n" +
+            (native.Count > 0 ? $"• Остаётся в клавиатуре (кодов F14–F24 всего 11): {KeyList(native)}.\n" : "") +
+            "• Джойстик и нажатие стика (кольцо) остаются в клавиатуре, подсветка — тоже.\n" +
+            "• Без запущенной программы эти кнопки ничего не делают. Программа может запускаться вместе с Windows (в трей).\n\n" +
+            "Перед записью сохраняется резервная копия, после — проверка чтением. Затем выньте и вставьте USB-кабель клавиатуры.";
+    }
+
+    internal Window BuildPrepareDialog()
+    {
+        var state = new PcLayerState { Keys = PcLayerPlanner.Plan(_store.Data.Profiles.Select(p => p.Device ?? K13MemoryCodec.Decode(DefaultImage))) };
+        return MessageBox.Build(IsLoaded ? this : null, PrepareText(state), "Подготовить клавиатуру", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes, out _,
+            new[] { "Подготовить и записать", "Отмена" });
+    }
+
+    /// <summary>Screenshots / smoke test: the user's case — macro on Tab in «Основной», plain Tab and F2 on key 1 in «1С».</summary>
+    internal void DemoV56()
+    {
+        var main = _store.Find("Основной"); var oneC = _store.Find("1С");
+        if (main?.Device == null || oneC?.Device == null) return;
+        int slot = Enumerable.Range(0, KeyCatalog.MacroCodeCount).FirstOrDefault(i => main.Device.Macros[i].IsUsed);
+        main.Device.SetKey(9, (byte)(KeyCatalog.FirstMacro + slot));
+        oneC.Device.SetKey(9, 0x2B);
+        oneC.Device.SetKey(0, 0x3B);
+        SaveStore(); RefreshAll();
+    }
+
+    /// <summary>Screenshots / smoke test: what the keypad holds (normally known only after a read or write).</summary>
+    internal void DemoKeypadHolds(string? profile)
+    {
+        var p = profile == null ? null : _store.Find(profile);
+        _deviceImage = p?.Device == null ? null : K13MemoryCodec.Encode(Layer.Active ? PcLayerPlanner.Apply(p.Device, Layer) : p.Device, DefaultImage);
+        RefreshDirty(); RefreshLayout();
+    }
+
+    internal async Task<bool> RestoreKeypad()
+    {
+        if (_offline || !_connected)
+        {
+            MessageBox.Show(this, "Подключите клавиатуру: чтобы кнопки снова работали без программы, их нужно записать в клавиатуру.", Title, MessageBoxButton.OK, MessageBoxImage.Information);
+            BuildAutoSwitchCard(); return false;
+        }
+        MessageBox.Build(this,
+            $"В клавиатуру будут записаны кнопки профиля «{_profile.Name}». Они будут работать и без программы, но перестанут меняться вместе с профилем " +
+            "(для другого профиля — снова «Записать»).\n\nПеред записью — резервная копия, после — проверка. Затем переподключите клавиатуру.",
+            "Кнопки — в клавиатуру", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes, out var ans, new[] { "Записать в клавиатуру", "Отмена" }).ShowDialog();
+        if (ans() != MessageBoxResult.Yes) { BuildAutoSwitchCard(); return false; }
+        bool ok = await WriteDevice(target: Cfg);
+        if (ok)
+        {
+            _store.Data.PcLayer = new PcLayerState(); SaveStore();
+            Log("Кнопки снова записаны в клавиатуру (режим «в клавиатуре»).");
+        }
+        PushMapper(); RefreshAll(); RefreshDirty();
+        return ok;
+    }
+
+    /// <summary>Screenshots / smoke test: pretend the keypad was prepared (no device involved).</summary>
+    internal void DemoPcLayer(bool on)
+    {
+        _store.Data.PcLayer = on ? new PcLayerState { Keys = PcLayerPlanner.Plan(_store.Data.Profiles.Select(p => p.Device ?? K13MemoryCodec.Decode(DefaultImage))), PreparedAt = DateTime.Now } : new PcLayerState();
+        SaveStore(); PushMapper(); RefreshAll();
+    }
+
+    internal PcLayerState LayerState => Layer;
+
+    // ───────────────────────────── «Кнопки по профилю» row in the auto-switch card
+    private FrameworkElement PcModeRow()
+    {
+        bool on = Layer.Active;
+        var sw = new CheckBox { Style = (Style)FindResource("Switch"), IsChecked = on, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0),
+            ToolTip = on ? "Выключить: записать кнопки обратно в клавиатуру" : "Включить: один раз подготовить клавиатуру" };
+        sw.Checked += async (_, _) => { if (!_loading && !Layer.Active) await PrepareKeypad(); };
+        sw.Unchecked += async (_, _) => { if (!_loading && Layer.Active) await RestoreKeypad(); };
+        var status = new TextBlock { FontSize = 12.5, Foreground = R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0),
+            Text = on ? $"через ПК · {RuPlural.Of(Layer.Keys.Count, "кнопка", "кнопки", "кнопок")}" : "кнопки в клавиатуре — меняются только по «Записать»" };
+        return SettingRow("Кнопки по профилю", sw, status, InfoDot(PcModeHelp));
+    }
+
+    private const string PcModeHelp =
+        "Через ПК: клавиатура один раз подготавливается («Подготовить клавиатуру»), и каждая кнопка посылает свой редкий код F14–F24. " +
+        "Программа выполняет то, что назначено кнопке в активном профиле, — смена профиля меняет кнопки сразу, без записи. " +
+        "Нужна запущенная программа (можно в трее, с запуском вместе с Windows).\n\n" +
+        "В клавиатуре: кнопки записаны в саму клавиатуру и работают без программы, но для другого профиля их нужно снова записать.\n\n" +
+        "В обоих режимах джойстик, нажатие стика и подсветка хранятся в клавиатуре.";
+
+    // ───────────────────────────── the line under «Нажмите на кнопку…» on the Buttons tab
+    private void RefreshModeBanner()
+    {
+        var b = BuildModeBanner();
+        ModeBanner.Content = b;
+        ModeBanner.Visibility = b == null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private FrameworkElement? BuildModeBanner()
+    {
+        var kp = KeypadCfg;
+        if (Layer.Active)
+        {
+            if (kp != null && !PcLayerPlanner.LooksPrepared(Layer, kp))
+                return Banner(true, "Клавиатура не подготовлена для режима «через ПК» — кнопки сейчас делают то, что в ней записано.", "Подготовить снова", async () => await PrepareKeypad());
+            var mism = kp == null ? new() : PcLayerPlanner.Compare(Cfg, Layer, kp);
+            if (mism.Count > 0)
+                return Banner(true, $"В клавиатуре другое на: {KeyList(mism.Select(m => m.Column).Take(4))} — нажмите «Записать».", null, null);
+            return Banner(false, $"Кнопки меняются вместе с профилем (через ПК) — сейчас «{_profile.Name}».", null, null);
+        }
+        if (kp != null)
+        {
+            var mism = PcLayerPlanner.Compare(Cfg, Layer, kp);
+            if (mism.Count > 0)
+            {
+                var m0 = mism[0];
+                return Banner(true, $"Клавиатура делает не то, что показано: {DeviceView.ControlName(m0.Column)} — в ней «{KpName(m0.InKeypad)}»" +
+                                    (mism.Count > 1 ? $" и ещё {mism.Count - 1}" : "") + ". «Записать» или «Кнопки по профилю».", "Через ПК…", async () => await PrepareKeypad());
+            }
+            return null;
+        }
+        // keypad unknown: say it once there is more than one profile with different keys
+        var profiles = _store.Data.Profiles.Where(p => p.Device != null).ToList();
+        bool differ = profiles.Count > 1 && PcLayerPlanner.Columns.Any(c => profiles.Select(p => p.Device!.GetKey(c)).Distinct().Count() > 1);
+        return differ ? Banner(false, "Кнопки записаны в клавиатуре и не меняются вместе с профилем.", "Сделать через ПК…", async () => await PrepareKeypad()) : null;
+    }
+
+    private FrameworkElement Banner(bool warn, string text, string? action, Func<Task>? onAction)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        row.Children.Add(new TextBlock { Text = warn ? "\uE7BA" : "\uE946", FontFamily = Icons, FontSize = 12, Foreground = warn ? R("WarnBrush") : R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+        row.Children.Add(new TextBlock { Text = text, FontSize = 12.5, Foreground = warn ? R("TextBrush") : R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 640 });
+        if (action != null && onAction != null)
+        {
+            var a = new Button { Style = (Style)FindResource("LinkButton"), Content = action, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Cursor = Cursors.Hand };
+            a.Click += async (_, _) => await onAction();
+            row.Children.Add(a);
+        }
+        return new Border { Child = row, CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 6, 12, 6), Background = warn ? R("AccentSoftBrush") : Brushes.Transparent };
+    }
+
+    /// <summary>Under «Что делает …?»: whether this key follows the profile and, if the keypad differs, what it really does.</summary>
+    private FrameworkElement? KeyModeNote(int col)
+    {
+        if (!IsKeyCol(col)) return null;
+        var kp = KeypadCfg;
+        bool key = PcLayerPlanner.Columns.Contains(col);
+        string? muted = null, warn = null;
+        if (Layer.Active && Layer.IsMapped(col))
+        {
+            var a = PcLayerPlanner.Resolve(Cfg, col);
+            muted = a.Kind == PcKeyKind.Macro ? $"Через ПК: макрос выполняет компьютер, пока программа запущена. В другом профиле кнопка делает своё."
+                                              : $"Через ПК: в профиле «{_profile.Name}» — {PcLayerPlanner.Describe(a)}. В другом профиле кнопка делает своё.";
+            if (a.Kind == PcKeyKind.FirmwareOnly) warn = $"«{KeyCatalog.Name(a.Code)}» умеет только сама клавиатура — в режиме «через ПК» эта кнопка ничего не сделает.";
+            if (kp != null && kp.GetKey(col) != Layer.Keys.First(k => k.Column == col).Code) warn = $"Клавиатура не подготовлена: сейчас эта кнопка посылает «{KpName(kp.GetKey(col))}».";
+        }
+        else
+        {
+            if (Layer.Active) muted = key ? "Эта кнопка записана в клавиатуре и не меняется вместе с профилем." : "Джойстик и нажатие стика записаны в клавиатуре.";
+            else if (KeyCatalog.IsMacro(Cfg.GetKey(col))) muted = "Макрос записан в клавиатуру и работает без программы; в другом профиле — только после «Записать».";
+            if (kp != null && kp.GetKey(col) != DeviceTarget.GetKey(col))
+                warn = $"Сейчас в клавиатуре: «{KpName(kp.GetKey(col))}». Нажмите «Записать», чтобы было как здесь" + (Layer.Active || !key ? "." : ", или включите «Кнопки по профилю».");
+        }
+        if (muted == null && warn == null) return null;
+        var sp = new StackPanel { Margin = new Thickness(0, 2, 0, 6) };
+        if (muted != null) sp.Children.Add(new TextBlock { Text = muted, FontSize = 12, Foreground = R("MutedBrush"), TextWrapping = TextWrapping.Wrap });
+        if (warn != null)
+        {
+            var w = new DockPanel { Margin = new Thickness(0, muted != null ? 6 : 0, 0, 0) };
+            w.Children.Add(new TextBlock { Text = "\uE7BA", FontFamily = Icons, FontSize = 12, Foreground = R("WarnBrush"), Margin = new Thickness(0, 1, 7, 0), VerticalAlignment = VerticalAlignment.Top });
+            w.Children.Add(new TextBlock { Text = warn, FontSize = 12, TextWrapping = TextWrapping.Wrap });
+            sp.Children.Add(new Border { Child = w, Background = R("AccentSoftBrush"), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 7, 10, 7) });
+        }
+        return sp;
+    }
+
+    /// <summary>Name of a code read from the keypad; macros are numbered from 1 like the macro cells, not by catalog index.</summary>
+    private static string KpName(byte c) => KeyCatalog.IsMacro(c) ? $"макрос из ячейки {KeyCatalog.MacroSlotOf(c) + 1}" : KeyCatalog.Name(c);
+}

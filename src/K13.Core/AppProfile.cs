@@ -223,6 +223,8 @@ public sealed class ProfileStoreData
     public bool ToastSystem { get; set; }
     /// <summary>v5.6: the one-time «PC actions switch now, keypad only on Write» hint was dismissed.</summary>
     public bool AutoSwitchHintSeen { get; set; }
+    /// <summary>v5.6: keys go through the PC (keypad prepared with F14–F24) — they follow the active profile.</summary>
+    public PcLayerState PcLayer { get; set; } = new();
     public bool MinimizeToTray { get; set; } = true;
     public bool DarkTheme { get; set; }
     public bool WelcomeShown { get; set; }
@@ -266,6 +268,8 @@ public sealed class ProfileStoreData
         FallbackProfile ??= "";
         if (FallbackProfile.Length > 0 && !Profiles.Any(p => string.Equals(p.Name, FallbackProfile, StringComparison.OrdinalIgnoreCase))) FallbackProfile = "";
         if (!Enum.IsDefined(ToastPlacement)) { notes.Add($"Место уведомления «{(int)ToastPlacement}» неизвестно — внизу справа."); ToastPlacement = ToastPlacement.BottomRight; }
+        PcLayer ??= new();
+        notes.AddRange(PcLayer.Normalize());
         LedColors ??= new();
         LedModeObserved ??= new();
         ActiveProfile ??= "";

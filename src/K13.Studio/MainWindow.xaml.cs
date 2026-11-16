@@ -193,7 +193,7 @@ public partial class MainWindow : Window
             _ => reason,
         };
         SaveStore();
-        _mapper?.Update(p.Host, p.Name);
+        PushMapper();
         RefreshAll();
         RefreshAutoStatus();
         if (reason != null)
@@ -211,7 +211,7 @@ public partial class MainWindow : Window
         SaveStore();
         if (refreshLayout) RefreshLayout();
         RefreshDirty();
-        _mapper?.Update(_profile.Host, _profile.Name);
+        PushMapper();
         ScheduleLiveLighting();
     }
 
@@ -223,7 +223,7 @@ public partial class MainWindow : Window
         if (_deviceImage == null) return false;
         try
         {
-            K13MemoryCodec.Encode(Cfg, _deviceImage, out var plan);
+            K13MemoryCodec.Encode(DeviceTarget, _deviceImage, out var plan);
             var diff = K13Protocol.DiffPlan(plan, _deviceImage);
             int bs = K13MemoryCodec.ReadBase(_deviceImage);
             return diff.Count > 0 && diff.All(b => b.Address >= bs && b.Address + b.Data.Length <= bs + 0x20);
@@ -354,6 +354,7 @@ public partial class MainWindow : Window
     // ───────────────────────────── layout page
     internal void RefreshLayout()
     {
+        RefreshModeBanner();
         _kbLayout.Rebuild(Cfg, _profile.Host, _selCol);
         _kbLight.Rebuild(Cfg, _profile.Host, -1, showDots: false);
         BuildEditor();
@@ -626,11 +627,12 @@ public partial class MainWindow : Window
     /// <summary>True while <see cref="_deviceImage"/> was read (or written+verified) since the keypad was last connected.</summary>
     private bool _imageFresh;
 
-    internal async Task<bool> WriteDevice(bool quiet = false)
+    internal async Task<bool> WriteDevice(bool quiet = false, K13DeviceConfig? target = null)
     {
         if (_busy || _offline || !_connected) return false;
         if (quiet && !_store.Data.WriteConfirmed) return false;
-        try { K13MemoryCodec.Validate(Cfg); }
+        var what = target ?? DeviceTarget; // v5.6: in «через ПК» mode the mapped keys are written as their F14–F24 codes
+        try { K13MemoryCodec.Validate(what); }
         catch (Exception ex) { MessageBox.Show(this, "Профиль содержит ошибку: " + ex.Message, Title); return false; }
         if (!_store.Data.WriteConfirmed)
         {
@@ -644,7 +646,7 @@ public partial class MainWindow : Window
         }
         _busy = true; UpdateConn(); WriteBtn.IsEnabled = false;
         Progress.Visibility = Visibility.Visible; Progress.Value = 0;
-        var cfg = K13MemoryCodec.Decode(K13MemoryCodec.Encode(Cfg, _deviceImage ?? DefaultImage)); // snapshot of the profile
+        var cfg = K13MemoryCodec.Decode(K13MemoryCodec.Encode(what, _deviceImage ?? DefaultImage)); // snapshot of the profile
         // lighting-only live writes may start from the last known image: the writer re-reads the target blocks + header
         // and falls back to a full read if they differ. A normal «Записать» reads the whole memory once per connection.
         var cached = _imageFresh || quiet ? _deviceImage : null;
@@ -755,11 +757,11 @@ public partial class MainWindow : Window
         string tip; Brush fill; bool dirty = false;
         try
         {
-            K13MemoryCodec.Validate(Cfg);
+            K13MemoryCodec.Validate(DeviceTarget);
             if (_deviceImage == null) { tip = "Клавиатура ещё не прочитана"; fill = (Brush)FindResource("MutedBrush"); }
             else
             {
-                K13MemoryCodec.Encode(Cfg, _deviceImage, out var plan);
+                K13MemoryCodec.Encode(DeviceTarget, _deviceImage, out var plan);
                 var diff = K13Protocol.DiffPlan(plan, _deviceImage);
                 tip = diff.Count == 0 ? "Профиль совпадает с клавиатурой" : $"Профиль отличается от клавиатуры: {diff.Count} блок(ов) по 8 байт — нажмите «Записать».";
                 dirty = diff.Count > 0;
@@ -768,6 +770,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { tip = "Ошибка в профиле: " + ex.Message; fill = (Brush)FindResource("ErrBrush"); }
         SyncDot.Fill = fill;
+        RefreshModeBanner();
         WriteBtn.ToolTip = "Записать настройки профиля в клавиатуру.\nПеред записью сохраняется резервная копия, после — проверка чтением; при ошибке всё возвращается как было.\n\n" + tip;
         WriteBtn.IsEnabled = !_offline && _connected && !_busy && (dirty || _deviceImage == null);
     }
@@ -779,10 +782,10 @@ public partial class MainWindow : Window
         sb.AppendLine();
         try
         {
-            K13MemoryCodec.Validate(Cfg);
+            K13MemoryCodec.Validate(DeviceTarget);
             var baseImg = _deviceImage ?? DefaultImage;
             if (_deviceImage == null) sb.AppendLine("⚠ Клавиатура не прочитана — сравнение со встроенным образом от 12.11.2026.\n");
-            K13MemoryCodec.Encode(Cfg, baseImg, out var plan);
+            K13MemoryCodec.Encode(DeviceTarget, baseImg, out var plan);
             var diff = K13Protocol.DiffPlan(plan, baseImg);
             sb.AppendLine($"Полный план родного приложения: {plan.Count} блоков по 8 байт. Отличающихся блоков: {diff.Count}.");
             sb.AppendLine();

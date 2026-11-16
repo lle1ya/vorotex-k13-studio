@@ -105,6 +105,7 @@ public partial class MainWindow
         head.Children.Add(close);
         head.Children.Add(new TextBlock { Text = $"Что делает {DeviceView.ControlName(_selCol)}?", FontSize = 20, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center });
         EditorHost.Children.Add(head);
+        if (KeyModeNote(_selCol) is { } modeNote) EditorHost.Children.Add(modeNote);
 
         if (_tile == null)
         {

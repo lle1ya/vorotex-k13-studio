@@ -93,6 +93,13 @@ public partial class App : Application
             return;
         }
 
+        int r56k = Array.IndexOf(e.Args, "--render-v56-keys");
+        if (r56k >= 0)
+        {
+            int code = Screenshots.RenderV56Keys(r56k + 1 < e.Args.Length ? e.Args[r56k + 1] : Path.Combine(DataFolder, "screens-v5.6k"));
+            Shutdown(code);
+            return;
+        }
         int r56 = Array.IndexOf(e.Args, "--render-v56");
         if (r56 >= 0)
         {

@@ -32,6 +32,13 @@ public sealed class HostMapper : IDisposable
     private readonly Dictionary<ushort, long> _lastDown = new();
     private readonly HashSet<ushort> _ringKeys = new();
     private long _events;
+    // v5.6: keys through the PC (prepared keypad sends F14–F24 → action of the ACTIVE profile)
+    private sealed record LayerSnapshot(PcLayerState State, K13DeviceConfig Cfg, string Profile);
+    private volatile LayerSnapshot? _layer;
+    private readonly PcLayerRouter _router = new(); // hook thread only; keeps held keys across profile switches
+    private LayerSnapshot? _routerFor;
+    [DllImport("user32.dll")] private static extern uint MapVirtualKey(uint code, uint type);
+    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr h, int cmd);
 
     /// <summary>Keys that never reach other applications while the app runs (the stick press = F13).</summary>
     public static readonly HashSet<ushort> AlwaysSwallow = new() { ProfileMigrations.StickVk };
@@ -114,6 +121,90 @@ public sealed class HostMapper : IDisposable
         if (changed) App.Log($"[hook] профиль «{_profileName}»: F13 → {DescribeF13(settings)}");
     }
 
+    /// <summary>v5.6: keys through the PC. Empty state = the keypad keeps its own keys (nothing is translated).</summary>
+    public void UpdateLayer(PcLayerState state, K13DeviceConfig profileCfg, string profileName)
+    {
+        if (!state.Active) { if (_layer != null) App.Log("[hook] кнопки через ПК выключены"); _layer = null; return; }
+        bool was = _layer != null;
+        _layer = new LayerSnapshot(state.Clone(), profileCfg.Clone(), profileName);
+        if (!was) App.Log($"[hook] кнопки через ПК: {state.Keys.Count} кнопок, профиль «{profileName}»");
+    }
+
+    public bool LayerActive => _layer != null;
+
+    /// <summary>Hook thread. True = the event belongs to the PC layer (swallow it).</summary>
+    private bool RouteLayer(ushort vk, bool down)
+    {
+        var l = _layer;
+        if (l == null)
+        {
+            if (_routerFor != null) { foreach (var o in _router.ReleaseAll()) Do(o, null); _router.SetLayer(new PcLayerState()); _routerFor = null; }
+            return false;
+        }
+        if (!ReferenceEquals(l, _routerFor))
+        {
+            if (_routerFor == null || !SameKeys(_routerFor.State, l.State)) _router.SetLayer(l.State);
+            _routerFor = l;
+        }
+        if (!_router.Owns(vk)) return false;
+        foreach (var o in _router.Route(vk, down, l.Cfg, v => _settings.Enabled && IsTrigger(v))) Do(o, l);
+        return true;
+    }
+
+    private static bool SameKeys(PcLayerState a, PcLayerState b) =>
+        a.Keys.Count == b.Keys.Count && a.Keys.Zip(b.Keys).All(p => p.First.Column == p.Second.Column && p.First.Code == p.Second.Code);
+
+    private void Do(PcOut o, LayerSnapshot? l)
+    {
+        switch (o.Kind)
+        {
+            case PcOutKind.KeyDown: InjectVk(o.Vk, true); break;
+            case PcOutKind.KeyUp: InjectVk(o.Vk, false); break;
+            case PcOutKind.HostDown: Handle(o.Vk, true); break;
+            case PcOutKind.HostUp: Handle(o.Vk, false); break;
+            case PcOutKind.StartMacro or PcOutKind.StartMacroHeld when l != null && o.Slot < l.Cfg.Macros.Count:
+                var m = l.Cfg.Macros[o.Slot].Clone(); bool held = o.Kind == PcOutKind.StartMacroHeld;
+                _ui.BeginInvoke(() => { if (held) MacroPlayer.PlayWhileHeld(m); else MacroPlayer.Play(m); });
+                break;
+            case PcOutKind.StopMacro: _ui.BeginInvoke(() => MacroPlayer.Stop()); break;
+            case PcOutKind.Shell: var sh = o.Shell; _ui.BeginInvoke(() => RunShell(sh)); break;
+            case PcOutKind.FirmwareOnly: Diag($"«{KeyCatalog.Name(o.Code)}» умеет только сама клавиатура — в режиме «через ПК» не выполняется"); break;
+        }
+    }
+
+    private static readonly HashSet<ushort> ExtendedVks = new()
+    {
+        0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2D, 0x2E, 0x5B, 0x5C, 0x5D, 0x6F, 0xA3, 0xA5, 0x2C,
+        0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7,
+    };
+
+    /// <summary>Presses / releases a key as if typed (scan code + extended flag, so games and arrow/media keys work).</summary>
+    public static void InjectVk(ushort vk, bool down)
+    {
+        var inp = new Native.INPUT { type = Native.INPUT_KEYBOARD };
+        uint flags = down ? 0 : Native.KEYEVENTF_KEYUP;
+        if (ExtendedVks.Contains(vk)) flags |= Native.KEYEVENTF_EXTENDEDKEY;
+        ushort scan = 0;
+        try { scan = (ushort)MapVirtualKey(vk, 0); } catch { }
+        inp.U.ki = new Native.KEYBDINPUT { wVk = vk, wScan = scan, dwFlags = flags, dwExtraInfo = Native.InjectedTag };
+        Native.SendInput(1, new[] { inp }, Marshal.SizeOf<Native.INPUT>());
+    }
+
+    private void RunShell(string what)
+    {
+        try
+        {
+            switch (what)
+            {
+                case "calc": Process.Start(new ProcessStartInfo("calc.exe") { UseShellExecute = true })?.Dispose(); break;
+                case "computer": Process.Start(new ProcessStartInfo("explorer.exe", "shell:MyComputerFolder") { UseShellExecute = true })?.Dispose(); break;
+                case "minimize": ShowWindow(Native.GetForegroundWindow(), 6); break;
+                case "screenshot": KeyCombo.Send("Win+Shift+S"); break;
+            }
+        }
+        catch (Exception ex) { Log?.Invoke("Ошибка действия: " + ex.Message); }
+    }
+
     private bool IsRingTrigger(ushort vk) => TriggerKeyPolicy.Classify(vk) != TriggerSafety.Forbidden && _settings.Keys.Any(k => k.TriggerVk == vk && k.Tap.Kind == HostActionKind.Ring);
 
     private bool IsTrigger(ushort vk) =>
@@ -148,6 +239,7 @@ public sealed class HostMapper : IDisposable
                         if (down0 && !IsRingTrigger(vk) && ring.WantsKey(vk)) { _ringKeys.Add(vk); _ui.BeginInvoke(() => ring.OnKey(vk, true)); return (IntPtr)1; }
                         if (!down0 && _ringKeys.Remove(vk)) { _ui.BeginInvoke(() => ring.OnKey(vk, false)); return (IntPtr)1; }
                     }
+                    if (RouteLayer(vk, down0)) return (IntPtr)1;
                     bool always = AlwaysSwallow.Contains(vk);
                     var s = _settings;
                     if (s.Enabled && IsTrigger(vk))
@@ -301,6 +393,30 @@ public static class MacroPlayer
                 cts.Dispose();
             }
         });
+    }
+
+    /// <summary>v5.6: «пока зажата» through the PC — plays in a loop until <see cref="Stop"/> (key released).</summary>
+    public static void PlayWhileHeld(MacroSlot m)
+    {
+        var prev = System.Threading.Interlocked.Exchange(ref _playing, null);
+        try { prev?.Cancel(); } catch (ObjectDisposedException) { }
+        if (m.Events.Count == 0) return;
+        var cts = new System.Threading.CancellationTokenSource();
+        _playing = cts;
+        var events = m.Events.Select(e => e.Clone()).ToList();
+        _task = System.Threading.Tasks.Task.Run(() =>
+        {
+            try { MacroSequencer.Run(events, int.MaxValue, Send, cts.Token); }
+            catch (Exception ex) { App.Log("Макрос: " + ex.Message); }
+            finally { System.Threading.Interlocked.CompareExchange(ref _playing, null, cts); cts.Dispose(); }
+        });
+    }
+
+    /// <summary>Stops a playing macro without waiting (its held keys are released by the sequencer).</summary>
+    public static void Stop()
+    {
+        var prev = System.Threading.Interlocked.Exchange(ref _playing, null);
+        try { prev?.Cancel(); } catch (ObjectDisposedException) { }
     }
 
     /// <summary>v5.3: stops a playing macro and waits (briefly) until its held keys are released — called on exit,

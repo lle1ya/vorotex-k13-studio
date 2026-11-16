@@ -256,6 +256,55 @@ internal static class Screenshots
         }
     }
 
+    /// <summary>v5.6: keys through the PC — Buttons tab with Tab selected (mode note / warning) and the prepare dialog.</summary>
+    public static int RenderV56Keys(string folder)
+    {
+        try
+        {
+            Directory.CreateDirectory(folder);
+            var tmp = Path.Combine(Path.GetTempPath(), "vorotex-screens56k-" + Environment.ProcessId);
+            var shots = new List<string>();
+            foreach (var dark in new[] { false, true })
+            {
+                App.SetTheme(dark);
+                var w = new MainWindow(offline: true, storeFolder: tmp + (dark ? "d" : "l"), previewImage: null)
+                { Width = 1280, Height = 860, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual };
+                w.Show();
+                int demo = w.DemoMouseMacro();
+                w.DemoV47(demo); w.DemoV54(); w.DemoV55(); w.DemoV56();
+                w.SetAutoSwitchHintSeen(true);
+                string sfx = dark ? "-dark" : "";
+                // through the PC: «1С» active, Tab selected
+                w.DemoPcLayer(true);
+                w.DemoKeypadHolds("Основной");
+                w.ShowPage(0); w.SelectControl(9);
+                shots.Add(Shot(w, 0, Path.Combine(folder, $"11-keys-pc{sfx}.png"), 1.5));
+                w.SelectControl(-1);
+                w.ScrollProfiles(0);
+                shots.Add(Shot(w, 3, Path.Combine(folder, $"12-profiles-pc{sfx}.png"), 1.5));
+                if (!dark)
+                {
+                    // classic mode, keypad still holds «Основной» while «1С» is shown → warning instead of a silent mismatch
+                    w.DemoPcLayer(false);
+                    w.DemoKeypadHolds("Основной");
+                    w.ShowPage(0); w.SelectControl(9);
+                    shots.Add(Shot(w, 0, Path.Combine(folder, "13-keys-mismatch.png"), 1.5));
+                    w.SelectControl(-1);
+                    var d = w.BuildPrepareDialog(); d.Owner = null; d.Left = -32000; d.Top = -32000; d.ShowActivated = false; d.WindowStartupLocation = WindowStartupLocation.Manual; d.Show();
+                    shots.Add(ShotWindow(d, Path.Combine(folder, "14-prepare-dialog.png"), 1.5)); d.Close();
+                }
+                w.ExitApp();
+            }
+            File.WriteAllText(Path.Combine(folder, "screens-keys.txt"), string.Join(Environment.NewLine, shots));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(Path.Combine(folder, "screens-error.txt"), ex.ToString()); } catch { }
+            return 1;
+        }
+    }
+
     /// <summary>v5.6: the calmer auto-switch card (light + dark, and with the one-time hint).</summary>
     public static int RenderV56(string folder)
     {
