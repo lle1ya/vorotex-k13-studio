@@ -72,6 +72,10 @@ public partial class MainWindow : Window
             _mapper.MacroProvider = i => i >= 0 && i < Cfg.Macros.Count ? Cfg.Macros[i] : null;
             _ringOverlay = new RingOverlay(_mapper) { StickKeys = StickVks };
             _mapper.Ring = _ringOverlay;
+            _mapper.LayerRouted += OnLayerRouted;
+            _k13Keys = new K13KeyMonitor();
+            _k13Keys.KeypadKey += OnKeypadKey;
+            if (_k13Keys.Start()) Log("[k13] слежу за кнопками самой K13 (Raw Input, только VID_30FA&PID_2350).");
         }
 
         LoadStore(previewImage);
@@ -773,6 +777,7 @@ public partial class MainWindow : Window
         RefreshModeBanner();
         WriteBtn.ToolTip = "Записать настройки профиля в клавиатуру.\nПеред записью сохраняется резервная копия, после — проверка чтением; при ошибке всё возвращается как было.\n\n" + tip;
         WriteBtn.IsEnabled = !_offline && _connected && !_busy && (dirty || _deviceImage == null);
+        RefreshWriteNote(dirty);
     }
 
     private void PlanBtn_Click(object sender, RoutedEventArgs e)
@@ -851,7 +856,7 @@ public partial class MainWindow : Window
         MacroPlayer.StopAll();                 // v5.3: release keys a playing macro is holding
         try { _ringOverlay?.Close(); } catch (InvalidOperationException) { }
         try { _toast?.Close(); } catch (InvalidOperationException) { }
-        _fg.Dispose(); _mapper?.Dispose(); _tray?.Dispose(); _recorder.Dispose();
+        _fg.Dispose(); _mapper?.Dispose(); _k13Keys?.Dispose(); _tray?.Dispose(); _recorder.Dispose();
         SaveStore();
         if (!_offline) Application.Current.Shutdown();
         else Close();

@@ -127,10 +127,13 @@ public partial class MainWindow
     internal void DemoPcLayer(bool on)
     {
         _store.Data.PcLayer = on ? new PcLayerState { Keys = PcLayerPlanner.Plan(_store.Data.Profiles.Select(p => p.Device ?? K13MemoryCodec.Decode(DefaultImage))), PreparedAt = DateTime.Now } : new PcLayerState();
+        _kpUnexpectedVk = 0; _k13RoutedSeen = false;
         SaveStore(); PushMapper(); RefreshAll();
     }
 
     internal PcLayerState LayerState => Layer;
+    internal string WriteNoteShown => WriteNote.Visibility == Visibility.Visible ? WriteNote.Text : "";
+    internal bool ModeBannerWarns => ModeBanner.Visibility == Visibility.Visible && ModeBanner.Content is FrameworkElement f && (f.Tag as string) == "warn";
 
     // ───────────────────────────── «Кнопки по профилю» row in the auto-switch card
     private FrameworkElement PcModeRow()
@@ -165,6 +168,8 @@ public partial class MainWindow
         var kp = KeypadCfg;
         if (Layer.Active)
         {
+            if (_kpUnexpectedVk != 0)
+                return Banner(true, $"Клавиатура прислала «{VkName(_kpUnexpectedVk)}» вместо своего кода F14–F24 — кнопки через ПК сейчас не работают. Выньте и вставьте кабель; если не помогло — «Кнопки по профилю» → выкл. (вернуть кнопки в клавиатуру).", null, null);
             if (kp != null && !PcLayerPlanner.LooksPrepared(Layer, kp))
                 return Banner(true, "Клавиатура не подготовлена для режима «через ПК» — кнопки сейчас делают то, что в ней записано.", "Подготовить снова", async () => await PrepareKeypad());
             var mism = kp == null ? new() : PcLayerPlanner.Compare(Cfg, Layer, kp);
@@ -190,6 +195,11 @@ public partial class MainWindow
     }
 
     private FrameworkElement Banner(bool warn, string text, string? action, Func<Task>? onAction)
+    {
+        var tagged = BannerCore(warn, text, action, onAction); tagged.Tag = warn ? "warn" : "info"; return tagged;
+    }
+
+    private FrameworkElement BannerCore(bool warn, string text, string? action, Func<Task>? onAction)
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal };
         row.Children.Add(new TextBlock { Text = warn ? "\uE7BA" : "\uE946", FontFamily = Icons, FontSize = 12, Foreground = warn ? R("WarnBrush") : R("MutedBrush"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
@@ -240,4 +250,73 @@ public partial class MainWindow
 
     /// <summary>Name of a code read from the keypad; macros are numbered from 1 like the macro cells, not by catalog index.</summary>
     private static string KpName(byte c) => KeyCatalog.IsMacro(c) ? $"макрос из ячейки {KeyCatalog.MacroSlotOf(c) + 1}" : KeyCatalog.Name(c);
+
+    // ───────────────────────────── v5.6.2: is a write needed? what does the keypad really send?
+    private K13KeyMonitor? _k13Keys;
+    private ushort _kpUnexpectedVk;
+    private int _k13Logged;
+    private bool _k13RoutedSeen;
+
+    /// <summary>Text next to «Записать». In «через ПК» mode most edits need no write — say so instead of a silently disabled button.</summary>
+    internal string WriteNoteText(bool dirty)
+    {
+        if (!Layer.Active) return "";
+        if (!dirty) return "Запись не нужна — работает через ПК";
+        var kp = _deviceImage;
+        if (kp == null) return "";
+        try
+        {
+            var what = PcLayerHealth.PendingWrite(DeviceTarget, kp).Select(b => b.Purpose).Distinct().ToList();
+            return what.Count == 0 ? "Запись не нужна — работает через ПК" : "Нужно записать: " + string.Join(", ", what.Select(w => w.ToLowerInvariant()));
+        }
+        catch { return ""; }
+    }
+
+    private void RefreshWriteNote(bool dirty)
+    {
+        if (WriteNote == null) return;
+        string t = WriteNoteText(dirty);
+        WriteNote.Text = t;
+        WriteNote.Visibility = t.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        WriteNote.ToolTip = t.StartsWith("Запись не нужна")
+            ? "Кнопки «через ПК» берут действие из активного профиля сразу — в клавиатуру ничего записывать не надо.\nЗапись нужна только для подсветки, джойстика, нажатия стика и кнопки, оставшейся в клавиатуре."
+            : null;
+    }
+
+    internal void OnLayerRouted(int col, ushort vk, string profile, PcKeyAction? a)
+    {
+        if (!_k13RoutedSeen) { _k13RoutedSeen = true; _kpUnexpectedVk = 0; RefreshModeBanner(); }
+        if (_exiting) return;
+        string what = a == null ? "—" : a.Kind switch
+        {
+            PcKeyKind.Macro => $"макрос «{MacroTitle(a.MacroSlot)}»",
+            PcKeyKind.None => "ничего (кнопка отключена в этом профиле)",
+            _ => KeyCatalog.Name(a.Code),
+        };
+        StatusText.Text = $"{char.ToUpperInvariant(DeviceView.ControlName(col)[0])}{DeviceView.ControlName(col)[1..]} → {what} (профиль «{profile}», через ПК).";
+    }
+
+    private string MacroTitle(int slot) => _profile.MacroNames.TryGetValue(slot, out var n) && !string.IsNullOrWhiteSpace(n) ? n : $"Макрос {slot + 1}";
+
+    /// <summary>A key event that physically came from the K13 and was NOT taken by the PC layer.</summary>
+    internal void OnKeypadKey(ushort vk, ushort scan, bool down)
+    {
+        if (!down) return;
+        if (_k13Logged < 300) { _k13Logged++; Log($"[k13] клавиатура прислала VK 0x{vk:X2} (скан 0x{scan:X2}) «{VkName(vk)}»" + (Layer.Active ? " — мимо режима «через ПК»" : "")); }
+        if (!Layer.Active) return;
+        var h = PcLayerHealth.Check(Layer, KeypadCfg, vk);
+        if (h == PcHealth.Unexpected && _kpUnexpectedVk != vk)
+        {
+            _kpUnexpectedVk = vk;
+            Log($"[k13] режим «через ПК» не действует: кнопка клавиатуры прислала «{VkName(vk)}» вместо своего кода F14–F24.");
+            StatusText.Text = $"Клавиатура прислала «{VkName(vk)}» вместо кода F14–F24 — подготовка в ней не действует.";
+            RefreshModeBanner();
+        }
+    }
+
+    private static string VkName(ushort vk)
+    {
+        var c = KeyCatalog.All.FirstOrDefault(k => k.Vk == vk);
+        return c != null ? c.Name : vk switch { 0x09 => "Tab", 0x0D => "Enter", _ => $"VK 0x{vk:X2}" };
+    }
 }

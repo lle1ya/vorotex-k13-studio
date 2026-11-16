@@ -30,6 +30,7 @@
       </StackPanel>
       <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
         <ComboBox x:Name="ProfileBox" Width="190" SelectionChanged="ProfileBox_SelectionChanged" Margin="0,0,10,0" ToolTip="Профиль"/>
+        <TextBlock x:Name="WriteNote" Style="{StaticResource Muted}" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,0" Visibility="Collapsed" MaxWidth="260" TextTrimming="CharacterEllipsis"/>
         <Button x:Name="WriteBtn" Style="{StaticResource AccentButton}" IsEnabled="False" Margin="0,0,8,0" Click="WriteBtn_Click"
                 ToolTipService.ShowOnDisabled="True">
           <StackPanel Orientation="Horizontal">

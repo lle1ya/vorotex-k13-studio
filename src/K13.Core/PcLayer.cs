@@ -263,3 +263,30 @@ public sealed class PcLayerRouter
         return o;
     }
 }
+
+/// <summary>v5.6.2: what a key event that physically came from the K13 (Raw Input) says about the «через ПК» mode.</summary>
+public enum PcHealth { Routed, Native, Unexpected }
+
+public static class PcLayerHealth
+{
+    /// <param name="keypad">What the keypad holds (last read / written image); null = unknown.</param>
+    public static PcHealth Check(PcLayerState state, K13DeviceConfig? keypad, ushort vk)
+    {
+        if (state.Keys.Any(k => KeyCatalog.ToVirtualKey(k.Code) == vk)) return PcHealth.Routed;
+        if (vk == ProfileMigrations.StickVk) return PcHealth.Native;
+        if (keypad != null)
+            for (int col = 0; col < K13Layout.KeymapColumns; col++)
+                if (!state.IsMapped(col) && KeyCatalog.ToVirtualKey(keypad.GetKey(col)) == vk) return PcHealth.Native;
+        return PcHealth.Unexpected;
+    }
+
+    /// <summary>Raw Input device path of the VOROTEX K13 (any of its HID collections).</summary>
+    public static bool IsK13Path(string path) => path.Contains("VID_30FA&PID_2350", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Blocks the write would change (empty = keypad already matches; nothing to write).</summary>
+    public static List<WriteBlock> PendingWrite(K13DeviceConfig target, byte[] keypadImage)
+    {
+        K13MemoryCodec.Encode(target, keypadImage, out var plan);
+        return K13Protocol.DiffPlan(plan, keypadImage);
+    }
+}

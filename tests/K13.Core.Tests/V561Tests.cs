@@ -89,3 +89,65 @@ public class V561RouterTests
         Assert.Equal(PcKeyKind.Key, PcLayerPlanner.Resolve(oneC, 9).Kind);
     }
 }
+
+/// <summary>v5.6.2 — from DM-Shvyrkov's log 12:18–12:20: «через ПК» on (11 keys), profiles 1С ↔ Основной switching,
+/// the only key event the hook saw was VK 0x09 (Tab) and not one F14–F24 code — nothing to translate, so the macro never ran.
+/// Then a macro was put on key 8 and «Записать» stayed grey with no explanation.</summary>
+public class V562Tests
+{
+    static byte[] Img(string f) => File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "data", f));
+    static byte[] Raw() => Img("exp15-postwrite-20261113-133715.bin").Take(0x1000).ToArray();
+    static K13DeviceConfig Base() => K13MemoryCodec.Decode(Raw());
+
+    static (PcLayerState st, K13DeviceConfig main, K13DeviceConfig oneC, byte[] keypad) UserSetup()
+    {
+        var main = Base();
+        main.Macros[0] = new MacroSlot { Events = { new() { Down = true, Code = 0x1E }, new() { Down = true, Code = 0x1F }, new() { Down = true, Code = 0x20 },
+                                                    new() { Down = false, Code = 0x1E }, new() { Down = false, Code = 0x1F }, new() { Down = false, Code = 0x20 } } };
+        main.SetKey(9, KeyCatalog.FirstMacro);
+        var oneC = Base(); oneC.SetKey(9, 0x2B);
+        var st = new PcLayerState { Keys = PcLayerPlanner.Plan(new[] { main, oneC }) };
+        // what «Подготовить» wrote (written while «1С» was active — like the user's 11:41 write)
+        var keypad = K13MemoryCodec.Encode(PcLayerPlanner.Apply(oneC, st), Raw());
+        return (st, main, oneC, keypad);
+    }
+
+    [Fact]
+    public void Keypad_sending_plain_Tab_means_the_prepared_codes_do_not_arrive()
+    {
+        var (st, _, _, keypad) = UserSetup();
+        var kp = K13MemoryCodec.Decode(keypad);
+        Assert.Equal(PcHealth.Unexpected, PcLayerHealth.Check(st, kp, 0x09));                 // 12:18:25 «VK 0x09»
+        Assert.Equal(PcHealth.Routed, PcLayerHealth.Check(st, kp, KeyCatalog.ToVirtualKey(st.Keys.First(k => k.Column == 9).Code)));
+        Assert.Equal(PcHealth.Native, PcLayerHealth.Check(st, kp, 0x7C));                    // F13 — stick / ring
+        Assert.Equal(PcHealth.Native, PcLayerHealth.Check(st, kp, KeyCatalog.ToVirtualKey(kp.GetKey(12)))); // joystick stays in the keypad
+    }
+
+    [Fact]
+    public void Macro_on_key_8_in_pc_mode_needs_no_write()
+    {
+        var (st, main, _, keypad) = UserSetup();
+        main.SetKey(7, KeyCatalog.FirstMacro);                     // «кнопка 8: Макрос 0» at 12:19:49
+        Assert.Empty(PcLayerHealth.PendingWrite(PcLayerPlanner.Apply(main, st), keypad));
+        // classic mode: the same edit DOES need a write
+        Assert.NotEmpty(PcLayerHealth.PendingWrite(main, keypad));
+    }
+
+    [Fact]
+    public void Lighting_change_in_pc_mode_still_needs_a_write()
+    {
+        var (st, main, _, keypad) = UserSetup();
+        main.Led.Speed = (main.Led.Speed + 1) % 7;
+        var pending = PcLayerHealth.PendingWrite(PcLayerPlanner.Apply(main, st), keypad);
+        Assert.NotEmpty(pending);
+        Assert.DoesNotContain(pending, b => b.Address >= 0x128 && b.Address < 0x1C8);         // keymap untouched
+    }
+
+    [Fact]
+    public void Keypad_monitor_matches_only_the_K13()
+    {
+        Assert.True(PcLayerHealth.IsK13Path(@"\\?\HID#VID_30FA&PID_2350&MI_01&Col05#8&71661ae&0&0004#{884b96c3-56ef-11d1-bc8c-00a0c91405dd}"));
+        Assert.False(PcLayerHealth.IsK13Path(@"\\?\HID#VID_046D&PID_C31C&MI_00#7&1a2b#{884b96c3-56ef-11d1-bc8c-00a0c91405dd}"));
+    }
+}
+

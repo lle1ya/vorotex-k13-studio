@@ -133,8 +133,10 @@ public sealed class HostMapper : IDisposable
     public bool LayerActive => _layer != null;
 
     /// <summary>Hook thread. True = the event belongs to the PC layer (swallow it).</summary>
+    /// <summary>v5.6.2: a fresh press went through the PC layer (column, vk, profile, action) — UI thread.</summary>
+    public event Action<int, ushort, string, PcKeyAction?>? LayerRouted;
     private readonly HashSet<ushort> _routedDown = new();
-    private int _pressLogs;
+    private int _pressLogs, _strayLogs;
 
     /// <summary>Key injection and logging leave the hook thread: anything slow inside a low-level hook makes Windows
     /// skip the hook for that event (the keypad's raw code — or its release — then gets lost).</summary>
@@ -163,7 +165,11 @@ public sealed class HostMapper : IDisposable
             if (_routerFor == null || !SameKeys(_routerFor.State, l.State)) _router.SetLayer(l.State);
             _routerFor = l;
         }
-        if (!_router.Owns(vk)) return false;
+        if (!_router.Owns(vk))
+        {
+            if (down && vk is >= 0x7D and <= 0x87 && _strayLogs++ < 50) Diag($"F{vk - 0x6F} пришёл, но ни одной кнопке «через ПК» не назначен");
+            return false;
+        }
         bool fresh = down && !_routedDown.Contains(vk);
         if (down) _routedDown.Add(vk); else _routedDown.Remove(vk);
         var before = _router.LastResolved;
@@ -175,6 +181,7 @@ public sealed class HostMapper : IDisposable
             int col = _router.ColumnOf(vk); var a = _router.LastResolved; string prof = l.Profile;
             Post(() => App.Log($"[hook] кнопка {col} (VK 0x{vk:X2}) в профиле «{prof}» → {a?.Kind} {(a == null ? "" : KeyCatalog.Name(a.Code))}: " + string.Join(", ", outs.Select(x => x.Kind))));
         }
+        if (down && fresh) { var lr = LayerRouted; if (lr != null) { int c = _router.ColumnOf(vk); var a2 = _router.LastResolved; string pn = l.Profile; _ui.BeginInvoke(() => lr(c, vk, pn, a2)); } }
         return true;
     }
 

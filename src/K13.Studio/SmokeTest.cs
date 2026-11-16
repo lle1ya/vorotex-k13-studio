@@ -175,6 +175,21 @@ public static class SmokeTest
                 if (!PcLayerPlanner.LooksPrepared(w.LayerState, K13MemoryCodec.Decode(K13MemoryCodec.Encode(w.DeviceTarget, MainWindow.DefaultImage)))) throw new InvalidOperationException("цель записи не подготовлена");
                 Render(w, 3);
             });
+            Step($"{th}: через ПК — «Запись не нужна» и клавиатура прислала Tab", () =>
+            {
+                w.DemoPcLayer(true);
+                w.DemoKeypadHolds("Основной");
+                w.ShowPage(0); Render(w, 0);
+                if (!w.WriteNoteShown.StartsWith("Запись не нужна")) throw new InvalidOperationException("подпись у «Записать»: «" + w.WriteNoteShown + "»");
+                if (w.ModeBannerWarns) throw new InvalidOperationException("предупреждение без причины");
+                w.OnKeypadKey(0x09, 0x0F, true);                       // the keypad sent a plain Tab instead of F23
+                if (!w.ModeBannerWarns) throw new InvalidOperationException("нет предупреждения «клавиатура прислала Tab»");
+                Render(w, 0);
+                w.OnLayerRouted(9, 0x86, "Основной", PcLayerPlanner.Resolve(w.DeviceTarget, 9));
+                if (w.ModeBannerWarns) throw new InvalidOperationException("предупреждение не снялось после кода F23");
+                w.DemoPcLayer(false);
+                if (w.WriteNoteShown.Length > 0) throw new InvalidOperationException("подпись в обычном режиме");
+            });
             Step($"{th}: кнопки через ПК — расхождение и диалог подготовки", () =>
             {
                 w.DemoPcLayer(false);

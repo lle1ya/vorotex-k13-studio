@@ -284,6 +284,11 @@ internal static class Screenshots
                 shots.Add(Shot(w, 3, Path.Combine(folder, $"12-profiles-pc{sfx}.png"), 1.5));
                 if (!dark)
                 {
+                    // v5.6.2: no write needed + the keypad sent a plain Tab
+                    w.ShowPage(0); w.SelectControl(-1);
+                    shots.Add(Shot(w, 0, Path.Combine(folder, "15-no-write-needed.png"), 1.5));
+                    w.OnKeypadKey(0x09, 0x0F, true);
+                    shots.Add(Shot(w, 0, Path.Combine(folder, "16-keypad-sent-tab.png"), 1.5));
                     // classic mode, keypad still holds «Основной» while «1С» is shown → warning instead of a silent mismatch
                     w.DemoPcLayer(false);
                     w.DemoKeypadHolds("Основной");
