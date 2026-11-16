@@ -79,7 +79,14 @@ public static class K13Writer
         }
         if (before == null)
         {
-            before = dev.ReadImageVerified(new Progress<(string, double)>(x => P("Чтение клавиатуры…", 0.05 + x.Item2 * 0.6)));
+            try { before = dev.ReadImageVerified(new Progress<(string, double)>(x => P("Чтение клавиатуры…", 0.05 + x.Item2 * 0.6))); }
+            catch (K13ReadMismatchException rm)
+            {   // v5.6.4: nothing was written; keep both passes so the makers can send them
+                var files = BackupStore.SaveReadPasses(rm, backupFolder);
+                log(rm.Details + " Сохранено: " + string.Join(", ", files));
+                throw;
+            }
+            if (dev.LastReadReport.Length > 0) log(dev.LastReadReport);
             Mark("полное чтение");
         }
         var header = K13Header.Inspect(before, devBase);

@@ -70,6 +70,23 @@ public static class SmokeTest
                 var img = (byte[])MainWindow.DefaultImage.Clone(); img[0xD0] = 0xDA; img[0xD4] = 0xFF;
                 Dialog(w.BuildLayoutDialog(K13Header.Inspect(img, 0xE0), @"C:\backups\k13-prewrite.bin", out _));
             });
+            // v5.6.4: read passes disagree → dialog with «Сохранить диагностику» / «Открыть папку»; F14–F24 hidden from the key list
+            Step($"{th}: диалог «проходы чтения расходятся»", () =>
+            {
+                var a = new byte[16]; var b = new byte[16]; a[0] = 0xBA; b[0] = 0xFF;
+                var ex = new K13ReadMismatchException(a, b, new[] { 0 }, "тест");
+                ex.SavedFiles.AddRange(new[] { @"C:\backups\k13-readpass-A-20261116-133000.bin", @"C:\backups\k13-readpass-B-20261116-133000.bin" });
+                Dialog(w.BuildWriteErrorDialog(ex, out _));
+                if (!Directory.Exists(BackupStore.DefaultFolder)) throw new Exception("папка резервных копий не создана");
+            });
+            Step($"{th}: список клавиш без F14–F24", () =>
+            {
+                w.ShowPage(0); w.SelectControl(3); w.OpenTile("key");
+                var names = w.KeyListNames();
+                if (!names.Contains("F13") || !names.Contains("F12")) throw new Exception("нет F12/F13 в списке");
+                if (names.Any(n => n is "F14" or "F18" or "F24")) throw new Exception("F14–F24 в списке клавиш");
+                w.OpenTile(null); w.SelectControl(-1);
+            });
             // v5.4: auto-switch, program picker, export / import
             Step($"{th}: автопереключение — демо-правила", () => { w.DemoV54(); w.ScrollProfiles(0); Render(w, 3); w.ScrollProfiles(400); Render(w, 3); });
             Step($"{th}: автопереключение — пауза и выключение", () => { w.SetAutoPaused(true); Render(w, 3); w.SetAutoPaused(false); });

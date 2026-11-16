@@ -297,6 +297,17 @@ internal static class Screenshots
                     w.SelectControl(-1);
                     var d = w.BuildPrepareDialog(); d.Owner = null; d.Left = -32000; d.Top = -32000; d.ShowActivated = false; d.WindowStartupLocation = WindowStartupLocation.Manual; d.Show();
                     shots.Add(ShotWindow(d, Path.Combine(folder, "14-prepare-dialog.png"), 1.5)); d.Close();
+                    // v5.6.4: read passes disagree (maker's K13, DA 1E) → both passes saved, «Сохранить диагностику»
+                    var rm = new K13ReadMismatchException(new byte[] { 0xBA }, new byte[] { 0xFF }, new[] { 0 }, "демо");
+                    rm.SavedFiles.AddRange(new[] { @"C:\Users\…\backups\k13-readpass-A-20261116-133000.bin", @"C:\Users\…\backups\k13-readpass-B-20261116-133000.bin" });
+                    var e1 = w.BuildWriteErrorDialog(rm, out _); e1.Owner = null; e1.Left = -32000; e1.Top = -32000; e1.ShowActivated = false; e1.WindowStartupLocation = WindowStartupLocation.Manual; e1.Show();
+                    shots.Add(ShotWindow(e1, Path.Combine(folder, "17-read-mismatch.png"), 1.5)); e1.Close();
+                    w.ShowPage(0); w.SelectControl(3); w.OpenTile("key");
+                    if (w.EditorHost.Children.OfType<System.Windows.Controls.TextBox>().FirstOrDefault() is { } q) q.Text = "F1";
+                    if (w.EditorHost.Children.OfType<System.Windows.Controls.ListBox>().FirstOrDefault() is { } lb) lb.Height = 330;
+                    w.ScrollEditor(200);
+                    shots.Add(Shot(w, 0, Path.Combine(folder, "18-key-list.png"), 1.5));
+                    w.OpenTile(null); w.SelectControl(-1);
                 }
                 w.ExitApp();
             }

@@ -106,6 +106,10 @@ public static class KeyCatalog
         Add(0xF4, "Заводская функция стика (KBD Mode)", KeyCategory.Special);
     }
 
+    /// <summary>v5.6.4: F14–F24 (0x69–0x73) — the K13 firmware does not send them: a key with such a code sends its factory key
+    /// instead (proven 16.11.2026, see PROTOCOL.md). F13 (0x68) does work. Pickers hide these codes.</summary>
+    public static bool FirmwareSends(byte code) => code is not (>= 0x69 and <= 0x73);
+
     public static KeyInfo Get(byte code) =>
         _byCode.TryGetValue(code, out var k) ? k : new KeyInfo(code, $"Код 0x{code:X2}", KeyCategory.Unknown);
 

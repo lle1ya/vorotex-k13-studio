@@ -548,7 +548,7 @@ public partial class MainWindow
         else
         {
             sp.Children.Add(T("Нажмите клавишу или выберите из списка:", 13, muted: true, bottom: 8));
-            var keys = KeyCatalog.All.Where(k => k.Category is not (KeyCategory.Disabled or KeyCategory.Macro or KeyCategory.Unknown or KeyCategory.Lighting) && k.Vk != 0).OrderBy(k => k.Category).ThenBy(k => k.Code).ToList();
+            var keys = KeyCatalog.All.Where(k => k.Category is not (KeyCategory.Disabled or KeyCategory.Macro or KeyCategory.Unknown or KeyCategory.Lighting) && k.Vk != 0 && KeyCatalog.FirmwareSends(k.Code)).OrderBy(k => k.Category).ThenBy(k => k.Code).ToList();
             var box = new ComboBox { ItemsSource = keys, DisplayMemberPath = "Name", SelectedItem = keys.FirstOrDefault(k => k.Code == current), MaxDropDownHeight = 320 };
             box.PreviewKeyDown += (_, e) =>
             {
@@ -813,7 +813,7 @@ public partial class MainWindow
         // key
         var keyPanel = new StackPanel();
         keyPanel.Children.Add(T("Клавиша (щёлкните в поле и нажмите её или выберите из списка):", 12, muted: true, bottom: 4));
-        var keys = KeyCatalog.All.Where(k => k.Category is not (KeyCategory.Disabled or KeyCategory.Macro or KeyCategory.Unknown or KeyCategory.Lighting) && k.Vk != 0).OrderBy(k => k.Category).ThenBy(k => k.Code).ToList();
+        var keys = KeyCatalog.All.Where(k => k.Category is not (KeyCategory.Disabled or KeyCategory.Macro or KeyCategory.Unknown or KeyCategory.Lighting) && k.Vk != 0 && KeyCatalog.FirmwareSends(k.Code)).OrderBy(k => k.Category).ThenBy(k => k.Code).ToList();
         var box = new ComboBox { ItemsSource = keys, DisplayMemberPath = "Name", SelectedItem = keys.FirstOrDefault(k => k.Code == ev.Code), IsEditable = false, MaxDropDownHeight = 320 };
         box.PreviewKeyDown += (_, e) =>
         {

@@ -44,6 +44,7 @@ public partial class App : Application
     {
         base.OnStartup(e);
         Chrome.Register();
+        BackupStore.EnsureFolder(); // v5.6.4: the backups folder exists before anything points to it
         DispatcherUnhandledException += OnUnhandled;
         Exit += (_, _) => FlushLog();
         AppDomain.CurrentDomain.UnhandledException += (_, a) => { Log("FATAL " + a.ExceptionObject); FlushLog(); };

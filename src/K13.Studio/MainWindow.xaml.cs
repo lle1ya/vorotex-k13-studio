@@ -319,7 +319,8 @@ public partial class MainWindow : Window
         m.Items.Add(new Separator());
         Item("\uE8B5", "Импорт из config.ini…", ImportIni_Click);
         Item("\uE8E5", "Импорт резервной копии (.bin)…", ImportBin_Click);
-        Item("\uE838", "Открыть папку резервных копий", (_, _) => { Directory.CreateDirectory(BackupStore.DefaultFolder); Process.Start(new ProcessStartInfo("explorer.exe", BackupStore.DefaultFolder) { UseShellExecute = true })?.Dispose(); });
+        Item("\uE838", "Открыть папку резервных копий", (_, _) => OpenBackupFolder());
+        Item("\uE9F9", "Сохранить диагностику…", (_, _) => SaveDiagnostics());
         m.Items.Add(new Separator());
         Item("\uE7F8", "Действия на компьютере…", OpenHost_Click);
         Item("\uE897", "Как пользоваться", (_, _) => ShowWelcome(true));
@@ -554,6 +555,59 @@ public partial class MainWindow : Window
         ConnText.Text = _busy ? "Обмен с клавиатурой…" : _connected ? "Клавиатура подключена" : "Клавиатура не найдена";
     }
 
+    /// <summary>v5.6.4: opens the backups folder, creating it first (it used to be missing until the first successful backup).</summary>
+    internal void OpenBackupFolder()
+    {
+        var f = BackupStore.EnsureFolder();
+        try { Process.Start(new ProcessStartInfo("explorer.exe", f) { UseShellExecute = true })?.Dispose(); }
+        catch (Exception ex) { MessageBox.Show(this, "Не удалось открыть папку " + f + ": " + ex.Message, Title); }
+    }
+
+    /// <summary>v5.6.4: write/read failure dialog with «Открыть папку» and «Сохранить диагностику».</summary>
+    internal Window BuildWriteErrorDialog(Exception ex, out Func<MessageBoxResult> answer)
+    {
+        var folder = BackupStore.EnsureFolder();
+        var text = "Ошибка записи: " + ex.Message + "\n\n" +
+                   (ex is K13ReadMismatchException rm && rm.SavedFiles.Count > 0
+                       ? "Оба прохода чтения сохранены для разработчиков:\n" + string.Join("\n", rm.SavedFiles.Take(2).Select(Path.GetFileName)) + "\n\n" : "") +
+                   "Папка резервных копий:\n" + folder;
+        return MessageBox.Build(IsLoaded ? this : null, text, Title, MessageBoxButton.YesNoCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel, out answer,
+            new[] { "Сохранить диагностику", "Открыть папку", "Закрыть" });
+    }
+
+    private void ShowWriteError(Exception ex)
+    {
+        var w = BuildWriteErrorDialog(ex, out var answer);
+        w.ShowDialog();
+        if (answer() == MessageBoxResult.Yes) SaveDiagnostics();
+        else if (answer() == MessageBoxResult.No) OpenBackupFolder();
+    }
+
+    internal string DiagnosticsInfo() =>
+        $"VOROTEX K13 Studio v{typeof(App).Assembly.GetName().Version}\n" +
+        $"Создано: {DateTime.Now:yyyy-MM-dd HH:mm:ss} (UTC{DateTimeOffset.Now:zzz})\n" +
+        $"Windows: {Environment.OSVersion.VersionString}, {(Environment.Is64BitOperatingSystem ? "x64" : "x86")}, .NET {Environment.Version}\n" +
+        $"Режим «Кнопки по профилю»: {(Layer.Active ? (Layer.Legacy ? "включён (старый, F14–F24)" : "включён") : "выключен")}\n" +
+        $"Принятый заголовок: {(_store.Data.AcceptedHeader ?? "—")}\n" + DeviceInfo() + "\n";
+
+    /// <summary>v5.6.4: «Сохранить диагностику» — zip with studio.log, dumps (including k13-readpass-A/B) and version info.</summary>
+    internal void SaveDiagnostics()
+    {
+        var name = $"VorotexK13-диагностика-{DateTime.Now:yyyyMMdd-HHmm}.zip";
+        var dlg = new Microsoft.Win32.SaveFileDialog { FileName = name, Filter = "Архив ZIP|*.zip", InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory) };
+        if (dlg.ShowDialog(this) != true) return;
+        try
+        {
+            App.FlushLog();
+            var logs = new[] { App.LogPath, App.LogPath + ".1", App.LogPath + ".old" };
+            var zip = DiagnosticsBundle.Create(dlg.FileName, logs, BackupStore.EnsureFolder(), DiagnosticsInfo() + "\nЖурнал окна:\n" + LogText);
+            Log("Диагностика сохранена: " + zip);
+            StatusText.Text = "Диагностика сохранена: " + zip;
+            try { Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + zip + "\"") { UseShellExecute = true })?.Dispose(); } catch { }
+        }
+        catch (Exception ex) { MessageBox.Show(this, "Не удалось сохранить диагностику: " + ex.Message, Title, MessageBoxButton.OK, MessageBoxImage.Warning); }
+    }
+
     internal string DeviceInfo() =>
         $"Интерфейс: {(_devicePath ?? "—")}\nVID:PID 30FA:2350, коллекция FF01/1, Report ID 7\n" +
         $"Статус: {(_status?.Hex ?? "—")}\n" +
@@ -573,7 +627,10 @@ public partial class MainWindow : Window
             {
                 using var dev = K13Device.OpenFirst() ?? throw new IOException("Клавиатура не найдена.");
                 var s = dev.GetStatus();
-                var image = dev.ReadImageVerified(progress);
+                byte[] image;
+                try { image = dev.ReadImageVerified(progress); }
+                catch (K13ReadMismatchException rm) { BackupStore.SaveReadPasses(rm); throw; }
+                if (dev.LastReadReport.Length > 0) App.Log("read: " + dev.LastReadReport);
                 return (image, s, dev.SentLog.ToList());
             });
             if (sent.Any(f => !K13Protocol.IsReadOnlyFrame(f) && !K13Protocol.IsSessionEndFrame(f))) throw new InvalidOperationException("Обнаружена не-читающая команда — прервано.");
@@ -593,6 +650,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             Log("Ошибка чтения: " + ex.Message);
+            if (ex is K13ReadMismatchException rm) { App.Log("read: " + rm.Details); Log("Оба прохода сохранены: " + string.Join(", ", rm.SavedFiles)); }
             StatusText.Text = "Ошибка чтения: " + ex.Message;
             return null;
         }
@@ -714,7 +772,7 @@ public partial class MainWindow : Window
             _imageFresh = false; // the keypad may now differ from the cached image – re-read before the next write
             Log("Ошибка записи: " + ex.Message); App.Log("write: " + ex);
             StatusText.Text = "Ошибка записи: " + ex.Message;
-            MessageBox.Show(this, "Ошибка записи: " + ex.Message + "\n\nРезервные копии: " + BackupStore.DefaultFolder, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+            ShowWriteError(ex);
             return false;
         }
         finally
@@ -752,8 +810,8 @@ public partial class MainWindow : Window
     private async void BackupBtn_Click(object sender, RoutedEventArgs e)
     {
         var img = await ReadDevice(auto: false);
-        if (img != null && MessageBox.Show(this, "Резервная копия сохранена в\n" + BackupStore.DefaultFolder + "\n\nОткрыть папку?", Title, MessageBoxButton.YesNo) == MessageBoxResult.Yes)
-            Process.Start(new ProcessStartInfo("explorer.exe", BackupStore.DefaultFolder) { UseShellExecute = true })?.Dispose();
+        if (img != null && MessageBox.Show(this, "Резервная копия сохранена в\n" + BackupStore.EnsureFolder() + "\n\nОткрыть папку?", Title, MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+            OpenBackupFolder();
     }
 
     private void RefreshDirty()

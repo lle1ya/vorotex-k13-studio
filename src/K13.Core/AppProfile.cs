@@ -467,6 +467,27 @@ public static class BackupStore
 {
     public static string DefaultFolder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VorotexK13Studio", "backups");
 
+    /// <summary>v5.6.4: the folder is created up front (at start-up and before it is shown anywhere) — a message never points to a missing folder.</summary>
+    public static string EnsureFolder(string? folder = null)
+    {
+        folder ??= DefaultFolder;
+        try { Directory.CreateDirectory(folder); } catch (Exception) { }
+        return folder;
+    }
+
+    /// <summary>v5.6.4: both read passes of a failed verified read, as k13-readpass-A/B-*.bin (+ .hex.txt), plus a note with the details.</summary>
+    public static List<string> SaveReadPasses(K13ReadMismatchException ex, string? folder = null)
+    {
+        folder = EnsureFolder(folder);
+        var a = Save(ex.PassA, folder, "k13-readpass-A");
+        var b = Save(ex.PassB, folder, "k13-readpass-B");
+        var note = Path.ChangeExtension(b, null).Replace("k13-readpass-B", "k13-readpass") + ".txt";
+        File.WriteAllText(note, ex.Details + Environment.NewLine + "Адреса: " + string.Join(", ", ex.Addresses.Select(i => $"0x{i:X4}")) + Environment.NewLine);
+        var files = new List<string> { a, b, note };
+        ex.SavedFiles.AddRange(files);
+        return files;
+    }
+
     public static string Save(byte[] image, string? folder = null, string prefix = "k13-backup", K13Status? status = null)
     {
         folder ??= DefaultFolder;
@@ -485,5 +506,38 @@ public static class BackupStore
             sb.AppendLine($"{i:X4}: " + string.Join(" ", image.Skip(i).Take(16).Select(b => b.ToString("X2"))));
         File.WriteAllText(Path.ChangeExtension(bin, ".hex.txt"), sb.ToString());
         return bin;
+    }
+}
+
+/// <summary>v5.6.4: «Сохранить диагностику» — one zip for testers: studio.log, the newest dumps/backups and version info.</summary>
+public static class DiagnosticsBundle
+{
+    public static string Create(string zipPath, IEnumerable<string> logFiles, string backupFolder, string info, int maxDumps = 40)
+    {
+        var dir = Path.GetDirectoryName(zipPath);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        if (File.Exists(zipPath)) File.Delete(zipPath);
+        using var zip = System.IO.Compression.ZipFile.Open(zipPath, System.IO.Compression.ZipArchiveMode.Create);
+        void Add(string path, string name)
+        {
+            try
+            {   // studio.log is open for writing by the app itself — copy it with FileShare.ReadWrite
+                using var src = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var dst = zip.CreateEntry(name, System.IO.Compression.CompressionLevel.Optimal).Open();
+                src.CopyTo(dst);
+            }
+            catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
+        foreach (var l in logFiles.Where(File.Exists)) Add(l, "logs/" + Path.GetFileName(l));
+        if (Directory.Exists(backupFolder))
+        {
+            var files = new DirectoryInfo(backupFolder).GetFiles("k13-*").Where(f => f.Extension is ".bin" or ".txt")
+                .OrderByDescending(f => f.LastWriteTimeUtc).ToList();
+            // always every read-pass file, then the newest of the rest
+            foreach (var f in files.Where(f => f.Name.StartsWith("k13-readpass")).Concat(files.Where(f => !f.Name.StartsWith("k13-readpass")).Take(maxDumps)))
+                Add(f.FullName, "dumps/" + f.Name);
+        }
+        using (var w = new StreamWriter(zip.CreateEntry("info.txt").Open())) w.Write(info);
+        return zipPath;
     }
 }

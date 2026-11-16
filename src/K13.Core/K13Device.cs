@@ -11,6 +11,19 @@ public interface IHidFeatureTransport : IDisposable
     bool GetFeature(byte[] buffer);
 }
 
+/// <summary>v5.6.4: two read passes disagree and extra passes could not settle it. Carries both passes for the diagnostics files.</summary>
+public sealed class K13ReadMismatchException(byte[] passA, byte[] passB, IReadOnlyList<int> addresses, string details)
+    : IOException($"Проходы чтения расходятся по адресу 0x{addresses[0]:X4} ({passA[addresses[0]]:X2} ≠ {passB[addresses[0]]:X2}), повторное чтение не помогло. " +
+                  "Клавиатура не изменялась. Переподключите её и повторите; если не поможет — «⋯ → Сохранить диагностику».")
+{
+    public byte[] PassA { get; } = passA;
+    public byte[] PassB { get; } = passB;
+    public IReadOnlyList<int> Addresses { get; } = addresses;
+    public string Details { get; } = details;
+    /// <summary>Paths of the saved k13-readpass-A/B files (set by whoever saved them).</summary>
+    public List<string> SavedFiles { get; } = new();
+}
+
 public sealed class WriteBlockedException(string message) : InvalidOperationException(message);
 
 /// <summary>
@@ -50,9 +63,16 @@ public sealed class K13Device : IDisposable
     private readonly object _lock = new();
     public string Path { get; }
     /// <summary>Pause after each read-byte request, ms (precise, not Thread.Sleep: Sleep(2) on Windows lasts ~15.6 ms).</summary>
-    public double DelayMs { get; set; } = 0;
-    /// <summary>Pause after "load block" (07 18 00), ms.</summary>
-    public double LoadDelayMs { get; set; } = 1;
+    /// <remarks>v5.6.4: 1 ms like the vendor app (Sleep(1) between 07 18 05 and GetFeature, fcn.00406fe0). It was 0, which
+    /// worked on our unit but not on the maker's K13 (header DA 1E): there the first byte of a pass came back stale.</remarks>
+    public double DelayMs { get; set; } = 1;
+    /// <summary>Pause after "load block" (07 18 00), ms. v5.6.4: 2 ms (vendor: Sleep(1) before and after the load).</summary>
+    public double LoadDelayMs { get; set; } = 2;
+    /// <summary>v5.6.4: before the first block of every read session load it once and throw the answer away
+    /// (the first answer after opening / after 07 18 01 can still hold the previous buffer).</summary>
+    public bool WarmUpRead { get; set; } = true;
+    /// <summary>Human-readable notes about the last <see cref="ReadImageVerified"/> (extra passes, votes) — for the log.</summary>
+    public string LastReadReport { get; private set; } = "";
     /// <summary>Scale for the vendor write pauses (last byte 2 ms, commit 10 ms, finish 10 ms). 1 = vendor values.</summary>
     public double WritePauseScale { get; set; } = 1;
     /// <summary>Old behaviour (Thread.Sleep with OS timer granularity) – only for benchmarks.</summary>
@@ -151,6 +171,7 @@ public sealed class K13Device : IDisposable
             var o = new byte[length];
             try
             {
+                if (length > 0) WarmUp(start);
                 for (int off = 0; off < length; off += 8)
                 {
                     ct.ThrowIfCancellationRequested();
@@ -175,6 +196,7 @@ public sealed class K13Device : IDisposable
             var res = new List<byte[]>();
             try
             {
+                if (blocks.Count > 0) WarmUp(blocks[0].Addr);
                 for (int k = 0; k < blocks.Count; k++)
                 {
                     var (a, n) = blocks[k];
@@ -190,6 +212,19 @@ public sealed class K13Device : IDisposable
             }
             return res;
         }
+    }
+
+    /// <summary>Dummy load + read of one byte, answer discarded, then a short settle pause (v5.6.4).</summary>
+    private void WarmUp(int a)
+    {
+        if (!WarmUpRead) return;
+        Send(K13Protocol.LoadBlock(a));
+        Pause(Math.Max(2, LoadDelayMs));
+        Send(K13Protocol.ReadByte(a, 0, 1));
+        Pause(Math.Max(1, DelayMs));
+        var r = new byte[8]; r[0] = K13Layout.ReportId;
+        _t.GetFeature(r);
+        Pause(2);
     }
 
     private void ReadBlockInto(int a, int n, byte[] o, int off)
@@ -214,6 +249,8 @@ public sealed class K13Device : IDisposable
     }
 
     /// <summary>Reads the config image twice and compares. Size grows to cover macro bodies.</summary>
+    /// <remarks>v5.6.4: blocks where the two passes differ are read again (slower, up to 3 more times) and every byte is decided
+    /// by majority vote; only when no value wins is <see cref="K13ReadMismatchException"/> thrown (it carries both passes).</remarks>
     public byte[] ReadImageVerified(IProgress<(string Stage, double Fraction)>? progress = null, CancellationToken ct = default)
     {
         int len = K13Layout.MinImageLength;
@@ -226,9 +263,60 @@ public sealed class K13Device : IDisposable
             p1 = p1.Concat(ext).ToArray(); len = used;
         }
         var p2 = Pass(len, "Чтение (проход 2, проверка)");
-        for (int i = 0; i < len; i++)
-            if (p1[i] != p2[i]) throw new IOException($"Проходы чтения расходятся по адресу 0x{i:X4} ({p1[i]:X2} ≠ {p2[i]:X2}). Повторите чтение.");
-        return p1;
+        var (img, report) = Reconcile(p1, p2, blocks =>
+        {
+            double d = DelayMs, l = LoadDelayMs;
+            DelayMs = Math.Max(d, 3); LoadDelayMs = Math.Max(l, 10);
+            try { PreciseDelay(30); return ReadBlocks(blocks); }
+            finally { DelayMs = d; LoadDelayMs = l; }
+        }, Retries);
+        LastReadReport = report;
+        return img;
+    }
+
+    /// <summary>Majority vote over the mismatching 8-byte blocks of two passes (pure logic, testable).</summary>
+    /// <param name="reread">reads the given blocks once more.</param>
+    public static (byte[] Image, string Report) Reconcile(byte[] p1, byte[] p2, Func<List<(int Addr, int Len)>, List<byte[]>> reread, int retries = 0)
+    {
+        int len = Math.Min(p1.Length, p2.Length);
+        var bad = new List<int>();
+        for (int i = 0; i < len; i++) if (p1[i] != p2[i]) bad.Add(i);
+        if (bad.Count == 0) return (p1.Take(len).ToArray(), "");
+        var blocks = bad.Select(i => i & ~7).Distinct().Select(a => (a, Math.Min(8, len - a))).ToList();
+        var votes = bad.ToDictionary(i => i, i => new List<byte> { p1[i], p2[i] });
+        var extra = new List<List<byte[]>>();
+        var img = p1.Take(len).ToArray();
+        for (int pass = 0; pass < 3; pass++)
+        {
+            List<byte[]> got;
+            try { got = reread(blocks); }
+            catch (IOException) { continue; }
+            extra.Add(got);
+            for (int k = 0; k < blocks.Count; k++)
+                for (int i = 0; i < blocks[k].Item2; i++)
+                    if (votes.TryGetValue(blocks[k].Item1 + i, out var v)) v.Add(got[k][i]);
+            // decided when one value has a strict majority of all reads and the extra reads all agree on it
+            bool done = votes.All(kv => Winner(kv.Value) is byte w && kv.Value.Skip(2).All(x => x == w));
+            if (done) break;
+        }
+        var undecided = new List<int>();
+        foreach (var (i, v) in votes)
+        {
+            if (Winner(v) is byte w && v.Skip(2).All(x => x == w)) img[i] = w;
+            else undecided.Add(i);
+        }
+        string Fmt(int i) => $"0x{i:X4}: " + string.Join("/", votes[i].Select(b => b.ToString("X2")));
+        var report = $"Проходы чтения расходились в {bad.Count} байт(ах) ({string.Join(", ", bad.Take(8).Select(Fmt))}); " +
+                     $"перечитано {blocks.Count} блок(ов) ×{extra.Count}, повторов HID {retries}.";
+        if (undecided.Count > 0)
+            throw new K13ReadMismatchException(p1, p2, undecided, report + " Не удалось решить: " + string.Join(", ", undecided.Take(8).Select(Fmt)) + ".");
+        return (img, report + " Решено большинством голосов.");
+    }
+
+    static byte? Winner(List<byte> v)
+    {
+        var g = v.GroupBy(x => x).OrderByDescending(x => x.Count()).First();
+        return g.Count() * 2 > v.Count ? g.Key : null;
     }
 
     /// <summary>Vendor-equivalent Apply. Throws <see cref="WriteBlockedException"/> unless the write gate is open (it is compiled out in this build).</summary>

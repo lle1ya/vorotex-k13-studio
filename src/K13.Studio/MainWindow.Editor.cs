@@ -433,7 +433,8 @@ public partial class MainWindow
         search.GotKeyboardFocus += (_, _) => _captureKey = false;
         var list = new ListBox { Height = 200, Margin = new Thickness(0, 6, 0, 0) };
         var cats = new[] { KeyCategory.Letter, KeyCategory.Digit, KeyCategory.Function, KeyCategory.Navigation, KeyCategory.Editing, KeyCategory.Numpad, KeyCategory.Modifier, KeyCategory.Symbol };
-        var all = KeyCatalog.All.Where(k => cats.Contains(k.Category)).OrderBy(k => k.Category).ThenBy(k => k.Code).ToList();
+        // v5.6.4: F14–F24 hidden — the K13 firmware sends the factory key instead (proven 16.11.2026)
+        var all = KeyCatalog.All.Where(k => cats.Contains(k.Category) && (KeyCatalog.FirmwareSends(k.Code) || k.Code == code)).OrderBy(k => k.Category).ThenBy(k => k.Code).ToList();
         void Fill()
         {
             var q = search.Text.Trim();
@@ -612,6 +613,8 @@ public partial class MainWindow
     {
         if (!IsKeyCol(_selCol)) return;
         if (Cfg.GetKey(_selCol) == code) return;
+        if (!KeyCatalog.FirmwareSends(code))
+        { _lastError = $"{KeyCatalog.Name(code)} клавиатура K13 не посылает (прошивка заменяет F14–F24 заводской клавишей). Выберите другую клавишу или действие на ПК."; return; }
         if (_tile == "key" && Labels.HostUse(code, _profile.Host) is { } use)
         {
             BuildBusyKeyDialog(code, use, out var answer).ShowDialog();
@@ -634,6 +637,11 @@ public partial class MainWindow
         if (EditorHost.Children.OfType<ListBox>().FirstOrDefault() is { } list)
             foreach (ListBoxItem it in list.Items) if ((byte)it.Tag == code) { it.IsSelected = true; list.ScrollIntoView(it); break; }
     }
+
+    /// <summary>v5.6.4 smoke: names in the «найдите в списке» list of the open key editor.</summary>
+    internal List<string> KeyListNames() =>
+        EditorHost.Children.OfType<ListBox>().FirstOrDefault() is { } list
+            ? list.Items.OfType<ListBoxItem>().Select(it => KeyCatalog.Name((byte)it.Tag)).ToList() : new();
 
     internal void DemoKeepBusy(int col, byte code) { Cfg.SetKey(col, code); OpenTile(null); SelectControl(col); }
 
@@ -695,8 +703,15 @@ public partial class MainWindow
         Cfg.SetKey(_selCol, trig);
         Log($"{DeviceView.ControlName(_selCol)}: {KeyCatalog.Name(trig)} → {tap}.");
         Changed(); RefreshHostSummary();
+        if (!KeyCatalog.FirmwareSends(trig) && !Layer.Active)
+        {   // v5.6.4: the action is keyed to F14–F24, which the K13 does not send — it only works through «Кнопки по профилю»
+            StatusText.Text = HostNeedsLayerText;
+            Log(HostNeedsLayerText);
+        }
         return null;
     }
+
+    internal const string HostNeedsLayerText = "Действие на ПК сработает, только если включить «Кнопки по профилю»: клавиатура K13 не посылает служебные коды F14–F24.";
 
     private int FreeMacroSlot()
     {
