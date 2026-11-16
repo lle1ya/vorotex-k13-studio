@@ -92,14 +92,20 @@ internal static class Native
 
     public static (string Process, string Title, string Path) Foreground()
     {
+        var (n, t, p, _) = ForegroundEx();
+        return (n, t, p);
+    }
+
+    public static (string Process, string Title, string Path, uint Pid) ForegroundEx()
+    {
         var h = GetForegroundWindow();
-        if (h == IntPtr.Zero) return ("", "", "");
+        if (h == IntPtr.Zero) return ("", "", "", 0);
         var sb = new StringBuilder(512);
         GetWindowText(h, sb, sb.Capacity);
-        if (GetWindowThreadProcessId(h, out uint pid) == 0 || pid == 0) return ("", sb.ToString(), "");
+        if (GetWindowThreadProcessId(h, out uint pid) == 0 || pid == 0) return ("", sb.ToString(), "", 0);
         // v5.3: no Process objects per tick; v5.4: limited query works for elevated apps too
         var (path, name) = ProcessInfo(pid);
-        return (name, sb.ToString(), path);
+        return (name, sb.ToString(), path, pid);
     }
 
     /// <summary>v5.4: programs that have a normal visible window right now (for «Включать в программах»).</summary>

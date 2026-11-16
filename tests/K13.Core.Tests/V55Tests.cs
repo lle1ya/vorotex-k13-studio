@@ -111,3 +111,38 @@ public class SwitchToastTests
         Assert.Contains("У курсора мыши", names);
     }
 }
+
+public class V56Tests
+{
+    [Theory]
+    [InlineData("VorotexK13Studio", true)]
+    [InlineData("VorotexK13Studio-v5.5", true)]
+    [InlineData("vorotexk13studio (1).exe", true)]
+    [InlineData(@"C:\Users\a\vorotex-app\VorotexK13Studio-v5.6.exe", true)]
+    [InlineData("1cv8c", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void Own_app_under_any_file_name(string? proc, bool own) => Assert.Equal(own, AppMatch.IsOwn(proc));
+
+    [Fact]
+    public void Renamed_own_exe_never_triggers_the_fallback()
+    {
+        var d = new ProfileStoreData { FallbackProfile = "Основной" };
+        d.Profiles.Add(new AppProfile { Name = "Основной" });
+        d.Profiles.Add(new AppProfile { Name = "1С" });
+        d.AppRules.Add(new AppSwitchRule { ProcessName = "1cv8c", ProfileName = "1С" });
+        var e = new AutoSwitchEngine();
+        long t = 0;
+        AutoSwitchDecision? Run(string p, string title) { AutoSwitchDecision? r = null; for (int i = 0; i < 6; i++) { r = e.Observe(p, title, t, d, "1С") ?? r; t += 150; } return r; }
+        Assert.Equal("1С", Run("1cv8c", "Бухгалтерия")!.Profile);
+        Assert.Null(Run("VorotexK13Studio-v5.5", "VOROTEX K13 Studio"));
+    }
+
+    [Fact]
+    public void Hint_flag_defaults_off_and_round_trips()
+    {
+        Assert.False(new ProfileStoreData().AutoSwitchHintSeen);
+        var r = System.Text.Json.JsonSerializer.Deserialize<ProfileStoreData>(System.Text.Json.JsonSerializer.Serialize(new ProfileStoreData { AutoSwitchHintSeen = true }))!;
+        Assert.True(r.AutoSwitchHintSeen);
+    }
+}

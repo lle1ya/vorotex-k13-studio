@@ -134,6 +134,14 @@ public static class SmokeTest
                 w.SetToastSettings(enabled: false, placement: ToastPlacement.BottomRight); Render(w, 3);
                 w.SetToastSettings(enabled: true);
             });
+            // v5.6: calmer auto-switch card
+            Step($"{th}: автопереключение — подсказка и меню ⋯", () =>
+            {
+                w.SetAutoSwitchHintSeen(false); Render(w, 3);
+                w.SetAutoSwitchHintSeen(true); Render(w, 3);
+                var m = w.ToastMenu(w);
+                if (m.Items.Count != 2) throw new InvalidOperationException("в меню ⋯ ожидалось 2 пункта, а не " + m.Items.Count);
+            });
             Step($"{th}: маленькое окно 960×640", () => { w.Width = 960; w.Height = 640; for (int p = 0; p < 4; p++) Render(w, p); });
             Step($"{th}: выход", () => w.ExitApp());
         }

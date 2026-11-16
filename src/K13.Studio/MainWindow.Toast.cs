@@ -60,36 +60,12 @@ public partial class MainWindow
         SaveStore();
     }
 
-    /// <summary>The «Уведомление» row at the bottom of the auto-switch card.</summary>
+    /// <summary>v5.6: «Уведомление при смене» [switch] [где ▾] [⋯] — example and the Windows notification are in the ⋯ menu.</summary>
     private FrameworkElement ToastSettingsRow()
     {
         var d = _store.Data;
-        var sp = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };
-        sp.Children.Add(new Border { Height = 1, Margin = new Thickness(0, 0, 0, 12) }.With(b => b.SetResourceReference(Border.BackgroundProperty, "BorderBrush")));
-        var row = new DockPanel();
-        var preview = new Button { Style = (Style)FindResource("GhostButton"), Padding = new Thickness(12, 5, 12, 5), VerticalAlignment = VerticalAlignment.Center, IsEnabled = d.SwitchToast,
-            ToolTip = "Показать, как будет выглядеть уведомление",
-            Content = new StackPanel { Orientation = Orientation.Horizontal, Children =
-            {
-                new TextBlock { Text = "\uE7B3", FontFamily = Icons, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) },
-                new TextBlock { Text = "Показать пример" },
-            } } };
-        preview.Click += (_, _) => ShowToastPreview();
-        DockPanel.SetDock(preview, Dock.Right);
-        row.Children.Add(preview);
-        var combo = new ComboBox { Width = 190, Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center, IsEnabled = d.SwitchToast, ToolTip = "Где показывать уведомление",
-            ItemsSource = Enum.GetValues<ToastPlacement>().Select(SwitchToastLogic.PlacementName).ToList(), SelectedIndex = (int)d.ToastPlacement };
-        combo.SelectionChanged += (_, _) =>
-        {
-            if (combo.SelectedIndex < 0) return;
-            SetToastSettings(placement: (ToastPlacement)combo.SelectedIndex);
-            Log("Уведомление о смене профиля: " + SwitchToastLogic.PlacementName(d.ToastPlacement).ToLowerInvariant() + ".");
-            ShowToastPreview();
-        };
-        DockPanel.SetDock(combo, Dock.Right);
-        row.Children.Add(combo);
-        var on = new CheckBox { Style = (Style)FindResource("Switch"), IsChecked = d.SwitchToast, VerticalAlignment = VerticalAlignment.Center,
-            Content = new TextBlock { Text = "Показывать уведомление при смене профиля", FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap } };
+        var on = new CheckBox { Style = (Style)FindResource("Switch"), IsChecked = d.SwitchToast, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0),
+            ToolTip = "Небольшое уведомление, когда профиль включился сам (в другой программе или кнопкой клавиатуры). Не забирает фокус, исчезает через 2 с." };
         void Toggle(bool v)
         {
             if (_loading || d.SwitchToast == v) return;
@@ -100,16 +76,45 @@ public partial class MainWindow
         }
         on.Checked += (_, _) => Toggle(true);
         on.Unchecked += (_, _) => Toggle(false);
-        row.Children.Add(on);
-        sp.Children.Add(row);
-        sp.Children.Add(T("Когда профиль включается сам — при переходе в другую программу (и обратно на профиль по умолчанию) или кнопкой на клавиатуре. Не забирает фокус, исчезает через 2 секунды, щелчок — скрыть. При выборе профиля вручную не показывается.", 12, muted: true)
-            .With(t => t.Margin = new Thickness(48, 4, 0, 0)));
-        var sys = new CheckBox { Style = (Style)FindResource("Switch"), IsChecked = d.ToastSystem, IsEnabled = d.SwitchToast, Margin = new Thickness(0, 8, 0, 0),
-            Content = new TextBlock { Text = "Ещё и системное уведомление Windows (попадает в центр уведомлений)", TextWrapping = TextWrapping.Wrap } };
-        sys.Checked += (_, _) => { if (!_loading) SetToastSettings(system: true); };
-        sys.Unchecked += (_, _) => { if (!_loading) SetToastSettings(system: false); };
-        sp.Children.Add(sys);
-        return sp;
+        var combo = new ComboBox { Width = 180, Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, IsEnabled = d.SwitchToast, ToolTip = "Где показывать уведомление",
+            ItemsSource = Enum.GetValues<ToastPlacement>().Select(SwitchToastLogic.PlacementName).ToList(), SelectedIndex = (int)d.ToastPlacement };
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (combo.SelectedIndex < 0 || _loading) return;
+            SetToastSettings(placement: (ToastPlacement)combo.SelectedIndex);
+            Log("Уведомление о смене профиля: " + SwitchToastLogic.PlacementName(d.ToastPlacement).ToLowerInvariant() + ".");
+            ShowToastPreview();
+        };
+        var more = new Button { Style = (Style)FindResource("GhostButton"), Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, ToolTip = "Ещё: пример, уведомление Windows",
+            Content = new TextBlock { Text = "\uE712", FontFamily = Icons, FontSize = 13, Foreground = R("MutedBrush") } };
+        more.Click += (_, _) => ToastMenu(more).IsOpen = true;
+        _toastMoreBtn = more;
+        return SettingRow("Уведомление при смене", on, combo, more);
+    }
+
+    private Button? _toastMoreBtn;
+
+    internal ContextMenu ToastMenu(FrameworkElement target)
+    {
+        var d = _store.Data;
+        var m = new ContextMenu { PlacementTarget = target, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        MenuItem Item(string glyph, string text, Action click, bool enabled = true)
+        {
+            var header = new StackPanel { Orientation = Orientation.Horizontal };
+            header.Children.Add(new TextBlock { Text = glyph, FontFamily = Icons, Width = 26, VerticalAlignment = VerticalAlignment.Center });
+            header.Children.Add(new TextBlock { Text = text });
+            var mi = new MenuItem { Header = header, IsEnabled = enabled };
+            mi.Click += (_, _) => click();
+            m.Items.Add(mi);
+            return mi;
+        }
+        Item("\uE7B3", "Показать пример", () => ShowToastPreview(), d.SwitchToast);
+        Item(d.ToastSystem ? "\uE73E" : "", "Ещё и уведомление Windows (центр уведомлений)", () =>
+        {
+            SetToastSettings(system: !d.ToastSystem);
+            Log(d.ToastSystem ? "Дополнительно — системное уведомление Windows." : "Системное уведомление Windows выключено.");
+        }, d.SwitchToast);
+        return m;
     }
 
     /// <summary>Screenshots/smoke test: the user's «1С» profile that switches on in 1cv8c.</summary>
@@ -129,4 +134,6 @@ public partial class MainWindow
         _demoForeground = ("1cv8c", "1С:Предприятие — Бухгалтерия (учебная)");
         ActivateProfile("1С", "авто", "по программе 1cv8c.exe", auto: true);
     }
+
+    internal void SetAutoSwitchHintSeen(bool seen) { _store.Data.AutoSwitchHintSeen = seen; SaveStore(); BuildAutoSwitchCard(); }
 }

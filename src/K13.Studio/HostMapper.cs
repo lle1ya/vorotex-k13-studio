@@ -374,8 +374,10 @@ public sealed class ForegroundWatcher : IDisposable
     {
         try
         {
-            var (proc, title, path) = Native.Foreground();
-            if (!string.Equals(proc, AppMatch.OwnProcess, StringComparison.OrdinalIgnoreCase)) { Current = (proc, title); CurrentPath = path; }
+            var (proc, title, path, pid) = Native.ForegroundEx();
+            // v5.6: our own windows (main window, dialogs, the notice) by process id — the exe may be renamed (VorotexK13Studio-v5.5.exe)
+            if (pid == (uint)Environment.ProcessId || AppMatch.IsOwn(proc)) proc = AppMatch.OwnProcess;
+            else if (proc.Length > 0 || title.Length > 0) { Current = (proc, title); CurrentPath = path; }
             if (Data() is not { } d) return;
             var dec = Engine.Observe(proc, title, Environment.TickCount64, d, CurrentProfile());
             if (dec != null) Decided?.Invoke(dec, proc, title);

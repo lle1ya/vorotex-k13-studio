@@ -6,6 +6,13 @@ public static class AppMatch
     /// <summary>Our own process: never switches profiles (the user is editing them).</summary>
     public const string OwnProcess = "VorotexK13Studio";
 
+    /// <summary>v5.6: our own exe under any file name people give it («VorotexK13Studio-v5.5», «VorotexK13Studio (1)»…).</summary>
+    public static bool IsOwn(string? process)
+    {
+        var p = NormalizeProcess(process ?? "");
+        return p.StartsWith(OwnProcess, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Shell pieces that are briefly in front while the user switches windows (taskbar, Alt+Tab, Start, search…):
     /// ignored, so the profile does not flicker to the fallback and back.</summary>
     public static readonly HashSet<string> Transient = new(StringComparer.OrdinalIgnoreCase)
@@ -91,7 +98,7 @@ public sealed class AutoSwitchEngine
         ArgumentNullException.ThrowIfNull(data);
         process ??= ""; title ??= "";
         if (process.Length == 0 && title.Length == 0) return null;                       // desktop / nothing in front
-        if (string.Equals(process, AppMatch.OwnProcess, StringComparison.OrdinalIgnoreCase)) return null;
+        if (AppMatch.IsOwn(process)) return null;
         if (AppMatch.Transient.Contains(process)) return null;
         if (string.Equals(process, "explorer", StringComparison.OrdinalIgnoreCase) && title.Length == 0) return null; // taskbar, desktop
         var key = process + "\u0001" + title;

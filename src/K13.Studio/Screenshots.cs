@@ -256,6 +256,46 @@ internal static class Screenshots
         }
     }
 
+    /// <summary>v5.6: the calmer auto-switch card (light + dark, and with the one-time hint).</summary>
+    public static int RenderV56(string folder)
+    {
+        try
+        {
+            Directory.CreateDirectory(folder);
+            var tmp = Path.Combine(Path.GetTempPath(), "vorotex-screens56-" + Environment.ProcessId);
+            var shots = new List<string>();
+            foreach (var dark in new[] { false, true })
+            {
+                App.SetTheme(dark);
+                var w = new MainWindow(offline: true, storeFolder: tmp + (dark ? "d" : "l"), previewImage: null)
+                { Width = 1280, Height = 900, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual };
+                w.Show();
+                int demo = w.DemoMouseMacro();
+                w.DemoV47(demo);
+                w.DemoV54();
+                w.DemoV55();
+                string sfx = dark ? "-dark" : "";
+                if (!dark)
+                {
+                    w.SetAutoSwitchHintSeen(false);
+                    w.ScrollProfiles(0);
+                    shots.Add(Shot(w, 3, Path.Combine(folder, "02-profiles-hint.png"), 1.5));
+                }
+                w.SetAutoSwitchHintSeen(true);
+                w.ScrollProfiles(0);
+                shots.Add(Shot(w, 3, Path.Combine(folder, $"01-profiles{sfx}.png"), 1.5));
+                w.ExitApp();
+            }
+            File.WriteAllText(Path.Combine(folder, "screens.txt"), string.Join(Environment.NewLine, shots));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(Path.Combine(folder, "screens-error.txt"), ex.ToString()); } catch { }
+            return 1;
+        }
+    }
+
     /// <summary>v5.5: the «profile switched» notice over a program window (light + dark) and the settings row.</summary>
     public static int RenderV55(string folder)
     {

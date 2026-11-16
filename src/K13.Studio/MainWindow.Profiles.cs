@@ -72,11 +72,15 @@ public partial class MainWindow
         int changed = K13Layout.Controls.Count(c => cfg.GetKey(c.Column) != c.FactoryCode);
         int macros = Enumerable.Range(0, KeyCatalog.MacroCodeCount).Count(i => cfg.Macros[i].IsUsed);
         int host = p.Host.Keys.Count(k => k.Tap.Kind != HostActionKind.None) + p.Host.Chords.Count;
-        var facts = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
-        facts.Children.Add(Pill("\uE765", $"кнопок изменено: {changed}", false));
-        facts.Children.Add(Pill("\uE768", $"макросов: {macros}", false));
-        facts.Children.Add(Pill("\uE7F4", $"действий на ПК: {host}", false));
-        facts.Children.Add(Pill("\uE781", K13Layout.LedModeName(cfg.Led.Mode), false));
+        // v5.6: one muted line instead of four pills
+        var factText = string.Join("  ·  ", new[]
+        {
+            changed > 0 ? RuPlural.Of(changed, "кнопка изменена", "кнопки изменены", "кнопок изменено") : "кнопки как с завода",
+            macros > 0 ? RuPlural.Of(macros, "макрос", "макроса", "макросов") : "",
+            host > 0 ? RuPlural.Of(host, "действие на ПК", "действия на ПК", "действий на ПК") : "",
+        }.Where(x => x.Length > 0));
+        var facts = new TextBlock { Text = factText, FontSize = 12, Foreground = R("MutedBrush"), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(2, 0, 0, 14),
+            ToolTip = $"Кнопок изменено: {changed}\nМакросов: {macros}\nДействий на ПК: {host}\nПодсветка: {K13Layout.LedModeName(cfg.Led.Mode)}" };
         root.Children.Add(facts);
 
         // v5.4: «Включать в программах»

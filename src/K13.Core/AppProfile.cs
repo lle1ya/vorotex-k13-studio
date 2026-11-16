@@ -221,6 +221,8 @@ public sealed class ProfileStoreData
     public ToastPlacement ToastPlacement { get; set; } = ToastPlacement.BottomRight;
     /// <summary>v5.5: also send a Windows notification (notification centre). Off by default.</summary>
     public bool ToastSystem { get; set; }
+    /// <summary>v5.6: the one-time «PC actions switch now, keypad only on Write» hint was dismissed.</summary>
+    public bool AutoSwitchHintSeen { get; set; }
     public bool MinimizeToTray { get; set; } = true;
     public bool DarkTheme { get; set; }
     public bool WelcomeShown { get; set; }
