@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
@@ -81,6 +82,9 @@ public sealed class K13Device : IDisposable
     public int Retries { get; private set; }
     /// <summary>Every frame sent to the device (for diagnostics / tests).</summary>
     public List<byte[]> SentLog { get; } = new();
+    /// <summary>v5.7.3: every frame with the time it was sent (ms since the device was opened) — saved as k13-hid-*.txt after a write.</summary>
+    public List<(long Ms, byte[] Frame)> SentTimes { get; } = new();
+    private readonly Stopwatch _since = Stopwatch.StartNew();
     /// <summary>Send <see cref="K13Protocol.SessionEndFrames"/> on Dispose when anything was sent (default on). Without it the keypad stops typing until replug.</summary>
     public bool EndSessionOnDispose { get; set; } = true;
     private bool _touched, _ended;
@@ -123,6 +127,7 @@ public sealed class K13Device : IDisposable
         if (!readOnly && !K13WriteGate.IsOpen)
             throw new WriteBlockedException($"Команда {string.Join(" ", frame.Select(b => b.ToString("X2")))} заблокирована: режим только чтения.");
         SentLog.Add((byte[])frame.Clone());
+        SentTimes.Add((_since.ElapsedMilliseconds, (byte[])frame.Clone()));
         _touched = true; _ended = false;
         for (int attempt = 0; ; attempt++)
         {

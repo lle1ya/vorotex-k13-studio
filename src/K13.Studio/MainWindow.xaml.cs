@@ -33,11 +33,13 @@ public partial class MainWindow : Window
     private readonly HostMapper? _mapper;
     private readonly RingOverlay? _ringOverlay;
 
-    private (ushort, ushort, ushort, ushort) StickVks()
+    /// <summary>v5.7.3: tilt keys for the ring — what the keypad memory says (e.g. W/A/S/D), the profile, and the arrows
+    /// a keypad on its factory layout sends.</summary>
+    private (ushort[], ushort[], ushort[], ushort[]) StickVks()
     {
-        // what the joystick really sends (last read from the keypad, e.g. W/A/S/D), else the profile
-        ushort V(int col) { var vk = KeyCatalog.ToVirtualKey(DeviceKey(col) ?? Cfg.GetKey(col)); return vk == 0 ? (ushort)0xFFFF : vk; }
-        return (V(15), V(14), V(12), V(13));
+        K13DeviceConfig? kp = null;
+        try { if (_deviceImage != null) kp = K13MemoryCodec.Decode(_deviceImage); } catch { }
+        return RingStick.Keys(kp, _profile.Device);
     }
     private readonly ForegroundWatcher _fg = new();
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(2) };
@@ -486,6 +488,8 @@ public partial class MainWindow : Window
             try { _status = await Task.Run(() => { using var d = K13Device.OpenFirst() ?? throw new IOException("не открылась"); return d.GetStatus(); }); }
             catch (Exception ex) { Log("Статус: " + ex.Message); }
             UpdateConn();
+            _kpForeignVk = 0;
+            Dispatcher.BeginInvoke(AskReplugCheck, DispatcherPriority.Background); // v5.7.3: asks first, reads only on «Проверить»
             // v4.5: NO automatic memory read on connect. Our read session left the firmware in its transfer state and the
             // keypad stopped typing until replug (13.11.2026 15:50). Show the last known image instead; read on demand / before a write.
             if (_deviceImage == null && LoadLastKnownImage() is { } last)
@@ -617,7 +621,7 @@ public partial class MainWindow : Window
         $"Образ памяти: {(_deviceImage != null ? $"0x{_deviceImage.Length:X} байт" : "не прочитан")}\n" +
         $"Запись: включена (бэкап перед записью, проверка после)\nРезервные копии: {BackupStore.DefaultFolder}";
 
-    private async Task<byte[]?> ReadDevice(bool auto)
+    private async Task<byte[]?> ReadDevice(bool auto, string? prefix = null)
     {
         if (_busy) return null;
         _busy = true; UpdateConn();
@@ -638,7 +642,7 @@ public partial class MainWindow : Window
             });
             if (sent.Any(f => !K13Protocol.IsReadOnlyFrame(f) && !K13Protocol.IsSessionEndFrame(f))) throw new InvalidOperationException("Обнаружена не-читающая команда — прервано.");
             _deviceImage = img; _status = st; _imageFresh = true;
-            var path = BackupStore.Save(img, null, auto ? "k13-auto" : "k13-read", st);
+            var path = BackupStore.Save(img, null, prefix ?? (auto ? "k13-auto" : "k13-read"), st);
             Log($"Прочитано 0x{img.Length:X} байт ({sent.Count} кадров, только 00/05/01). Резервная копия: {path}");
             if (_freshStore && auto && TryDecode(img) is { } decoded)
             {
@@ -675,7 +679,7 @@ public partial class MainWindow : Window
         if (MessageBox.Show(this, $"Память прочитана и сохранена в резервную копию.\n\nЗаменить настройки профиля «{_profile.Name}» данными с клавиатуры?\n(Действия на ПК профиля сохранятся.)",
                 Title, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
         {
-            try { _profile.Device = K13MemoryCodec.Decode(img); }
+            try { ProfileMigrations.ReplaceDevice(_profile, K13MemoryCodec.Decode(img)); } // v5.7.3: stale macro names dropped
             catch (Exception ex)
             {
                 Log("Не удалось разобрать память клавиатуры: " + ex.Message);
@@ -683,6 +687,8 @@ public partial class MainWindow : Window
                 return;
             }
             SaveStore(); RefreshAll();
+            Log($"Профиль «{_profile.Name}» заменён прочитанным: " + DescribeKeys(Cfg));
+            AfterReadNote(img);
         }
     }
 
@@ -762,9 +768,9 @@ public partial class MainWindow : Window
             StatusText.Text = r.Message + $" ({secs:0.0} с)";
             if (r.Ok && !r.NothingToDo)
             {
-                if (r.KeysChanged)
-                    MessageBox.Show(this, $"Готово за {secs:0.0} с: настройки записаны и проверены.\n\nНазначения кнопок/макросы включатся после переподключения: выньте USB-кабель клавиатуры и вставьте снова.",
-                        Title, MessageBoxButton.OK, MessageBoxImage.Information);
+                if (r.Written != null && r.After != null && r.BackupAfter != null) { _store.Data.ReplugCheck = PendingReplugCheck.From(r.Written, r.After, r.BackupAfter); _replugAsked = false; SaveStore(); }
+                _kpForeignVk = 0;
+                if (r.KeysChanged) ShowWrittenHint(secs);
                 else if (!quiet) StatusText.Text = $"Готово за {secs:0.0} с — подсветка уже обновлена на клавиатуре.";
             }
             else if (!r.Ok) MessageBox.Show(this, r.Message, Title, MessageBoxButton.OK, MessageBoxImage.Warning);

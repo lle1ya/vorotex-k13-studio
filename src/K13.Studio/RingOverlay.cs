@@ -43,7 +43,7 @@ public sealed class RingOverlay : Window, IRingHost
     private DateTime _openedAt;
 
     /// <summary>VK codes of the joystick directions (↑, ↓, ←, →) as the keypad currently sends them.</summary>
-    public Func<(ushort Up, ushort Down, ushort Left, ushort Right)> StickKeys { get; set; } = () => (0x26, 0x28, 0x25, 0x27);
+    public Func<(ushort[] Up, ushort[] Down, ushort[] Left, ushort[] Right)> StickKeys { get; set; } = () => (new ushort[] { 0x26 }, new ushort[] { 0x28 }, new ushort[] { 0x25 }, new ushort[] { 0x27 });
 
     public bool IsOpen => _open;
 
@@ -92,7 +92,7 @@ public sealed class RingOverlay : Window, IRingHost
     /// <summary>Hook thread: only a lookup in a snapshot taken when the ring opened.</summary>
     public bool WantsKey(ushort vk) => _open && Array.IndexOf(_wanted, vk) >= 0;
 
-    private (ushort U, ushort D, ushort L, ushort R) _sk;
+    private (ushort[] U, ushort[] D, ushort[] L, ushort[] R) _sk = (Array.Empty<ushort>(), Array.Empty<ushort>(), Array.Empty<ushort>(), Array.Empty<ushort>());
 
     private DateTime _triggerAt;
     private bool _mouseUsed;
@@ -104,9 +104,14 @@ public sealed class RingOverlay : Window, IRingHost
         if (vk == 0x0D) { if (down && _open) Finish(_view.Highlight); return; }
         if (!_open) return;
         var (u, d, l, r) = _sk;
+        bool U(ushort k) => Array.IndexOf(u, k) >= 0;
+        bool D(ushort k) => Array.IndexOf(d, k) >= 0;
+        bool L(ushort k) => Array.IndexOf(l, k) >= 0;
+        bool Rt(ushort k) => Array.IndexOf(r, k) >= 0;
+        if (!U(vk) && !D(vk) && !L(vk) && !Rt(vk)) return;
         if (!down) { _stick.Remove(vk); return; }
         if (!_stick.Add(vk)) return;                      // OS auto-repeat while the tilt is held: one tilt = one step
-        string name = vk == u ? "↑" : vk == d ? "↓" : vk == l ? "←" : "→";
+        string name = U(vk) ? "↑" : D(vk) ? "↓" : L(vk) ? "←" : "→";
         if ((DateTime.Now - _triggerAt).TotalMilliseconds < 150)
         {   // pressing the stick often also tilts it a little — ignore that
             App.Log($"[ring] наклон {name} сразу после нажатия стика — пропущен");
@@ -114,13 +119,15 @@ public sealed class RingOverlay : Window, IRingHost
         }
         int n = _view.Count, before = _view.Highlight, s;
         if (_stick.Count >= 2)                             // two directions held = diagonal
-            s = RingMath.SlotFromStick(_stick.Contains(u), _stick.Contains(d), _stick.Contains(l), _stick.Contains(r), n);
+            s = RingMath.SlotFromStick(_stick.Any(U), _stick.Any(D), _stick.Any(L), _stick.Any(Rt), n);
         else
-            s = RingMath.StepToward(before, RingMath.SlotFromStick(vk == u, vk == d, vk == l, vk == r, n), n);
+            s = RingMath.StepToward(before, RingMath.SlotFromStick(U(vk), D(vk), L(vk), Rt(vk), n), n);
         if (s >= 0) { _stickUsed = true; _mouseUsed = false; _view.Highlight = s; }
         _openedAt = DateTime.Now;                          // auto-close counts idle time, not time since opening
         App.Log($"[ring] наклон {name}: ячейка {before + 1} → {s + 1}" + (s >= 0 && s < _ring.Slots.Count ? $" «{_ring.Slots[s].Title}»" : ""));
     }
+
+    private static string Names(ushort[] v) => string.Join("/", v.Select(k => k switch { 0x25 => "←", 0x26 => "↑", 0x27 => "→", 0x28 => "↓", _ => k is >= 0x41 and <= 0x5A ? ((char)k).ToString() : $"VK {k:X2}" }));
 
     private void Open()
     {
@@ -134,7 +141,8 @@ public sealed class RingOverlay : Window, IRingHost
         Content = _view;
         GetCursorPos(out _origin);
         _sk = StickKeys();
-        _wanted = new[] { 0x1B, 0x0D, (int)_sk.U, _sk.D, _sk.L, _sk.R };
+        _wanted = new int[] { 0x1B, 0x0D }.Concat(_sk.U.Concat(_sk.D).Concat(_sk.L).Concat(_sk.R).Select(k => (int)k)).ToArray();
+        App.Log("[ring] наклоны: ↑ " + Names(_sk.U) + ", ↓ " + Names(_sk.D) + ", ← " + Names(_sk.L) + ", → " + Names(_sk.R));
         if (!IsVisible) Show();
         PlaceAtCursor(true);
         Dispatcher.BeginInvoke(() => PlaceAtCursor(false), DispatcherPriority.Loaded); // again after a possible DPI change (other monitor)

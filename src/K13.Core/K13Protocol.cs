@@ -60,6 +60,25 @@ public static class K13Protocol
         return frames;
     }
 
+    /// <summary>v5.7.3: human-readable meaning of a frame for the HID log.</summary>
+    public static string Describe(ReadOnlySpan<byte> f)
+    {
+        if (f.Length < 8 || f[0] != 7) return "?";
+        int a = f[4] | f[5] << 8;
+        return (f[1], f[2]) switch
+        {
+            (0x18, 0x03) => $"в буфер [{f[3]}] = {f[6]:X2} (блок 0x{a:X4}, {f[7] + 1} Б)",
+            (0x18, 0x09) => $"записать буфер → 0x{a:X4} ({f[7] + 1} Б)",
+            (0x18, 0x01) => a == 0 ? "конец операции" : $"конец записи 0x{a:X4}",
+            (0x18, 0x00) => a == 0 && f[7] == 0 ? "сброс (07 18 00)" : $"загрузить блок 0x{a:X4}",
+            (0x18, 0x05) => $"прочитать байт [{f[3]}] блока 0x{a:X4}",
+            (0x18, 0x11) => "завершение (07 18 11)",
+            (0x20, _) => "выход из режима настройки (07 20)",
+            (0x09, _) => $"режим клавиатуры 07 09 {f[2]:X2}",
+            _ => "",
+        };
+    }
+
     /// <summary>Only blocks whose bytes differ between the device image and the target image (for a minimal write).</summary>
     public static List<WriteBlock> DiffPlan(IReadOnlyList<WriteBlock> full, byte[] deviceImage) =>
         full.Where(b => b.Address + b.Data.Length > deviceImage.Length ||

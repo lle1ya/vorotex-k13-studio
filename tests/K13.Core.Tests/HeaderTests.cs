@@ -29,9 +29,11 @@ public class HeaderTests
         var cfg = K13MemoryCodec.Decode(img);            // used to throw «Нет сигнатуры E1 1E…»
         cfg.Keymap[3 * 8] = 0x69;                         // key 4 → F14
         var outImg = K13MemoryCodec.Encode(cfg, img, out var plan);
-        Assert.Equal(0xDA, outImg[0xD0]);                 // unit's own marker preserved
+        Assert.Equal(0xE1, outImg[0xD0]);                 // v5.7.3: vendor marker written, as the vendor app does on every Apply
         Assert.Equal(0x1E, outImg[0xD1]);
-        Assert.DoesNotContain(K13Protocol.DiffPlan(plan, img), b => b.Address == 0xD0);
+        Assert.Equal(0xE0, outImg[0xD2]);                 // BASE kept
+        var d0 = Assert.Single(K13Protocol.DiffPlan(plan, img), b => b.Address == 0xD0);
+        Assert.Equal(new byte[] { 0xE1, 0x1E, 0xE0, 0x00, 0xF0, 0x0F, 0x00, 0x00 }, d0.Data);
     }
 
     [Fact]

@@ -182,6 +182,9 @@ public partial class MainWindow
                 return Banner(true, $"В клавиатуре другое на: {KeyList(mism.Select(m => m.Column).Take(4))} — нажмите «Записать».", null, null);
             return Banner(false, $"Кнопки меняются вместе с профилем (через ПК) — сейчас «{_profile.Name}».", null, null);
         }
+        if (_kpForeignVk != 0)
+            return Banner(true, $"Клавиатура прислала «{VkName(_kpForeignVk)}», а в её памяти такой клавиши нет — похоже, она работает по заводской раскладке и не применяет записанное. " +
+                                "Сохраните диагностику и пришлите нам.", "Сохранить диагностику", () => { SaveDiagnostics(); return Task.CompletedTask; });
         if (kp != null)
         {
             var mism = PcLayerPlanner.Compare(Cfg, Layer, kp);
@@ -262,6 +265,22 @@ public partial class MainWindow
     // ───────────────────────────── v5.6.2: is a write needed? what does the keypad really send?
     private K13KeyMonitor? _k13Keys;
     private ushort _kpUnexpectedVk;
+    /// <summary>v5.7.3: a key the keypad sent that its memory (last read / written image) cannot produce.</summary>
+    private ushort _kpForeignVk;
+    private int _ringLogged;
+
+    private void CheckForeignKey(ushort vk)
+    {
+        if (_kpForeignVk != 0 || KeypadCfg is not { } kp || KeypadOutputCheck.Explains(kp, vk)) return;
+        _kpForeignVk = vk;
+        Log($"[k13] ВНИМАНИЕ: клавиатура прислала «{VkName(vk)}» (VK 0x{vk:X2}), но в её памяти (последнее чтение/запись) такой клавиши нет ни в кнопках, ни в макросах. " +
+            $"Похоже, прошивка работает по заводской раскладке. Заголовок памяти: {HeaderHex(_deviceImage)}.");
+        StatusText.Text = $"Клавиатура прислала «{VkName(vk)}» — такого нет в её памяти (заводская раскладка?).";
+        RefreshModeBanner();
+    }
+
+    private static string HeaderHex(byte[]? img) =>
+        img is { Length: >= K13Layout.HeaderAddress + 8 } ? Convert.ToHexString(img, K13Layout.HeaderAddress, 8) : "неизвестен";
     private int _k13Logged;
     private bool _k13RoutedSeen;
 
@@ -311,7 +330,8 @@ public partial class MainWindow
     {
         if (!down) return;
         if (_k13Logged < 300) { _k13Logged++; Log($"[k13] клавиатура прислала VK 0x{vk:X2} (скан 0x{scan:X2}) «{VkName(vk)}»" + (Layer.Active ? " — мимо режима «через ПК»" : "")); }
-        if (!Layer.Active) return;
+        if (_ringOverlay?.IsOpen == true && _ringLogged < 60) { _ringLogged++; Log($"[ring] при открытом кольце клавиатура прислала «{VkName(vk)}» (VK 0x{vk:X2})" + (_ringOverlay.WantsKey(vk) ? " — наклон/выбор" : " — не наклон стика")); }
+        if (!Layer.Active) { CheckForeignKey(vk); return; }
         var h = PcLayerHealth.Check(Layer, KeypadCfg, vk);
         if (h == PcHealth.Unexpected && _kpUnexpectedVk != vk)
         {

@@ -108,6 +108,31 @@ public sealed class RingSettings
     };
 }
 
+/// <summary>v5.7.3: which keys count as a joystick tilt while the actions ring is open.</summary>
+/// <remarks>The tilts send whatever the stick columns hold (12 ←, 13 →, 14 ↓, 15 ↑). That is W/A/S/D on our unit, but a
+/// keypad running its factory layout sends the ARROW keys (VOROTEX, 16.11.2026: the ring opened but tilts did nothing).
+/// So a direction accepts: the key in the keypad memory, the key in the profile and the arrow — the first one wins if two
+/// directions would share a key. The keys are swallowed only while the ring is open.</remarks>
+public static class RingStick
+{
+    public const ushort VkLeft = 0x25, VkUp = 0x26, VkRight = 0x27, VkDown = 0x28;
+    public const int ColLeft = 12, ColRight = 13, ColDown = 14, ColUp = 15;
+
+    public static (ushort[] Up, ushort[] Down, ushort[] Left, ushort[] Right) Keys(K13DeviceConfig? keypad, K13DeviceConfig? profile)
+    {
+        var used = new HashSet<ushort> { 0x1B, 0x0D, 0 };
+        var lists = new List<ushort>[4] { new(), new(), new(), new() };
+        int[] cols = { ColUp, ColDown, ColLeft, ColRight };
+        ushort[] arrows = { VkUp, VkDown, VkLeft, VkRight };
+        void Add(int dir, ushort vk) { if (vk != 0xFFFF && used.Add(vk)) lists[dir].Add(vk); }
+        foreach (var src in new[] { keypad, profile })
+            if (src != null)
+                for (int d = 0; d < 4; d++) Add(d, KeyCatalog.ToVirtualKey(src.GetKey(cols[d])));
+        for (int d = 0; d < 4; d++) Add(d, arrows[d]);
+        return (lists[0].ToArray(), lists[1].ToArray(), lists[2].ToArray(), lists[3].ToArray());
+    }
+}
+
 /// <summary>Pure geometry of the ring (testable): slot 0 is at the top, clockwise.</summary>
 public static class RingMath
 {
@@ -209,6 +234,9 @@ public sealed class AppProfile
 
 public sealed class ProfileStoreData
 {
+    /// <summary>v5.7.3: after a successful write — check the keypad memory once more when it is reconnected (replug test).
+    /// Null = nothing pending. Old profiles.json files have no such field and load unchanged.</summary>
+    public PendingReplugCheck? ReplugCheck { get; set; }
     public List<AppProfile> Profiles { get; set; } = new();
     public string ActiveProfile { get; set; } = "";
     public List<AppSwitchRule> AppRules { get; set; } = new();
@@ -333,6 +361,23 @@ public static class TriggerKeyPolicy
 /// </summary>
 public static class ProfileMigrations
 {
+    /// <summary>v5.7.3: «Прочитать с клавиатуры → заменить»: the profile takes the keypad's buttons, macros and lighting as they are.
+    /// Names of macro slots whose content changed are dropped (they described the old macros). Actions on the PC stay.</summary>
+    public static void ReplaceDevice(AppProfile p, K13DeviceConfig fresh)
+    {
+        var old = p.Device;
+        foreach (var slot in p.MacroNames.Keys.ToList())
+        {
+            bool same = old != null && slot < old.Macros.Count && slot < fresh.Macros.Count && SameMacro(old.Macros[slot], fresh.Macros[slot]);
+            if (!same) p.MacroNames.Remove(slot);
+        }
+        p.Device = fresh;
+    }
+
+    static bool SameMacro(MacroSlot a, MacroSlot b) =>
+        a.Repeat == b.Repeat && a.Events.Count == b.Events.Count &&
+        a.Events.Zip(b.Events).All(x => x.First.Code == x.Second.Code && x.First.Down == x.Second.Down && x.First.Delay == x.Second.Delay);
+
     public const int CurrentVersion = 2;
     public const ushort StickVk = 0x7C;            // VK_F13
     public const byte StickCode = 0x68;            // HID F13
@@ -465,6 +510,65 @@ public sealed class ProfileStore
 }
 
 /// <summary>Timestamped backups of raw device images.</summary>
+/// <summary>v5.7.3: what was written (blocks and the expected bytes) so the first read after a replug can be compared.</summary>
+public sealed class PendingReplugCheck
+{
+    public DateTime WrittenAt { get; set; }
+    public string PostWriteFile { get; set; } = "";
+    /// <summary>Written 8-byte blocks: address → expected bytes (hex).</summary>
+    public Dictionary<int, string> Blocks { get; set; } = new();
+
+    public static PendingReplugCheck From(IEnumerable<WriteBlock> written, byte[] after, string postFile)
+    {
+        var c = new PendingReplugCheck { WrittenAt = DateTime.Now, PostWriteFile = postFile };
+        foreach (var b in written)
+            for (int a = b.Address & ~7; a < b.Address + b.Data.Length; a += 8)
+                if (a + 8 <= after.Length && !c.Blocks.ContainsKey(a)) c.Blocks[a] = Convert.ToHexString(after, a, 8);
+        return c;
+    }
+
+    /// <summary>Addresses whose bytes differ in <paramref name="image"/> (trailer 0x023C–0x023F ignored).</summary>
+    public List<int> Differences(byte[] image)
+    {
+        var bad = new List<int>();
+        foreach (var (a, hex) in Blocks.OrderBy(x => x.Key))
+        {
+            var want = Convert.FromHexString(hex);
+            for (int i = 0; i < want.Length; i++)
+                if (a + i < image.Length && image[a + i] != want[i] && a + i is not (>= K13Writer.TrailerFrom and <= K13Writer.TrailerTo)) bad.Add(a + i);
+        }
+        return bad;
+    }
+}
+
+/// <summary>v5.7.3: does a key the keypad really sent (Raw Input) come from its memory? If not, the firmware is running
+/// another layout (factory) — the memory is ignored (VOROTEX, 16.11.2026: written changes gone after a replug).</summary>
+public static class KeypadOutputCheck
+{
+    static readonly Dictionary<ushort, ushort> NumpadNav = new()
+    {   // Raw Input reports numpad keys with Num Lock off as navigation keys
+        [0x60] = 0x2D, [0x61] = 0x23, [0x62] = 0x28, [0x63] = 0x22, [0x64] = 0x25, [0x65] = 0x0C, [0x66] = 0x27, [0x67] = 0x24, [0x68] = 0x26, [0x69] = 0x21, [0x6E] = 0x2E,
+    };
+    static readonly HashSet<ushort> Modifiers = new() { 0x10, 0x11, 0x12, 0x5B, 0x5C, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x14, 0x90, 0x91 };
+
+    public static IEnumerable<ushort> VksOf(byte code)
+    {
+        var vk = KeyCatalog.ToVirtualKey(code);
+        if (vk == 0) yield break;
+        yield return vk;
+        if (NumpadNav.TryGetValue(vk, out var nav)) yield return nav;
+    }
+
+    public static bool Explains(K13DeviceConfig memory, ushort vk)
+    {
+        if (Modifiers.Contains(vk) || vk == ProfileMigrations.StickVk) return true;
+        foreach (var c in memory.Keymap) if (VksOf(c).Contains(vk)) return true;
+        foreach (var m in memory.Macros)
+            foreach (var e in m.Events) if (VksOf(e.Code).Contains(vk)) return true;
+        return false;
+    }
+}
+
 public static class BackupStore
 {
     public static string DefaultFolder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VorotexK13Studio", "backups");
@@ -488,6 +592,22 @@ public static class BackupStore
         var files = new List<string> { a, b, note };
         ex.SavedFiles.AddRange(files);
         return files;
+    }
+
+    /// <summary>v5.7.3: the exact HID frames of a write (time, hex, meaning) as k13-hid-*.txt next to the dumps.</summary>
+    public static string SaveHidLog(IEnumerable<(long Ms, byte[] Frame)> frames, string header, string? folder = null)
+    {
+        folder = EnsureFolder(folder);
+        var ts = DateTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+        var path = Path.Combine(folder, $"k13-hid-{ts}.txt");
+        for (int n = 2; File.Exists(path); n++) path = Path.Combine(folder, $"k13-hid-{ts}-{n}.txt");
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("# " + header);
+        sb.AppendLine("# мс от открытия устройства | кадр (Report ID 7) | смысл");
+        foreach (var (ms, f) in frames)
+            sb.AppendLine($"{ms,8} | {string.Join(" ", f.Select(b => b.ToString("X2")))} | {K13Protocol.Describe(f)}");
+        File.WriteAllText(path, sb.ToString());
+        return path;
     }
 
     public static string Save(byte[] image, string? folder = null, string prefix = "k13-backup", K13Status? status = null)

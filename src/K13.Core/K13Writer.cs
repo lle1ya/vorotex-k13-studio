@@ -9,6 +9,8 @@ public sealed record K13WriteResult(bool Ok, bool NothingToDo, bool Restored, in
     /// with <c>acceptedHeader</c> = <see cref="K13HeaderInfo.RawHex"/> of <see cref="Header"/>.</summary>
     public bool NeedsConfirmation { get; init; }
     public K13HeaderInfo? Header { get; init; }
+    /// <summary>v5.7.3: the blocks that were written (for the replug check).</summary>
+    public IReadOnlyList<WriteBlock>? Written { get; init; }
 }
 
 /// <summary>
@@ -113,12 +115,25 @@ public static class K13Writer
         bool keys = diff.Any(b => b.Address < bb + K13Layout.OffFn && b.Address + b.Data.Length > bb + K13Layout.OffKeymap || b.Address >= bb + K13Layout.OffMacroTable);
         bool led = diff.Any(b => b.Address < bb + 0x20 && b.Address + b.Data.Length > bb);
         log($"Запись: {RuPlural.Blocks(diff.Count)}: " + string.Join(", ", diff.Select(b => $"0x{b.Address:X4}[{b.Data.Length}] {b.Purpose}")));
+        if (diff.Any(b => b.Address == K13Layout.HeaderAddress) && header.Verdict == HeaderVerdict.Compatible)
+            log($"Заголовок 0xD0: метка {header.Marker} → E1 1E, как записывает программа производителя при каждом «Применить» (иначе прошивка, вероятно, не берёт настройки после включения).");
         P("Запись…", 0.7);
-        try { dev.Apply(diff, new Progress<double>(f => P("Запись…", 0.7 + f * 0.15)), programmingMode); }
+        int hidFrom = dev.SentTimes.Count;
+        void SaveHid(string what)
+        {
+            try
+            {
+                var f = BackupStore.SaveHidLog(dev.SentTimes.Skip(hidFrom), $"VOROTEX K13 — {what}, {DateTime.Now:yyyy-MM-dd HH:mm:ss}, BASE 0x{cfg.Base:X}, заголовок до записи {header.RawHex}", backupFolder);
+                log("HID-кадры записи: " + f);
+            }
+            catch (Exception ex) { log("Журнал HID не сохранён: " + ex.Message); }
+        }
+        try { dev.Apply(diff, new Progress<double>(f => P("Запись…", 0.7 + f * 0.15)), programmingMode); SaveHid("запись " + RuPlural.Blocks(diff.Count)); }
         catch (Exception ex) when (ex is IOException or TimeoutException)
         {
             // v5.3: the write broke off half-way (cable pulled, HID error). Try to put back the touched blocks from «before»;
             // if the keypad is gone this fails too — then the backup file is the way back.
+            SaveHid("запись прервана");
             log("Запись прервана: " + ex.Message + " — пробую вернуть затронутые блоки из резервной копии.");
             Mark("запись (прервана)");
             bool restored = false;
@@ -151,7 +166,7 @@ public static class K13Writer
         for (int k = 0; k < cover.Count; k++) Array.Copy(blocksAfter[k], 0, after, cover[k].Addr, cover[k].Len);
         var afile = BackupStore.Save(after, backupFolder, "k13-postwrite", null);
         if (okRead)
-            return new(true, false, false, diff.Count, bfile, afile, keys, led, after, $"Записано и проверено: {RuPlural.Blocks(diff.Count)}.", string.Join(", ", times));
+            return new(true, false, false, diff.Count, bfile, afile, keys, led, after, $"Записано и проверено: {RuPlural.Blocks(diff.Count)}.", string.Join(", ", times)) { Written = diff };
 
         // ---- 4. confirmed mismatch → restore
         var bad = cover.SelectMany(c => Enumerable.Range(c.Addr, c.Len)).Where(i => after[i] != target[i] && !Trailer(i)).ToList();

@@ -210,6 +210,22 @@ public static class SmokeTest
                 if (!all.Contains("Действия на компьютере") || !all.Contains("Автопереключение")) throw new InvalidOperationException("нет строки действий на ПК или переключателя");
                 if (all.Contains("В других программах") || all.Contains("Уведомление при смене")) throw new InvalidOperationException("редкие настройки остались в шапке");
             });
+            // v5.7.3: replug hint after a write + «factory layout» banner
+            Step($"{th}: подсказка «переподключите» и предупреждение о заводской раскладке", () =>
+            {
+                var dlg = w.WrittenHintDialog(1.2, out _);
+                var t = AllText(dlg);
+                if (!t.Contains("выньте USB-кабель") || !t.Contains("Сохранить диагностику")) throw new InvalidOperationException("нет подсказки про переподключение");
+                dlg.Close();
+                Render(w, 0);
+                w.SimulateForeignKey(0x61);
+                try
+                {
+                    Render(w, 0);
+                    if (!AllText(w).Contains("заводской раскладке")) throw new InvalidOperationException("нет предупреждения о заводской раскладке");
+                }
+                finally { w.SimulateForeignKey(0); }
+            });
             // v5.6.1: «?» help — hover tooltip + click popup; no ToolTip with StaysOpen=false anywhere (throws on real Windows)
             Step($"{th}: «?» открывается кликом, подсказки без StaysOpen=false", () =>
             {
