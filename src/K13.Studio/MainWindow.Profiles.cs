@@ -189,7 +189,7 @@ public partial class MainWindow
     {
         var name = _store.UniqueName("Новый профиль");
         _store.Data.Profiles.Add(new AppProfile { Name = name, Device = K13MemoryCodec.Decode(_deviceImage ?? DefaultImage), Accent = AccentPalette[_store.Data.Profiles.Count % AccentPalette.Length] });
-        ProfileMigrations.EnsureStickRing(_store.Data.Profiles[^1]);
+        ProfileMigrations.EnsureStickRing(_store.Data.Profiles[^1], setStickKey: false); // v5.8: stick keeps the factory Normal/Game toggle
         ActivateProfile(name, "создан");
         StatusText.Text = "Профиль создан — щёлкните по названию, чтобы переименовать.";
     }

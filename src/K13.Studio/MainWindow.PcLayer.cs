@@ -182,12 +182,16 @@ public partial class MainWindow
                 return Banner(true, $"В клавиатуре другое на: {KeyList(mism.Select(m => m.Column).Take(4))} — нажмите «Записать».", null, null);
             return Banner(false, $"Кнопки меняются вместе с профилем (через ПК) — сейчас «{_profile.Name}».", null, null);
         }
-        if (_kpForeignVk != 0)
+        // v5.8: «factory keys» = hardware mode Normal (stick toggles Normal/Game), not a lost layout
+        if (_kpForeignVk != 0 || _hwMode == HwMode.Normal && _connected && !_offline)
+        {
+            string what = _kpForeignVk != 0 ? $"Клавиатура прислала «{VkName(_kpForeignVk)}» — она в режиме Normal (заводские клавиши). " : "Клавиатура в режиме Normal (заводские клавиши). ";
             return _activationFailed
-                ? Banner(true, $"После активации клавиатура всё ещё присылает «{VkName(_kpForeignVk)}» — заводская раскладка. Попробуйте полное чтение памяти; если не поможет — ⋯ → «Сохранить диагностику».",
-                         "Прочитать память", async () => { if (await ReadDevice(auto: false) != null) { _kpForeignVk = 0; _activationFailed = false; RefreshModeBanner(); } })
-                : Banner(true, $"Клавиатура прислала «{VkName(_kpForeignVk)}», а в её памяти такой клавиши нет — она работает по заводской раскладке. «Активировать» включит записанную (только чтение, без записи).",
-                         "Активировать", async () => await ActivateKeypad(auto: false));
+                ? Banner(true, what + "Включить Game не удалось — нажмите стик (загорится синий индикатор между Tab и 9) или ⋯ → «Сохранить диагностику».",
+                         "Прочитать память", async () => { if (await ReadDevice(auto: false) != null) { _kpForeignVk = 0; _activationFailed = false; await RefreshHwMode("после чтения"); RefreshModeBanner(); } })
+                : Banner(_kpForeignVk != 0, what + "Ваши назначения работают в режиме Game: нажмите стик или «Включить Game» (без записи).",
+                         "Включить Game", async () => await ActivateKeypad(auto: false));
+        }
         if (kp != null && StickTilts.Unassigned(kp) is { Count: > 0 } emptyTilts && _connected && !_offline)
             return Banner(true, $"Наклоны стика в клавиатуре не назначены ({emptyTilts.Count} из 4) — с записанной раскладкой они ничего не посылают. " +
                                 "Нажмите «Записать», чтобы прописать стрелки.", "Записать", async () => await WriteDevice());
@@ -295,9 +299,10 @@ public partial class MainWindow
         if (_bisecting || _kpForeignVk != 0 || KeypadCfg is not { } kp || KeypadOutputCheck.Explains(kp, vk)) return;
         _kpForeignVk = vk;
         if (_activatedAt > DateTime.MinValue && (DateTime.Now - _activatedAt).TotalMinutes < 10) _activationFailed = true;
-        Log($"[k13] ВНИМАНИЕ: клавиатура прислала «{VkName(vk)}» (VK 0x{vk:X2}), но в её памяти (последнее чтение/запись) такой клавиши нет ни в кнопках, ни в макросах. " +
-            $"Похоже, прошивка работает по заводской раскладке. Заголовок памяти: {HeaderHex(_deviceImage)}.");
-        StatusText.Text = $"Клавиатура прислала «{VkName(vk)}» — такого нет в её памяти (заводская раскладка?).";
+        Log($"[k13] клавиатура прислала «{VkName(vk)}» (VK 0x{vk:X2}) — такой клавиши нет в ваших назначениях: клавиатура, видимо, в режиме Normal (заводские клавиши). " +
+            $"Режим по статусу: {K13Mode.Name(_hwMode)}. Заголовок памяти: {HeaderHex(_deviceImage)}.");
+        StatusText.Text = $"Клавиатура прислала «{VkName(vk)}» — она в режиме Normal. Нажмите стик или «Включить Game».";
+        _ = RefreshHwMode("клавиша не из назначений");
         RefreshModeBanner();
     }
 

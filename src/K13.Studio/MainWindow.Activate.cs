@@ -5,8 +5,9 @@ using Vorotex.K13;
 
 namespace Vorotex.Studio;
 
-/// <summary>v5.7.4: the makers' K13 starts with the factory layout after power-up and switches to the saved one only after a
-/// host exchange (a memory read did it, 16.11.2026 15:07). «Активировать» sends that exchange — read-type frames only.</summary>
+/// <summary>v5.8 (corrects v5.7.4): the K13 boots in hardware mode Normal (factory table); the written keymap is the Game layer.
+/// The stick (0xF4) toggles the modes; a host read exchange also brings Game (16.11.2026 15:07). «Включить Game» sends that
+/// exchange — read-type frames only — and checks the mode via the status block (PROTOCOL §30).</summary>
 public partial class MainWindow
 {
     private bool _bisecting;
@@ -18,7 +19,11 @@ public partial class MainWindow
     private async void OnConnectedAsync()
     {
         if (_bisecting) { Log("[bisect] клавиатура подключена — ничего не отправляю (идёт тест)."); return; }
-        if (_store.Data.ActivateOnConnect && !_offline) await ActivateKeypad(auto: true);
+        if (_store.Data.ActivateOnConnect && !_offline)
+        {
+            if (_hwMode == HwMode.Game) Log("[activate] клавиатура уже в режиме Game — ничего не отправляю.");
+            else await ActivateKeypad(auto: true);
+        }
         AskReplugCheck();
     }
 
@@ -38,9 +43,15 @@ public partial class MainWindow
             if (frames.Any(f => !K13Protocol.IsReadOnlyFrame(f.Frame) && !K13Protocol.IsSessionEndFrame(f.Frame)))
                 throw new InvalidOperationException("в активации оказалась нечитающая команда");
             _activatedAt = DateTime.Now; _kpForeignVk = 0; _activationFailed = false;
+            var before = _hwMode;
             Log($"[activate] {(auto ? "при подключении" : "вручную")}: {frames.Count} кадров чтения/завершения, без записи; заголовок {Convert.ToHexString(head)}. " +
                 string.Join(" · ", frames.Select(f => $"{f.Ms}мс {Convert.ToHexString(f.Frame)}")));
-            StatusText.Text = auto ? "Клавиатура подключена, раскладка из её памяти активирована (только чтение)." : "Раскладка из памяти клавиатуры активирована (только чтение). Проверьте кнопки.";
+            _busy = false;
+            var after = await RefreshHwMode("после включения Game");
+            Log($"[activate] режим до: {K13Mode.Name(before)}, после: {K13Mode.Name(after)}.");
+            StatusText.Text = after == HwMode.Game ? "Включён режим Game — работают ваши назначения (только чтение, без записи)."
+                : after == HwMode.Normal ? "Клавиатура осталась в режиме Normal. Нажмите стик или проверьте, что назначения записаны."
+                : "Отправлен обмен чтения, режим определить не удалось. Проверьте кнопки.";
             RefreshModeBanner();
             if (auto && !_store.Data.StartWithWindows && !_store.Data.ActivateAutostartHintSeen && IsLoaded)
                 await Dispatcher.InvokeAsync(SuggestAutostart, DispatcherPriority.Background);
@@ -58,8 +69,8 @@ public partial class MainWindow
     {
         _store.Data.ActivateAutostartHintSeen = true; SaveStore();
         MessageBox.Build(this,
-            "Эта клавиатура после включения компьютера или переподключения начинает с заводской раскладки, а записанную включает, когда программа к ней обращается.\n\n" +
-            "Программа делает это сама при подключении (только чтение, без записи). Чтобы это работало и после перезагрузки компьютера, включите запуск вместе с Windows: программа будет тихо работать в трее.",
+            "После подключения K13 начинает в режиме Normal (заводские клавиши), а ваши назначения — это режим Game. Его включает нажатие стика или программа: при подключении она сама включает Game (только чтение, без записи).\n\n" +
+            "Чтобы это работало и после перезагрузки компьютера, включите запуск вместе с Windows: программа будет тихо работать в трее.",
             Title, MessageBoxButton.YesNo, MessageBoxImage.Information, MessageBoxResult.Yes, out var a, new[] { "Включить автозапуск", "Не сейчас" }).ShowDialog();
         if (a() == MessageBoxResult.Yes) AutostartBox.IsChecked = true;
     }
@@ -67,7 +78,7 @@ public partial class MainWindow
     internal void SetActivateOnConnect(bool on)
     {
         _store.Data.ActivateOnConnect = on; SaveStore();
-        Log(on ? "Активация раскладки при подключении включена." : "Активация раскладки при подключении выключена.");
+        Log(on ? "Включение режима Game при подключении включено." : "Включение режима Game при подключении выключено.");
     }
 
     // ───────────── bisect: which single frame switches the layout on
@@ -84,7 +95,7 @@ public partial class MainWindow
     private K13Activation.Seen PressAndClassify(string text, out string keys)
     {
         _bisectKeys = new List<ushort>();
-        bool go = AskBisect(text + "\n\nНажмите на клавиатуре VOROTEX проверочную кнопку 2–3 раза, затем «Дальше».");
+        bool go = AskBisect(text + "\n\nПосмотрите на синий индикатор между Tab и 9 (горит = режим Game). Нажмите проверочную кнопку 2–3 раза, затем «Дальше».");
         var got = _bisectKeys; _bisectKeys = null;
         keys = got.Count == 0 ? "ничего" : string.Join(", ", got.Select(VkName));
         if (!go) throw new OperationCanceledException();
@@ -103,7 +114,7 @@ public partial class MainWindow
     {
         if (_busy || _offline || _bisecting) return;
         if (KeypadCfg == null) { MessageBox.Show(this, "Сначала прочитайте клавиатуру или запишите профиль: программе нужно знать, что лежит в её памяти.", Title); return; }
-        if (!AskBisect("Тест найдёт, какая именно команда включает записанную раскладку после подключения.\n\n" +
+        if (!AskBisect("Тест найдёт, какая именно команда переключает клавиатуру из Normal (заводские клавиши) в Game (ваши назначения).\n\n" +
                        "Программа будет по одной отправлять команды, которые она и так посылает при чтении памяти (ничего не записывается). " +
                        "После каждой нужно нажать проверочную кнопку — например, кнопку 4, если на неё записана F5, а заводская — Num 4. " +
                        "Программа сама увидит, что прислала клавиатура.\n\nЗаймёт 2–3 минуты.", "Начать", "Отмена")) return;
@@ -113,15 +124,16 @@ public partial class MainWindow
         Log("[bisect] начат.");
         try
         {
-            if (!AskBisect("Выньте USB-кабель клавиатуры, подождите 2–3 секунды и вставьте снова.\nПрограмма в это время ничего не отправит.\n\nКогда клавиатура подключится — «Дальше».")) throw new OperationCanceledException();
+            if (!AskBisect("Выньте USB-кабель клавиатуры, подождите 2–3 секунды и вставьте снова. Не нажимайте стик — он сам переключает режим.\nПрограмма в это время ничего не отправит.\n\nКогда клавиатура подключится — «Дальше».")) throw new OperationCanceledException();
             for (int i = 0; i < 10 && !_connected; i++) await Task.Delay(500);
             if (!_connected) { MessageBox.Show(this, "Клавиатура не подключена — тест прерван.", Title); return; }
-            var s0 = PressAndClassify("Шаг 0: ничего не отправлено.", out var k0);
-            results.Add($"0. ничего не отправлено → {k0} → {SeenText(s0)}");
+            var m0 = await BisectMode();
+            var s0 = PressAndClassify($"Шаг 0: ничего не отправлено. Режим по статусу: {K13Mode.Name(m0)}.", out var k0);
+            results.Add($"0. ничего не отправлено → режим {K13Mode.Name(m0)} → {k0} → {SeenText(s0)}");
             Log("[bisect] " + results[^1]);
-            if (s0 == K13Activation.Seen.Saved)
+            if (s0 == K13Activation.Seen.Saved || m0 == HwMode.Game)
             {
-                found = "раскладка включилась сама после подключения — команды не нужны";
+                found = "ничего: клавиатура уже в режиме Game (возможно, нажимали стик) — переподключите её и не нажимайте стик до начала теста";
             }
             else
             {
@@ -134,13 +146,16 @@ public partial class MainWindow
                         using var dev = K13Device.OpenFirst() ?? throw new IOException("Клавиатура не найдена.");
                         dev.EndSessionOnDispose = false; // only this step's frames
                         st.Run(dev);
-                        return dev.SentTimes.Select(f => Convert.ToHexString(f.Frame)).ToList();
-                    });
+                        var list = dev.SentTimes.Select(f => Convert.ToHexString(f.Frame)).ToList();
+                        return (list, dev.GetStatus());
+                    }) is var (sentList, stAfter) ? sentList : new();
+                    var mode = K13Mode.FromStatus(stAfter);
+                    _status = stAfter;
                     Log($"[bisect] шаг {n + 1} «{st.Name}» отправлено: " + (sent.Count == 0 ? "только GetFeature" : string.Join(" · ", sent)));
-                    var s = PressAndClassify($"Шаг {n + 1} из {steps.Count}: отправлено «{st.Name}» ({st.Frames}).", out var keys);
-                    results.Add($"{n + 1}. {st.Name} ({st.Frames}) → {keys} → {SeenText(s)}");
+                    var s = PressAndClassify($"Шаг {n + 1} из {steps.Count}: отправлено «{st.Name}» ({st.Frames}).\nРежим по статусу: {K13Mode.Name(mode)} (байт 3 = {stAfter.Raw[3]:X2}).", out var keys);
+                    results.Add($"{n + 1}. {st.Name} ({st.Frames}) → режим {K13Mode.Name(mode)} → {keys} → {SeenText(s)}");
                     Log("[bisect] " + results[^1]);
-                    if (s == K13Activation.Seen.Saved) found = $"шаг {n + 1}: {st.Name} ({st.Frames})";
+                    if (s == K13Activation.Seen.Saved || mode == HwMode.Game) found = $"шаг {n + 1}: {st.Name} ({st.Frames}) — режим Game";
                 }
             }
         }
@@ -154,9 +169,20 @@ public partial class MainWindow
             catch (Exception ex) { Log("[bisect] завершение сеанса: " + ex.Message); }
         }
         Log("[bisect] итог: " + (found ?? "не найдено"));
-        MessageBox.Build(this, (found != null ? "Раскладку включил " + found + ".\n\n" : "Ни одна отдельная команда не включила раскладку.\n\n") +
+        MessageBox.Build(this, (found != null ? "Режим Game включил " + found + ".\n\n" : "Ни одна отдельная команда не включила режим Game.\n\n") +
                                string.Join("\n", results) + "\n\nСохраните диагностику и пришлите нам — результат уже в журнале.",
-            "Поиск команды — результат", MessageBoxButton.YesNo, MessageBoxImage.Information, MessageBoxResult.Yes, out var a, new[] { "Сохранить диагностику", "Закрыть" }).ShowDialog();
+            "Поиск команды, включающей Game — результат", MessageBoxButton.YesNo, MessageBoxImage.Information, MessageBoxResult.Yes, out var a, new[] { "Сохранить диагностику", "Закрыть" }).ShowDialog();
         if (a() == MessageBoxResult.Yes) SaveDiagnostics();
+    }
+
+    private async Task<HwMode> BisectMode()
+    {
+        try
+        {
+            var st = await Task.Run(() => { using var d = K13Device.OpenFirst(2000); return d?.GetStatus(); });
+            if (st != null) { _status = st; return K13Mode.FromStatus(st); }
+        }
+        catch (Exception ex) { Log("[bisect] статус: " + ex.Message); }
+        return HwMode.Unknown;
     }
 }

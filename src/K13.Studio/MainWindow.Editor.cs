@@ -194,41 +194,69 @@ public partial class MainWindow
         byte? dev = DeviceKey(DeviceView.StickPress);
         var bind = code is >= 0x68 and <= 0x73 ? _profile.Host.Keys.FirstOrDefault(k => k.TriggerVk == 0x7C + (code - 0x68)) : null;
         bool ring = bind?.Tap.Kind == HostActionKind.Ring;
+        bool toggle = code == K13Mode.KbdModeCode;
         string glyph, head, body; Brush color;
-        if (dev == 0xF4)
+        if (toggle)
         {
-            glyph = "\uE7BA"; color = R("WarnBrush");
-            head = "Стик этой клавиатуры ещё не перепрограммирован";
-            body = "В клавиатуре в ячейке 16 записана заводская функция KBD Mode (0xF4) — в компьютер ничего не приходит. " +
-                   "Чтобы стик открывал кольцо, в ячейку 16 нужно записать F13 (0x68), как на тесте 13.11.2026.";
+            glyph = "\uE8AB"; color = R("AccentBrush");
+            head = "Нажатие стика → переключение Normal / Game (заводское)";
+            body = "Normal — заводские клавиши, Game — ваши назначения (горит синий индикатор между Tab и 9). После подключения клавиатура начинает в Normal; " +
+                   "нажатие стика переключает режим, при подключении программа сама включает Game." +
+                   (dev != null && dev != code ? "\nВ клавиатуре сейчас другое — нажмите «Записать»." : "");
         }
         else if (code == ProfileMigrations.StickCode && ring)
         {
             glyph = "\uE73E"; color = R("OkBrush");
             head = "Нажатие стика → Кольцо действий";
-            body = "Стик посылает F13 (проверено 13.11.2026). Программа перехватывает F13, другие программы его не видят. " +
-                   "Зажмите стик, наведите мышь или наклоните стик и отпустите. Короткое нажатие оставит кольцо открытым — щелчок или Esc. " +
-                   "Работает, пока программа запущена (можно закрыть окно — она останется в трее)." +
-                   (dev == null ? "\nКлавиатура ещё не прочитана — после записи может понадобиться переподключить USB." : "");
+            body = "Стик посылает F13, программа перехватывает его и открывает кольцо. Зажмите стик, наведите мышь или наклоните стик и отпустите. " +
+                   "Работает, пока программа запущена (можно закрыть окно — она останется в трее).\n" +
+                   "Учтите: заводское переключение режимов со стика пропадёт. Первое нажатие в режиме Normal только включит Game (кольцо не откроется), " +
+                   "дальше стик открывает кольцо, а вернуться в Normal можно лишь переподключением USB. Кольцо можно повесить и на другую кнопку." +
+                   (dev == 0xF4 ? "\nВ клавиатуре стик пока переключает режимы — нажмите «Записать»." : "");
         }
         else
         {
             glyph = "\uE946"; color = R("AccentBrush");
             head = "Нажатие стика: " + Labels.For(code, Cfg, _profile.Host).Text;
-            body = "Стик посылает F13 (ячейка 16 раскладки). Чтобы вернуть кольцо — выберите плитку «Кольцо действий».";
+            body = "Заводское переключение Normal / Game со стика при этом не работает: после подключения нажмите «Включить Game» в меню ⋯ или оставьте включение Game при подключении.";
         }
         var sp = new StackPanel();
         var h = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
         h.Children.Add(new TextBlock { Text = glyph, FontFamily = Icons, FontSize = 14, Foreground = color, Margin = new Thickness(0, 1, 8, 0) });
         h.Children.Add(T(head, 13, semi: true).With(t => t.VerticalAlignment = VerticalAlignment.Center));
         sp.Children.Add(h);
-        // v5.7: codes and cell numbers only with «Технические подробности»; otherwise behind «?»
-        if (ShowTech || dev == 0xF4) sp.Children.Add(T(body, 12, muted: true).With(t => t.Margin = new Thickness(22, 0, 0, 0)));
-        else { var dot = InfoDot(body); DockPanel.SetDock(dot, Dock.Right); h.Children.Insert(0, dot); }
+        sp.Children.Add(T(body, 12, muted: true).With(t => t.Margin = new Thickness(22, 0, 0, 0)));
+        // v5.8: explicit choice — factory Normal/Game toggle or the action ring
+        var choice = new WrapPanel { Margin = new Thickness(22, 8, 0, 0) };
+        Button Choice(string text, bool active, Action apply)
+        {
+            var btn = new Button { Content = (active ? "✓ " : "") + text, Margin = new Thickness(0, 0, 8, 4), Padding = new Thickness(10, 4, 10, 4), IsEnabled = !active };
+            btn.Click += (_, _) => apply();
+            return btn;
+        }
+        choice.Children.Add(Choice("Переключение Normal/Game (заводское)", toggle, () => SetStickPress(ring: false)));
+        choice.Children.Add(Choice("Кольцо действий", code == ProfileMigrations.StickCode && ring, () => SetStickPress(ring: true)));
+        sp.Children.Add(choice);
         var probe = new Button { Style = (Style)FindResource("LinkButton"), Content = "Проверить, что приходит от стика…", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(22, 6, 0, 0), FontSize = 13 };
         probe.Click += (_, _) => ProbeKey(DeviceView.StickPress);
         sp.Children.Add(probe);
         return Card(sp, 4).With(c => c.Margin = new Thickness(0, 10, 0, 0));
+    }
+
+    /// <summary>v5.8: stick press = factory Normal/Game toggle (0xF4, as the vendor app's default) or F13 → ring. Profile only; the keypad changes on «Записать».</summary>
+    internal void SetStickPress(bool ring)
+    {
+        if (ring)
+        {
+            Cfg.SetKey(DeviceView.StickPress, ProfileMigrations.StickCode);
+            ProfileMigrations.EnsureStickRing(_profile, setStickKey: false);
+            var b = _profile.Host.Keys.FirstOrDefault(k => k.TriggerVk == ProfileMigrations.StickVk);
+            if (b != null && b.Tap.Kind != HostActionKind.Ring) b.Tap = new HostAction { Kind = HostActionKind.Ring };
+        }
+        else Cfg.SetKey(DeviceView.StickPress, K13Mode.KbdModeCode);
+        Log(ring ? "Нажатие стика → Кольцо действий (F13). Заводское переключение Normal/Game со стика будет отключено после записи."
+                 : "Нажатие стика → заводское переключение Normal/Game.");
+        Changed();
     }
 
     private void CurrentBlock(string icon, string text, string? desc, bool changed, Action? reset)
@@ -379,7 +407,7 @@ public partial class MainWindow
         {
             case "key": done = KeyEditor(code); break;
             case "combo": done = ComboEditor(code); break;
-            case "media": done = PickGrid(code, k => k.Category is KeyCategory.Media or KeyCategory.Special, "Выберите действие:"); break;
+            case "media": done = PickGrid(code, k => k.Category is KeyCategory.Media or KeyCategory.Special && k.Code != K13Mode.KbdModeCode, "Выберите действие:"); break;
             case "light": done = PickGrid(code, k => k.Category == KeyCategory.Lighting, "Что делать с подсветкой при нажатии:"); break;
             case "app": done = AppEditor(code); break;
             case "macro": done = MacroPicker(code); break;

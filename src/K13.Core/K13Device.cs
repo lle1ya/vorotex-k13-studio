@@ -109,13 +109,16 @@ public sealed class K13Device : IDisposable
         }
     }
 
-    public static K13Device? OpenFirst()
+    public static K13Device? OpenFirst() => OpenFirst(60000);
+
+    /// <summary>v5.8: with a short lock wait (status polling must not queue behind a read/write).</summary>
+    public static K13Device? OpenFirst(int lockTimeoutMs)
     {
         foreach (var p in WindowsHid.FindVendorInterfaces())
         {
             var t = WindowsHidTransport.TryOpen(p);
             if (t == null) continue;
-            try { return new K13Device(t, p); }
+            try { return new K13Device(t, p, lockTimeoutMs); }
             catch { t.Dispose(); throw; }
         }
         return null;

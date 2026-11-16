@@ -215,15 +215,15 @@ public static class SmokeTest
             {
                 var dlg = w.WrittenHintDialog(1.2, out _);
                 var t = AllText(dlg);
-                if (!t.Contains("выньте USB-кабель") || !t.Contains("Сохранить диагностику")) throw new InvalidOperationException("нет подсказки про переподключение");
+                if (!t.Contains("режиме Normal") || !t.Contains("синий индикатор") || !t.Contains("Сохранить диагностику")) throw new InvalidOperationException("нет подсказки про режимы Normal/Game");
                 dlg.Close();
                 Render(w, 0);
                 w.SimulateForeignKey(0x61);
                 try
                 {
                     Render(w, 0);
-                    if (!AllText(w).Contains("заводской раскладке")) throw new InvalidOperationException("нет предупреждения о заводской раскладке");
-                    if (!AllText(w).Contains("Активировать")) throw new InvalidOperationException("нет кнопки «Активировать» в предупреждении");
+                    if (!AllText(w).Contains("в режиме Normal")) throw new InvalidOperationException("нет предупреждения о режиме Normal");
+                    if (!AllText(w).Contains("Включить Game")) throw new InvalidOperationException("нет кнопки «Включить Game» в предупреждении");
                 }
                 finally { w.SimulateForeignKey(0); }
             });
@@ -236,11 +236,26 @@ public static class SmokeTest
                 w.SelectControl(-1);
             });
             // v5.7.4: activation setting + bisect test in the main ⋯ menu
-            Step($"{th}: меню ⋯ — активация раскладки и тест команды", () =>
+            Step($"{th}: меню ⋯ — включение Game и тест команды", () =>
             {
                 var main = AllText(w.MainMenu());
-                foreach (var t in new[] { "Активировать раскладку из памяти", "Активировать раскладку при подключении", "Тест: какая команда включает раскладку" })
+                foreach (var t in new[] { "Включить режим Game (ваши назначения)", "Включать режим Game при подключении", "Тест: какая команда включает Game" })
                     if (!main.Contains(t)) throw new InvalidOperationException("нет пункта " + t);
+            });
+            // v5.8: stick press — factory Normal/Game toggle or the ring, with an honest note
+            Step($"{th}: нажатие стика — выбор Normal/Game или кольцо", () =>
+            {
+                w.ShowPage(0); w.SelectControl(16); Render(w, 0);
+                byte keep = w.Cfg.GetKey(16);
+                var t = AllText(w);
+                if (!t.Contains("Переключение Normal/Game (заводское)") || !t.Contains("Кольцо действий")) throw new InvalidOperationException("нет выбора для нажатия стика");
+                w.SetStickPress(ring: false); Render(w, 0);
+                if (!AllText(w).Contains("переключение Normal / Game")) throw new InvalidOperationException("стик не переключился на заводское Normal/Game");
+                w.SetStickPress(ring: true); Render(w, 0);
+                if (!AllText(w).Contains("вернуться в Normal можно лишь переподключением")) throw new InvalidOperationException("нет честного предупреждения о кольце на стике");
+                w.Cfg.SetKey(16, keep); w.Changed();
+                w.SelectControl(-1);
+                if (!w.DeviceInfo().Contains("Режим:")) throw new InvalidOperationException("нет режима в сведениях об устройстве");
             });
             // v5.6.1: «?» help — hover tooltip + click popup; no ToolTip with StaysOpen=false anywhere (throws on real Windows)
             Step($"{th}: «?» открывается кликом, подсказки без StaysOpen=false", () =>

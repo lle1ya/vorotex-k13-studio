@@ -391,7 +391,7 @@ public static class PcLayerHealth
     /// <summary>Blocks the write would change (empty = keypad already matches; nothing to write).</summary>
     public static List<WriteBlock> PendingWrite(K13DeviceConfig target, byte[] keypadImage)
     {
-        K13MemoryCodec.Encode(target, keypadImage, out var plan);
+        K13MemoryCodec.Encode(K13Mode.PrepareTarget(target, keypadImage), keypadImage, out var plan);
         return K13Protocol.DiffPlan(plan, keypadImage);
     }
 }

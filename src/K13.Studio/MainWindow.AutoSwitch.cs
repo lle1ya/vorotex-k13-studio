@@ -39,7 +39,7 @@ public partial class MainWindow
         if (_deviceImage == null || _offline) return "";
         try
         {
-            K13MemoryCodec.Encode(DeviceTarget, _deviceImage, out var plan);
+            K13MemoryCodec.Encode(K13Mode.PrepareTarget(DeviceTarget, _deviceImage), _deviceImage, out var plan);
             if (K13Protocol.DiffPlan(plan, _deviceImage).Count == 0) return "";
             return _store.Data.PcLayer.Active ? "Кнопки уже переключены (через ПК); подсветка в клавиатуре прежняя — «Записать», если нужно." : "Кнопки и подсветка в клавиатуре прежние — «Записать», если нужно.";
         }

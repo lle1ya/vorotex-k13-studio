@@ -105,7 +105,7 @@ public partial class MainWindow : Window
             _fg.Decided += OnAutoDecided;
             _fg.Start();
             _mapper!.Start();
-            _poll.Tick += async (_, _) => await PollDevice();
+            _poll.Tick += async (_, _) => { await PollDevice(); await PollHwMode(); };
             _poll.Start();
             Loaded += async (_, _) => await PollDevice();
             var dt = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -153,6 +153,9 @@ public partial class MainWindow : Window
             _freshStore = true;
             _store.Data.Profiles.Add(new AppProfile { Name = "Основной", Device = K13MemoryCodec.Decode(previewImage ?? DefaultImage) });
             _store.Data.ActiveProfile = "Основной";
+            // v5.8: new install — the stick keeps the factory Normal/Game toggle; the ring is one click away in the stick editor
+            _store.Data.SchemaVersion = ProfileMigrations.CurrentVersion;
+            ProfileMigrations.EnsureStickRing(_store.Data.Profiles[0], setStickKey: false);
         }
         foreach (var p in _store.Data.Profiles) p.Device ??= K13MemoryCodec.Decode(DefaultImage);
         foreach (var note in ProfileMigrations.Migrate(_store.Data)) Log("Обновление профилей: " + note);
@@ -235,7 +238,7 @@ public partial class MainWindow : Window
         if (_deviceImage == null) return false;
         try
         {
-            K13MemoryCodec.Encode(DeviceTarget, _deviceImage, out var plan);
+            K13MemoryCodec.Encode(K13Mode.PrepareTarget(DeviceTarget, _deviceImage), _deviceImage, out var plan);
             var diff = K13Protocol.DiffPlan(plan, _deviceImage);
             int bs = K13MemoryCodec.ReadBase(_deviceImage);
             return diff.Count > 0 && diff.All(b => b.Address >= bs && b.Address + b.Data.Length <= bs + 0x20);
@@ -328,9 +331,9 @@ public partial class MainWindow : Window
         Item("\uE896", "Прочитать с клавиатуры", ReadBtn_Click, _connected && !_busy && !_offline);
         Item("\uE74E", "Сохранить резервную копию", BackupBtn_Click, _connected && !_busy && !_offline);
         Item("\uE72C", "Кнопки не печатают? Вернуть обычный режим", Unstick_Click, _connected && !_busy && !_offline);
-        Item("\uE768", "Активировать раскладку из памяти", async (_, _) => await ActivateKeypad(auto: false), _connected && !_busy && !_offline);
-        Item(_store.Data.ActivateOnConnect ? "\uE73E" : "", "Активировать раскладку при подключении", (_, _) => SetActivateOnConnect(!_store.Data.ActivateOnConnect));
-        Item("\uE9CE", "Тест: какая команда включает раскладку…", (_, _) => RunBisect(), _connected && !_busy && !_offline);
+        Item("\uE768", "Включить режим Game (ваши назначения)", async (_, _) => await ActivateKeypad(auto: false), _connected && !_busy && !_offline);
+        Item(_store.Data.ActivateOnConnect ? "\uE73E" : "", "Включать режим Game при подключении", (_, _) => SetActivateOnConnect(!_store.Data.ActivateOnConnect));
+        Item("\uE9CE", "Тест: какая команда включает Game…", (_, _) => RunBisect(), _connected && !_busy && !_offline);
         Item("\uE9D9", "План записи (пробный прогон)", PlanBtn_Click);
         m.Items.Add(new Separator());
         Item("\uE8B5", "Импорт из config.ini…", ImportIni_Click);
@@ -494,7 +497,7 @@ public partial class MainWindow : Window
         {
             _connected = true; _devicePath = path;
             Log("Клавиатура подключена: " + path);
-            try { _status = await Task.Run(() => { using var d = K13Device.OpenFirst() ?? throw new IOException("не открылась"); return d.GetStatus(); }); }
+            try { var st0 = await Task.Run(() => { using var d = K13Device.OpenFirst() ?? throw new IOException("не открылась"); return d.GetStatus(); }); SetHwMode(st0, "подключение"); }
             catch (Exception ex) { Log("Статус: " + ex.Message); }
             UpdateConn();
             _kpForeignVk = 0;
@@ -510,7 +513,7 @@ public partial class MainWindow : Window
         }
         else if (!present && _connected)
         {
-            _connected = false; _devicePath = null; _imageFresh = false;
+            _connected = false; _devicePath = null; _imageFresh = false; _hwMode = HwMode.Unknown;
             Log("Клавиатура отключена.");
             UpdateConn();
         }
@@ -558,7 +561,8 @@ public partial class MainWindow : Window
     private void UpdateConn()
     {
         ConnDot.Fill = (Brush)FindResource(_connected ? "OkBrush" : "ErrBrush");
-        ConnText.Text = _busy ? "Обмен с клавиатурой…" : _connected ? "Клавиатура подключена" : "Клавиатура не найдена";
+        ConnText.Text = _busy ? "Обмен с клавиатурой…" : _connected ? "Клавиатура подключена" + ModeSuffix() : "Клавиатура не найдена";
+        ConnText.ToolTip = _connected ? ModeExplain : null;
     }
 
     /// <summary>v5.6.4: opens the backups folder, creating it first (it used to be missing until the first successful backup).</summary>
@@ -627,6 +631,7 @@ public partial class MainWindow : Window
     internal string DeviceInfo() =>
         $"Интерфейс: {(_devicePath ?? "—")}\nVID:PID 30FA:2350, коллекция FF01/1, Report ID 7\n" +
         $"Статус: {(_status?.Hex ?? "—")}\n" +
+        $"Режим: {K13Mode.Name(_hwMode)} (байт 3 статуса, бит 7: 1 = Game, 0 = Normal)\n" +
         $"Образ памяти: {(_deviceImage != null ? $"0x{_deviceImage.Length:X} байт" : "не прочитан")}\n" +
         $"Запись: включена (бэкап перед записью, проверка после)\nРезервные копии: {BackupStore.DefaultFolder}";
 
@@ -821,7 +826,7 @@ public partial class MainWindow : Window
         try
         {
             var img = cached ?? _deviceImage ?? DefaultImage;
-            K13MemoryCodec.Encode(cfg, img, out var plan);
+            K13MemoryCodec.Encode(K13Mode.PrepareTarget(cfg, img), img, out var plan);
             int blocks = Math.Max(1, K13Protocol.DiffPlan(plan, img).Count);
             double s = (cached == null ? 10.5 : 0.15) + blocks * 0.17 + 0.3;
             return (int)Math.Ceiling(s);
@@ -845,7 +850,7 @@ public partial class MainWindow : Window
             if (_deviceImage == null) { tip = "Клавиатура ещё не прочитана"; fill = (Brush)FindResource("MutedBrush"); }
             else
             {
-                K13MemoryCodec.Encode(DeviceTarget, _deviceImage, out var plan);
+                K13MemoryCodec.Encode(K13Mode.PrepareTarget(DeviceTarget, _deviceImage), _deviceImage, out var plan);
                 var diff = K13Protocol.DiffPlan(plan, _deviceImage);
                 tip = diff.Count == 0 ? "Профиль совпадает с клавиатурой" : $"Профиль отличается от клавиатуры: {diff.Count} блок(ов) по 8 байт — нажмите «Записать».";
                 dirty = diff.Count > 0;
@@ -870,7 +875,7 @@ public partial class MainWindow : Window
             K13MemoryCodec.Validate(DeviceTarget);
             var baseImg = _deviceImage ?? DefaultImage;
             if (_deviceImage == null) sb.AppendLine("⚠ Клавиатура не прочитана — сравнение со встроенным образом от 12.11.2026.\n");
-            K13MemoryCodec.Encode(DeviceTarget, baseImg, out var plan);
+            K13MemoryCodec.Encode(K13Mode.PrepareTarget(DeviceTarget, baseImg), baseImg, out var plan);
             var diff = K13Protocol.DiffPlan(plan, baseImg);
             sb.AppendLine($"Полный план родного приложения: {plan.Count} блоков по 8 байт. Отличающихся блоков: {diff.Count}.");
             sb.AppendLine();

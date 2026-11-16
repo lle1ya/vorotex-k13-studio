@@ -188,7 +188,7 @@ public partial class MainWindow
         var tmp = new ProfileStoreData();
         tmp.Profiles.AddRange(_store.Data.Profiles.Where(p => names.Contains(p.Name)));
         var unsafeNotes = TriggerKeyPolicy.DropUnsafe(tmp, KeyCombo.VkName);
-        foreach (var p in tmp.Profiles) ProfileMigrations.EnsureStickRing(p);
+        foreach (var p in tmp.Profiles) ProfileMigrations.EnsureStickRing(p, setStickKey: false);
         _store.Data.Normalize();
         SaveStore();
         _fg.Engine.Reset();

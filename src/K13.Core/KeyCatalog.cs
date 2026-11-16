@@ -103,7 +103,7 @@ public static class KeyCatalog
         Add(0xED, "LED: скорость −", KeyCategory.Lighting);
         Add(0xF0, "LED: вкл/выкл", KeyCategory.Lighting);
         Add(0xF3, "Блокировка всех клавиш", KeyCategory.Special);
-        Add(0xF4, "Заводская функция стика (KBD Mode)", KeyCategory.Special);
+        Add(0xF4, "Переключение Normal/Game (заводская функция стика, KBD Mode)", KeyCategory.Special);
     }
 
     /// <summary>v5.6.4: F14–F24 (0x69–0x73) — the K13 firmware does not send them: a key with such a code sends its factory key

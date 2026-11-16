@@ -407,10 +407,11 @@ public static class ProfileMigrations
     }
 
     /// <summary>Stick press = F13 = ring (keeps any existing F13 binding with another action untouched).</summary>
-    public static bool EnsureStickRing(AppProfile p)
+    /// <param name="setStickKey">v5.8: false = keep the stick's factory Normal/Game toggle (0xF4) and only prepare the ring binding/slots.</param>
+    public static bool EnsureStickRing(AppProfile p, bool setStickKey = true)
     {
         bool changed = false;
-        if (p.Device != null && p.Device.GetKey(StickColumn) == 0xF4) { p.Device.SetKey(StickColumn, StickCode); changed = true; }
+        if (setStickKey && p.Device != null && p.Device.GetKey(StickColumn) == 0xF4) { p.Device.SetKey(StickColumn, StickCode); changed = true; }
         if (p.Host.Ring.TapThresholdMs == 300) { p.Host.Ring.TapThresholdMs = 250; changed = true; }
         if (p.Host.Ring.Slots.Count == 0) { p.Host.Ring.Slots = RingSettings.CreateDefault().Slots; changed = true; }
         if (!p.Host.Keys.Any(k => k.TriggerVk == StickVk))

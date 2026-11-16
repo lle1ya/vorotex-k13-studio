@@ -19,9 +19,9 @@ public partial class MainWindow
     internal Window WrittenHintDialog(double secs, out Func<MessageBoxResult> answer)
     {
         var text = $"Готово за {secs:0.0} с: настройки записаны и проверены чтением.\n\n" +
-                   "Кнопки и макросы обычно меняются сразу. Чтобы убедиться, что они сохранятся, выньте USB-кабель клавиатуры и вставьте снова — " +
-                   "программа предложит сверить память (только чтение).\n\n" +
-                   "Если после переподключения кнопки снова делают заводское — сохраните диагностику и пришлите нам.";
+                   "Ваши назначения работают в режиме Game (горит синий индикатор между Tab и 9). После переподключения клавиатура начинает в режиме Normal — " +
+                   "с заводскими клавишами; это не сброс. Game включает нажатие стика, а при запущенной программе — она сама.\n\n" +
+                   "Если в режиме Game кнопки делают не то — сохраните диагностику и пришлите нам.";
         return MessageBox.Build(IsLoaded ? this : null, text, Title, MessageBoxButton.YesNo, MessageBoxImage.Information, MessageBoxResult.Yes, out answer,
             new[] { "Понятно", "Сохранить диагностику" });
     }
@@ -52,8 +52,8 @@ public partial class MainWindow
         if (bad.Count == 0)
         {
             Log($"[replug] После переподключения память совпадает с записанным ({pending.Blocks.Count} блок(ов)). Заголовок {head}. Сравнивали с {pending.PostWriteFile}.");
-            Ask("Память после переподключения совпадает с записанным.\n\nЕсли кнопки всё равно делают заводское (например, «1» вместо «Пауза») — значит, клавиатура хранит настройки, но не применяет их. " +
-                "Сохраните диагностику и пришлите нам.");
+            Ask("Память после переподключения совпадает с записанным — назначения сохранились.\n\nЕсли кнопки делают заводское (например, Num 1), клавиатура в режиме Normal: нажмите стик " +
+                "(загорится синий индикатор между Tab и 9) или ⋯ → «Включить режим Game».");
         }
         else
         {
@@ -72,6 +72,7 @@ public partial class MainWindow
     /// <summary>After «Прочитать → заменить»: the UI now shows the keypad memory. If the header is not the vendor one, say what that means.</summary>
     private void AfterReadNote(byte[] img)
     {
+        _ = Dispatcher.BeginInvoke(async () => { await Task.Delay(400); await RefreshHwMode("после чтения"); }); // v5.8: the read's session end brings Game
         if (TryDecode(img) is { } mem)
         {
             var empty = StickTilts.UnassignedControls(mem);

@@ -40,12 +40,6 @@ public static class K13Writer
         IProgress<(string Stage, double Fraction)>? progress = null, bool programmingMode = false, string? backupFolder = null,
         byte[]? cachedImage = null, string? acceptedHeader = null)
     {
-        // v5.7.5: never write an empty stick tilt (FF = the tilt sends nothing once the stored layout is active)
-        if (StickTilts.Unassigned(cfg).Count > 0)
-        {
-            cfg = cfg.Clone();
-            log("Наклоны стика без назначения → стрелки: колонки " + string.Join(", ", StickTilts.Fill(cfg)) + ".");
-        }
         var sw = Stopwatch.StartNew();
         var times = new List<string>();
         void Mark(string what) { times.Add($"{what} {sw.ElapsedMilliseconds} мс"); sw.Restart(); }
@@ -114,6 +108,7 @@ public static class K13Writer
         }
 
         // ---- 2. plan and write
+        cfg = K13Mode.PrepareTarget(cfg, before, log); // v5.7.5 tilts never FF; v5.8 KEYSMODE bit = Game, device bits 5–4 kept
         var target = K13MemoryCodec.Encode(cfg, before, out var plan);
         var diff = K13Protocol.DiffPlan(plan, before);
         if (diff.Count == 0) return new(true, true, false, 0, bfile, null, false, false, before, "Клавиатура уже совпадает с профилем — записывать нечего.", string.Join(", ", times));
