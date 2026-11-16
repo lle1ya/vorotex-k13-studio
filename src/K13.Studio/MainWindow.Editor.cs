@@ -204,10 +204,16 @@ public partial class MainWindow
                    "нажатие стика переключает режим, при подключении программа сама включает Game." +
                    (dev != null && dev != code ? "\nВ клавиатуре сейчас другое — нажмите «Записать»." : "");
         }
+        else if (ring && code != ProfileMigrations.StickCode)
+        {
+            glyph = "\uE7BA"; color = R("WarnBrush");
+            head = $"Нажатие стика → Кольцо действий ({KeyCatalog.Name(code)})";
+            body = $"Кольцо привязано к {KeyCatalog.Name(code)}, а K13 из служебных клавиш посылает только F13. Нажмите «Кольцо действий» ниже — стик будет посылать F13.";
+        }
         else if (code == ProfileMigrations.StickCode && ring)
         {
             glyph = "\uE73E"; color = R("OkBrush");
-            head = "Нажатие стика → Кольцо действий";
+            head = "Нажатие стика → Кольцо действий (F13)";
             body = "Стик посылает F13, программа перехватывает его и открывает кольцо. Зажмите стик, наведите мышь или наклоните стик и отпустите. " +
                    "Работает, пока программа запущена (можно закрыть окно — она останется в трее).\n" +
                    "Учтите: заводское переключение режимов со стика пропадёт. Первое нажатие в режиме Normal только включит Game (кольцо не откроется), " +
@@ -218,7 +224,7 @@ public partial class MainWindow
         {
             glyph = "\uE946"; color = R("AccentBrush");
             head = "Нажатие стика: " + Labels.For(code, Cfg, _profile.Host).Text;
-            body = "Заводское переключение Normal / Game со стика при этом не работает: после подключения нажмите «Включить Game» в меню ⋯ или оставьте включение Game при подключении.";
+            body = $"Стик посылает {KeyCatalog.Name(code)}. Заводское переключение Normal / Game со стика при этом не работает: после подключения нажмите «Включить Game» в меню ⋯ или оставьте включение Game при подключении.";
         }
         var sp = new StackPanel();
         var h = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
@@ -251,7 +257,10 @@ public partial class MainWindow
             Cfg.SetKey(DeviceView.StickPress, ProfileMigrations.StickCode);
             ProfileMigrations.EnsureStickRing(_profile, setStickKey: false);
             var b = _profile.Host.Keys.FirstOrDefault(k => k.TriggerVk == ProfileMigrations.StickVk);
-            if (b != null && b.Tap.Kind != HostActionKind.Ring) b.Tap = new HostAction { Kind = HostActionKind.Ring };
+            if (b != null && b.Tap.Kind != HostActionKind.Ring) { b.Tap = new HostAction { Kind = HostActionKind.Ring }; b.Hold = new HostAction(); b.Suppress = true; }
+            // F13 must not stay on another key: it would open the ring too
+            foreach (var col in Enumerable.Range(0, K13Layout.KeymapColumns).Where(c => c != DeviceView.StickPress && Cfg.GetKey(c) == ProfileMigrations.StickCode).ToList())
+                Log($"Внимание: {DeviceView.ControlName(col)} тоже посылает F13 и будет открывать кольцо.");
         }
         else Cfg.SetKey(DeviceView.StickPress, K13Mode.KbdModeCode);
         Log(ring ? "Нажатие стика → Кольцо действий (F13). Заводское переключение Normal/Game со стика будет отключено после записи."
@@ -738,10 +747,16 @@ public partial class MainWindow
         return null;
     }
 
+    /// <summary>Smoke test: the «Кольцо действий» tile's «Назначить кольцо» on the selected control.</summary>
+    internal string? AssignRingToSelected() => ApplyHost(new HostAction { Kind = HostActionKind.Ring }, new HostAction(), 400);
+
     private string? ApplyHost(HostAction tap, HostAction hold, int holdMs)
     {
         byte current = Cfg.GetKey(_selCol);
-        byte trig = current is >= 0x68 and <= 0x73 ? current : FreeTriggerCode();
+        // v5.8.1: a ring takes F13 (reusing the ring binding EnsureStickRing prepared) — before, F13 counted as «busy» and the ring got F14
+        byte trig = tap.Kind == HostActionKind.Ring && hold.Kind == HostActionKind.None ? ProfileMigrations.RingTrigger(Cfg, _profile.Host, _selCol)
+            : current is >= 0x68 and <= 0x73 ? current : FreeTriggerCode();
+        if (trig == 0) trig = FreeTriggerCode();
         if (trig == 0) return "Все служебные клавиши F13–F24 уже заняты.";
         ushort vk = (ushort)(0x7C + (trig - 0x68));
         var b = _profile.Host.Keys.FirstOrDefault(k => k.TriggerVk == vk);

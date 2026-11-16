@@ -253,6 +253,12 @@ public static class SmokeTest
                 if (!AllText(w).Contains("переключение Normal / Game")) throw new InvalidOperationException("стик не переключился на заводское Normal/Game");
                 w.SetStickPress(ring: true); Render(w, 0);
                 if (!AllText(w).Contains("вернуться в Normal можно лишь переподключением")) throw new InvalidOperationException("нет честного предупреждения о кольце на стике");
+                // v5.8.1: the ring tile on the stick takes F13 (was F14: the prepared F13 ring binding counted as busy)
+                w.SetStickPress(ring: false); w.SelectControl(16);
+                if (w.AssignRingToSelected() is { } err) throw new InvalidOperationException(err);
+                if (w.Cfg.GetKey(16) != 0x68) throw new InvalidOperationException($"кольцо на стике получило 0x{w.Cfg.GetKey(16):X2} вместо F13");
+                Render(w, 0);
+                if (!AllText(w).Contains("Кольцо действий (F13)")) throw new InvalidOperationException("подсказка стика не показывает F13");
                 w.Cfg.SetKey(16, keep); w.Changed();
                 w.SelectControl(-1);
                 if (!w.DeviceInfo().Contains("Режим:")) throw new InvalidOperationException("нет режима в сведениях об устройстве");

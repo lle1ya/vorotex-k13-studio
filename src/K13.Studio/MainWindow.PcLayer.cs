@@ -183,7 +183,7 @@ public partial class MainWindow
             return Banner(false, $"Кнопки меняются вместе с профилем (через ПК) — сейчас «{_profile.Name}».", null, null);
         }
         // v5.8: «factory keys» = hardware mode Normal (stick toggles Normal/Game), not a lost layout
-        if (_kpForeignVk != 0 || _hwMode == HwMode.Normal && _connected && !_offline)
+        if (_kpForeignVk != 0 && _hwMode != HwMode.Game || _hwMode == HwMode.Normal && _connected && !_offline)
         {
             string what = _kpForeignVk != 0 ? $"Клавиатура прислала «{VkName(_kpForeignVk)}» — она в режиме Normal (заводские клавиши). " : "Клавиатура в режиме Normal (заводские клавиши). ";
             return _activationFailed
@@ -294,16 +294,41 @@ public partial class MainWindow
         if (empty.Count > 0) StatusText.Text = "От стика не пришло ни одного наклона: наклоны в клавиатуре не назначены — нажмите «Записать».";
     }
 
-    private void CheckForeignKey(ushort vk)
+    /// <summary>v5.8.1: the keypad memory known for certain — a full read or verified write during THIS connection.
+    /// A cached last-known image (it may predate a change made in the vendor app) or the activation's header read does not count.</summary>
+    private K13DeviceConfig? FreshKeypadCfg => _imageFresh ? KeypadCfg : null;
+    private ushort _kpUnknownLogged;
+
+    private async void CheckForeignKey(ushort vk)
     {
-        if (_bisecting || _kpForeignVk != 0 || KeypadCfg is not { } kp || KeypadOutputCheck.Explains(kp, vk)) return;
-        _kpForeignVk = vk;
-        if (_activatedAt > DateTime.MinValue && (DateTime.Now - _activatedAt).TotalMinutes < 10) _activationFailed = true;
-        Log($"[k13] клавиатура прислала «{VkName(vk)}» (VK 0x{vk:X2}) — такой клавиши нет в ваших назначениях: клавиатура, видимо, в режиме Normal (заводские клавиши). " +
-            $"Режим по статусу: {K13Mode.Name(_hwMode)}. Заголовок памяти: {HeaderHex(_deviceImage)}.");
-        StatusText.Text = $"Клавиатура прислала «{VkName(vk)}» — она в режиме Normal. Нажмите стик или «Включить Game».";
-        _ = RefreshHwMode("клавиша не из назначений");
-        RefreshModeBanner();
+        if (_bisecting || _kpForeignVk != 0) return;
+        var fresh = FreshKeypadCfg;
+        if (KeypadOutputCheck.Judge(fresh, _hwMode, vk) == KeyVerdict.Expected) return;
+        var mode = await RefreshHwMode("клавиша не из назначений");   // status only (GetFeature)
+        var verdict = KeypadOutputCheck.Judge(FreshKeypadCfg, mode, vk);
+        switch (verdict)
+        {
+            case KeyVerdict.Expected: return;
+            case KeyVerdict.NormalMode:
+                if (_kpForeignVk != 0) return;
+                _kpForeignVk = vk;
+                if (mode == HwMode.Normal && _activatedAt > DateTime.MinValue && (DateTime.Now - _activatedAt).TotalMinutes < 10) _activationFailed = true;
+                Log($"[k13] клавиатура прислала заводскую «{VkName(vk)}» (VK 0x{vk:X2}) — она в режиме Normal (по статусу: {K13Mode.Name(mode)}).");
+                StatusText.Text = $"Клавиатура прислала «{VkName(vk)}» — она в режиме Normal. Нажмите стик или «Включить Game».";
+                RefreshModeBanner();
+                return;
+            case KeyVerdict.NotInMemory:
+                if (_kpUnknownLogged == vk) return;
+                _kpUnknownLogged = vk;
+                Log($"[k13] режим Game, но «{VkName(vk)}» (VK 0x{vk:X2}) нет в прочитанной памяти клавиатуры. Заголовок: {HeaderHex(_deviceImage)}. " +
+                    "Если кнопка делает не то, что назначено, — прочитайте память или сохраните диагностику.");
+                return;
+            default:
+                if (_kpUnknownLogged == vk) return;
+                _kpUnknownLogged = vk;
+                Log($"[k13] «{VkName(vk)}» (VK 0x{vk:X2}): память в этом подключении не читалась (есть только последний известный образ), режим: {K13Mode.Name(mode)} — предупреждение не показываю.");
+                return;
+        }
     }
 
     private static string HeaderHex(byte[]? img) =>

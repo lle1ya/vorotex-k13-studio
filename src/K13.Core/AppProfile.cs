@@ -407,6 +407,20 @@ public static class ProfileMigrations
     }
 
     /// <summary>Stick press = F13 = ring (keeps any existing F13 binding with another action untouched).</summary>
+    /// <summary>v5.8.1: trigger code for an action ring on <paramref name="col"/>: F13 first (the K13 sends only F13 of F13–F24),
+    /// reusing a ring binding no other key uses. 0 = none free.</summary>
+    public static byte RingTrigger(K13DeviceConfig cfg, HostSettings host, int col)
+    {
+        for (byte code = StickCode; code <= 0x73; code++)
+        {
+            bool usedKey = Enumerable.Range(0, K13Layout.KeymapColumns).Any(c => c != col && cfg.GetKey(c) == code);
+            var b = host.Keys.FirstOrDefault(k => k.TriggerVk == 0x7C + (code - StickCode));
+            bool free = b == null || (b.Tap.Kind is HostActionKind.None or HostActionKind.Ring) && (b.Hold.Kind is HostActionKind.None or HostActionKind.Ring);
+            if (!usedKey && free) return code;
+        }
+        return 0;
+    }
+
     /// <param name="setStickKey">v5.8: false = keep the stick's factory Normal/Game toggle (0xF4) and only prepare the ring binding/slots.</param>
     public static bool EnsureStickRing(AppProfile p, bool setStickKey = true)
     {
@@ -554,6 +568,8 @@ public sealed class PendingReplugCheck
 
 /// <summary>v5.7.3: does a key the keypad really sent (Raw Input) come from its memory? If not, the firmware is running
 /// another layout (factory) — the memory is ignored (VOROTEX, 16.11.2026: written changes gone after a replug).</summary>
+public enum KeyVerdict { Expected, NormalMode, NotInMemory, Unknown }
+
 public static class KeypadOutputCheck
 {
     static readonly Dictionary<ushort, ushort> NumpadNav = new()
@@ -571,6 +587,24 @@ public static class KeypadOutputCheck
     }
 
     public static bool IsModifier(ushort vk) => Modifiers.Contains(vk);
+
+    /// <summary>v5.8.1: what a key from the K13 means. <paramref name="freshMemory"/> = full image read/written during THIS connection
+    /// (null when only a stale cache or a partial header read is known — then never «foreign»).</summary>
+    public static KeyVerdict Judge(K13DeviceConfig? freshMemory, HwMode mode, ushort vk)
+    {
+        if (Modifiers.Contains(vk) || vk == ProfileMigrations.StickVk) return KeyVerdict.Expected;
+        if (freshMemory != null && Explains(freshMemory, vk)) return KeyVerdict.Expected;   // in the Game keymap / macros
+        bool factory = IsFactoryKey(vk);
+        return mode switch
+        {
+            HwMode.Normal => factory ? KeyVerdict.NormalMode : KeyVerdict.Unknown,
+            HwMode.Game => freshMemory != null ? KeyVerdict.NotInMemory : KeyVerdict.Unknown,
+            _ => freshMemory != null && factory ? KeyVerdict.NormalMode : KeyVerdict.Unknown,
+        };
+    }
+
+    /// <summary>The key is what the built-in Normal table (0x0020) sends.</summary>
+    public static bool IsFactoryKey(ushort vk) => K13Layout.FactoryColumnCodes.Any(c => VksOf(c).Contains(vk));
 
     public static bool Explains(K13DeviceConfig memory, ushort vk)
     {
