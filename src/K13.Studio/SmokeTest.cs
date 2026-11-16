@@ -105,6 +105,35 @@ public static class SmokeTest
                 }
             });
             Step($"{th}: перетаскивание — подсказка", () => { w.ShowDropOverlay(true); Render(w, 3); w.ShowDropOverlay(false); });
+            // v5.5: «profile switched» notice
+            Step($"{th}: уведомление — профиль «1С» и настройки", () => { w.DemoV55(); w.ScrollProfiles(0); Render(w, 3); });
+            Step($"{th}: уведомление — окно и замена без наложения", () =>
+            {
+                var t = w.ShowToastPreview("по программе 1cv8c.exe");
+                Pump(); t.UpdateLayout();
+                if (!t.IsVisible || t.ShowActivated || t.ShowInTaskbar || !t.Topmost) throw new InvalidOperationException("окно уведомления: видно/фокус/панель задач/поверх");
+                var root = (FrameworkElement)VisualTreeHelper.GetChild(t, 0);
+                if (root.ActualWidth < 200 || root.ActualHeight < 50) throw new InvalidOperationException($"уведомление слишком маленькое: {root.ActualWidth}×{root.ActualHeight}");
+                var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap((int)root.ActualWidth, (int)root.ActualHeight, 96, 96, PixelFormats.Pbgra32); rtb.Render(root);
+                int shown = t.Shown, replaced = t.Replaced;
+                var t2 = w.ShowToastPreview("по умолчанию (chrome.exe — без правила)");
+                if (!ReferenceEquals(t, t2) || t.Shown != shown || t.Replaced != replaced + 1) throw new InvalidOperationException($"второе уведомление не заменило первое: показано {t.Shown}, заменено {t.Replaced}");
+                if (t.Current?.Detail.StartsWith("по умолчанию") != true) throw new InvalidOperationException("текст не обновился");
+                t.HideNow();
+                if (t.IsVisible) throw new InvalidOperationException("не скрылось");
+            });
+            Step($"{th}: уведомление — карточка для отчёта", () =>
+            {
+                var c = w.ToastCard("Основной", "");
+                c.Measure(new Size(800, 400)); c.Arrange(new Rect(c.DesiredSize));
+                if (c.DesiredSize.Width < 200) throw new InvalidOperationException("карточка без текста слишком узкая");
+            });
+            Step($"{th}: уведомление — места на экране и выключение", () =>
+            {
+                foreach (var pl in Enum.GetValues<ToastPlacement>()) { w.SetToastSettings(placement: pl); w.ShowToastPreview().HideNow(); }
+                w.SetToastSettings(enabled: false, placement: ToastPlacement.BottomRight); Render(w, 3);
+                w.SetToastSettings(enabled: true);
+            });
             Step($"{th}: маленькое окно 960×640", () => { w.Width = 960; w.Height = 640; for (int p = 0; p < 4; p++) Render(w, p); });
             Step($"{th}: выход", () => w.ExitApp());
         }

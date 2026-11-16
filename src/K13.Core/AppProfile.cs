@@ -215,6 +215,12 @@ public sealed class ProfileStoreData
     public bool AutoSwitch { get; set; } = true;
     /// <summary>v5.4: profile used when the active program matches no rule ("" = keep the current profile).</summary>
     public string FallbackProfile { get; set; } = "";
+    /// <summary>v5.5: small on-screen notice when the profile changes by itself (program switch or keypad key).</summary>
+    public bool SwitchToast { get; set; } = true;
+    /// <summary>v5.5: where the notice appears.</summary>
+    public ToastPlacement ToastPlacement { get; set; } = ToastPlacement.BottomRight;
+    /// <summary>v5.5: also send a Windows notification (notification centre). Off by default.</summary>
+    public bool ToastSystem { get; set; }
     public bool MinimizeToTray { get; set; } = true;
     public bool DarkTheme { get; set; }
     public bool WelcomeShown { get; set; }
@@ -257,6 +263,7 @@ public sealed class ProfileStoreData
         foreach (var r in AppRules) { r.ProcessName = AppMatch.NormalizeProcess(r.ProcessName); r.TitleContains = (r.TitleContains ?? "").Trim(); r.ProfileName ??= ""; r.DisplayName ??= ""; r.IconPath ??= ""; }
         FallbackProfile ??= "";
         if (FallbackProfile.Length > 0 && !Profiles.Any(p => string.Equals(p.Name, FallbackProfile, StringComparison.OrdinalIgnoreCase))) FallbackProfile = "";
+        if (!Enum.IsDefined(ToastPlacement)) { notes.Add($"Место уведомления «{(int)ToastPlacement}» неизвестно — внизу справа."); ToastPlacement = ToastPlacement.BottomRight; }
         LedColors ??= new();
         LedModeObserved ??= new();
         ActiveProfile ??= "";

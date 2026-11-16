@@ -29,6 +29,7 @@ public partial class MainWindow
             return;
         }
         App.Log($"[auto] {proc} «{Trim(title, 60)}» → {d.Profile} ({d.Reason})");
+        _autoFallback = d.IsFallback;
         ActivateProfile(d.Profile, "авто", d.Reason, auto: true);
     }
 
@@ -164,6 +165,7 @@ public partial class MainWindow
         Grid.SetColumn(infoBox, 2);
         grid.Children.Add(infoBox);
         host.Children.Add(grid);
+        host.Children.Add(ToastSettingsRow());
         _tray?.SetAutoSwitch(d.AutoSwitch, _fg.Engine.Paused);
     }
 

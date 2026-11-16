@@ -256,6 +256,104 @@ internal static class Screenshots
         }
     }
 
+    /// <summary>v5.5: the «profile switched» notice over a program window (light + dark) and the settings row.</summary>
+    public static int RenderV55(string folder)
+    {
+        try
+        {
+            Directory.CreateDirectory(folder);
+            var tmp = Path.Combine(Path.GetTempPath(), "vorotex-screens55-" + Environment.ProcessId);
+            var shots = new List<string>();
+            foreach (var dark in new[] { false, true })
+            {
+                App.SetTheme(dark);
+                var w = new MainWindow(offline: true, storeFolder: tmp + (dark ? "d" : "l"), previewImage: null)
+                { Width = 1280, Height = 900, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual };
+                w.Show();
+                int demo = w.DemoMouseMacro();
+                w.DemoV47(demo);
+                w.DemoV54();
+                w.DemoV55();
+                string sfx = dark ? "-dark" : "";
+                shots.Add(ToastScene(w, Path.Combine(folder, $"01-toast-1c{sfx}.png"), dark, "1С", "по программе 1cv8c.exe"));
+                shots.Add(ToastScene(w, Path.Combine(folder, $"02-toast-fallback{sfx}.png"), dark, "Основной", "по умолчанию (chrome.exe — без правила)"));
+                w.ScrollProfiles(0);
+                shots.Add(Shot(w, 3, Path.Combine(folder, $"03-profiles-toast-settings{sfx}.png"), 1.5));
+                var t = w.ShowToastPreview();
+                Pump();
+                shots.Add(ShotWindow(t, Path.Combine(folder, $"04-toast-window{sfx}.png"), 1.5));
+                t.HideNow();
+                w.ExitApp();
+            }
+            File.WriteAllText(Path.Combine(folder, "screens.txt"), string.Join(Environment.NewLine, shots));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(Path.Combine(folder, "screens-error.txt"), ex.ToString()); } catch { }
+            return 1;
+        }
+    }
+
+    /// <summary>A program window (1С-like) on the desktop with the notice in the bottom-right corner above the taskbar.</summary>
+    private static string ToastScene(MainWindow w, string path, bool dark, string profile, string detail)
+    {
+        const double W = 960, H = 600;
+        var root = new System.Windows.Controls.Grid { Width = W, Height = H };
+        root.Background = dark
+            ? new LinearGradientBrush(Color.FromRgb(0x1B, 0x2A, 0x45), Color.FromRgb(0x3A, 0x1F, 0x3D), 35)
+            : new LinearGradientBrush(Color.FromRgb(0xC9, 0xD8, 0xEE), Color.FromRgb(0xE9, 0xD6, 0xE4), 35);
+        bool oneC = profile == "1С";
+        var win = new System.Windows.Controls.Border
+        {
+            Width = 720, Height = 430, CornerRadius = new CornerRadius(8), ClipToBounds = true,
+            Background = new SolidColorBrush(dark ? Color.FromRgb(0x22, 0x24, 0x29) : Color.FromRgb(0xFB, 0xFB, 0xFC)),
+            Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 40, ShadowDepth = 8, Opacity = 0.35 },
+            HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(48, 36, 0, 0),
+        };
+        var dock = new System.Windows.Controls.DockPanel();
+        var bar = new System.Windows.Controls.Border { Height = 34, Background = new SolidColorBrush(oneC ? Color.FromRgb(0xF7, 0xD9, 0x4C) : (dark ? Color.FromRgb(0x2E, 0x31, 0x38) : Color.FromRgb(0xE8, 0xEB, 0xF0))),
+            Child = new System.Windows.Controls.TextBlock { Text = oneC ? "1С:Предприятие — Бухгалтерия (учебная)" : "Новая вкладка — Google Chrome", Margin = new Thickness(14, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, FontSize = 12.5,
+                Foreground = new SolidColorBrush(oneC ? Color.FromRgb(0x33, 0x2B, 0x00) : (dark ? Color.FromRgb(0xDD, 0xDD, 0xDD) : Color.FromRgb(0x33, 0x33, 0x33))) } };
+        System.Windows.Controls.DockPanel.SetDock(bar, System.Windows.Controls.Dock.Top);
+        dock.Children.Add(bar);
+        var body = new System.Windows.Controls.StackPanel { Margin = new Thickness(24, 22, 24, 0) };
+        var lineFill = new SolidColorBrush(dark ? Color.FromRgb(0x33, 0x36, 0x3D) : Color.FromRgb(0xE3, 0xE6, 0xEB));
+        if (oneC)
+        {   // a table of documents
+            for (int r = 0; r < 9; r++)
+            {
+                var row = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
+                foreach (var cw in new[] { 90.0, 210, 140, 110 })
+                    row.Children.Add(new System.Windows.Shapes.Rectangle { Width = cw - 14, Height = 10, RadiusX = 5, RadiusY = 5, Margin = new Thickness(0, 0, 14, 0),
+                        Fill = r == 0 ? new SolidColorBrush(Color.FromRgb(0xE0, 0xB8, 0x20)) : lineFill });
+                body.Children.Add(row);
+            }
+        }
+        else
+            foreach (var wdt in new[] { 420.0, 520, 380, 470, 300, 500, 410 })
+                body.Children.Add(new System.Windows.Shapes.Rectangle { Width = wdt, Height = 10, RadiusX = 5, RadiusY = 5, Margin = new Thickness(0, 0, 0, 16), HorizontalAlignment = HorizontalAlignment.Left, Fill = lineFill });
+        dock.Children.Add(body);
+        win.Child = dock;
+        root.Children.Add(win);
+        // taskbar
+        root.Children.Add(new System.Windows.Controls.Border { Height = 40, VerticalAlignment = VerticalAlignment.Bottom,
+            Background = new SolidColorBrush(dark ? Color.FromArgb(0xF0, 0x1C, 0x1C, 0x1F) : Color.FromArgb(0xEE, 0xF3, 0xF3, 0xF3)) });
+        var card = w.ToastCard(profile, detail);
+        card.HorizontalAlignment = HorizontalAlignment.Right; card.VerticalAlignment = VerticalAlignment.Bottom;
+        card.Margin = new Thickness(0, 0, 2, 40 + 2);
+        root.Children.Add(card);
+        root.Measure(new Size(W, H)); root.Arrange(new Rect(0, 0, W, H)); root.UpdateLayout();
+        Pump();
+        double scale = 1.5;
+        var rtb = new RenderTargetBitmap((int)(W * scale), (int)(H * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        rtb.Render(root);
+        var enc = new PngBitmapEncoder();
+        enc.Frames.Add(BitmapFrame.Create(rtb));
+        using (var fs = File.Create(path)) enc.Save(fs);
+        return $"{Path.GetFileName(path)} {(int)(W * scale)}x{(int)(H * scale)}";
+    }
+
     /// <summary>v5.4: auto-switch by program (Profiles tab, program picker), export, import preview, drop overlay.</summary>
     public static int RenderV54(string folder)
     {

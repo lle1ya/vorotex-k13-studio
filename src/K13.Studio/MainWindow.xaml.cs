@@ -179,6 +179,7 @@ public partial class MainWindow : Window
         // v5.3: «Переключить профиль» on a deleted/renamed profile jumped to the first profile — now it is ignored
         if (found == null && reason != null) { Log($"Профиль «{name}» не найден ({reason}) — переключение пропущено."); return; }
         var p = found ?? _store.Data.Profiles[0];
+        bool changed = p != _profile;
         // v5.3: a profile switch (e.g. auto-switch by the active window) during recording put the steps into the wrong profile
         if (_recording && p != _profile) ToggleRecording();
         _profile = p;
@@ -199,7 +200,9 @@ public partial class MainWindow : Window
         {
             Log($"Профиль «{p.Name}» ({_activeWhy}).");
             StatusText.Text = auto ? $"Профиль «{p.Name}» — {_activeWhy}. " + DeviceNote() : $"Профиль «{p.Name}» ({reason})";
-            if (!IsVisible && !auto) _tray?.Balloon("Профиль: " + p.Name, "Действия на ПК переключены.");
+            var source = auto ? SwitchSource.Auto : reason == "действие клавиши" ? SwitchSource.KeypadKey : reason == "трей" ? SwitchSource.Tray : SwitchSource.Manual;
+            bool toasted = MaybeToast(p, source, changed);
+            if (!IsVisible && !auto && !toasted) _tray?.Balloon("Профиль: " + p.Name, "Действия на ПК переключены.");
         }
     }
 
@@ -844,6 +847,7 @@ public partial class MainWindow : Window
         _poll.Stop(); _anim.Stop(); _ledTimer?.Stop();
         MacroPlayer.StopAll();                 // v5.3: release keys a playing macro is holding
         try { _ringOverlay?.Close(); } catch (InvalidOperationException) { }
+        try { _toast?.Close(); } catch (InvalidOperationException) { }
         _fg.Dispose(); _mapper?.Dispose(); _tray?.Dispose(); _recorder.Dispose();
         SaveStore();
         if (!_offline) Application.Current.Shutdown();
