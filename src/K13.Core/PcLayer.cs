@@ -180,7 +180,12 @@ public readonly record struct PcOut(PcOutKind Kind, ushort Vk = 0, int Slot = -1
 /// </summary>
 public sealed class PcLayerRouter
 {
-    private sealed record Held(PcKeyAction Action, bool ViaHost, MacroRepeatMode Mode);
+    private sealed record Held(PcKeyAction Action, bool ViaHost, MacroRepeatMode Mode) { public long LastMs; }
+
+    /// <summary>OS auto-repeat sends downs every ≤ 0.5 s (first one after ≤ 1 s). A down that comes later than this
+    /// after the previous one is a NEW press whose release was lost (hook skipped by Windows, sleep, UAC desktop…) —
+    /// v5.6 kept replaying the old action (e.g. «1С» Tab) for it instead of the active profile's.</summary>
+    public const int StaleMs = 1500;
     private Dictionary<ushort, int> _map = new();
     private readonly Dictionary<ushort, Held> _held = new();
 
@@ -197,18 +202,27 @@ public sealed class PcLayerRouter
     public int HeldCount => _held.Count;
 
     /// <param name="isHostTrigger">The code is a PC-action trigger in the active profile (F13–F24 binding, chord, ring).</param>
-    public List<PcOut> Route(ushort vk, bool down, K13DeviceConfig profile, Func<ushort, bool> isHostTrigger)
+    /// <param name="nowMs">Event time (ms, monotonic); null = treat every down while held as auto-repeat.</param>
+    public List<PcOut> Route(ushort vk, bool down, K13DeviceConfig profile, Func<ushort, bool> isHostTrigger, long? nowMs = null)
     {
         var o = new List<PcOut>(2);
         if (!_map.TryGetValue(vk, out int col)) { if (!down) _held.Remove(vk); return o; }
         if (down)
         {
             bool first = !_held.TryGetValue(vk, out var h);
+            if (!first && nowMs is long t && t - h!.LastMs > StaleMs)
+            {
+                // lost release: finish the old press, then handle this one as a fresh press in the ACTIVE profile
+                _held.Remove(vk);
+                Release(h, o);
+                first = true;
+            }
             if (first)
             {
                 var a = PcLayerPlanner.Resolve(profile, col);
                 var mode = a.Kind == PcKeyKind.Macro && a.MacroSlot >= 0 && a.MacroSlot < profile.Macros.Count ? profile.Macros[a.MacroSlot].RepeatMode : MacroRepeatMode.Count;
                 h = new Held(a, a.Kind == PcKeyKind.Key && isHostTrigger(a.Vk), mode);
+                LastResolved = a;
                 _held[vk] = h;
                 switch (a.Kind)
                 {
@@ -218,26 +232,33 @@ public sealed class PcLayerRouter
                     case PcKeyKind.FirmwareOnly: o.Add(new PcOut(PcOutKind.FirmwareOnly, Code: a.Code)); break;
                 }
             }
+            if (nowMs is long n) h!.LastMs = n;
             if (h!.Action.Kind == PcKeyKind.Key) o.Add(new PcOut(h.ViaHost ? PcOutKind.HostDown : PcOutKind.KeyDown, h.Action.Vk, Code: h.Action.Code));
         }
         else
         {
             if (!_held.Remove(vk, out var h)) return o;
-            if (h.Action.Kind == PcKeyKind.Key) o.Add(new PcOut(h.ViaHost ? PcOutKind.HostUp : PcOutKind.KeyUp, h.Action.Vk, Code: h.Action.Code));
-            else if (h.Action.Kind == PcKeyKind.Macro && h.Mode == MacroRepeatMode.WhileHeld) o.Add(new PcOut(PcOutKind.StopMacro, Slot: h.Action.MacroSlot));
+            Release(h, o);
         }
         return o;
+    }
+
+    /// <summary>The action resolved for the last fresh press (diagnostics).</summary>
+    public PcKeyAction? LastResolved { get; private set; }
+
+    public int ColumnOf(ushort vk) => _map.TryGetValue(vk, out int c) ? c : -1;
+
+    private static void Release(Held h, List<PcOut> o)
+    {
+        if (h.Action.Kind == PcKeyKind.Key) o.Add(new PcOut(h.ViaHost ? PcOutKind.HostUp : PcOutKind.KeyUp, h.Action.Vk, Code: h.Action.Code));
+        else if (h.Action.Kind == PcKeyKind.Macro && h.Mode == MacroRepeatMode.WhileHeld) o.Add(new PcOut(PcOutKind.StopMacro, Slot: h.Action.MacroSlot));
     }
 
     /// <summary>Keys still held (e.g. on exit / when the mode is switched off) → their releases.</summary>
     public List<PcOut> ReleaseAll()
     {
         var o = new List<PcOut>();
-        foreach (var h in _held.Values)
-        {
-            if (h.Action.Kind == PcKeyKind.Key) o.Add(new PcOut(h.ViaHost ? PcOutKind.HostUp : PcOutKind.KeyUp, h.Action.Vk));
-            else if (h.Action.Kind == PcKeyKind.Macro && h.Mode == MacroRepeatMode.WhileHeld) o.Add(new PcOut(PcOutKind.StopMacro, Slot: h.Action.MacroSlot));
-        }
+        foreach (var h in _held.Values) Release(h, o);
         _held.Clear();
         return o;
     }

@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Vorotex.K13;
@@ -142,6 +143,27 @@ public static class SmokeTest
                 var m = w.ToastMenu(w);
                 if (m.Items.Count != 2) throw new InvalidOperationException("в меню ⋯ ожидалось 2 пункта, а не " + m.Items.Count);
             });
+            // v5.6.1: «?» help — hover tooltip + click popup; no ToolTip with StaysOpen=false anywhere (throws on real Windows)
+            Step($"{th}: «?» открывается кликом, подсказки без StaysOpen=false", () =>
+            {
+                foreach (var page in new[] { 0, 1, 2, 3 })
+                {
+                    Render(w, page);
+                    var bad = ForbiddenToolTips(w).ToList();
+                    if (bad.Count > 0) throw new InvalidOperationException("ToolTip со StaysOpen=false: " + string.Join(", ", bad));
+                }
+                Render(w, 3);
+                var dots = Tree(w).OfType<Button>().Where(b => b.GetValue(MainWindow.AutomationHelpKey) is string).ToList();
+                if (dots.Count < 2) throw new InvalidOperationException("кнопок «?» найдено " + dots.Count);
+                foreach (var d in dots)
+                {
+                    if (d.ToolTip is ToolTip) throw new InvalidOperationException("«?»: ToolTip-объект вместо простого содержимого");
+                    var pop = (System.Windows.Controls.Primitives.Popup)d.Tag;
+                    d.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    if (!pop.IsOpen || pop.StaysOpen) throw new InvalidOperationException("«?» не открыл всплывающее окно");
+                    pop.IsOpen = false;
+                }
+            });
             // v5.6: keys through the PC
             Step($"{th}: кнопки через ПК — демо и вкладка «Кнопки»", () =>
             {
@@ -201,4 +223,22 @@ public static class SmokeTest
         for (int i = 0; i < 3; i++)
             Application.Current.Dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
     }
+
+    private static IEnumerable<DependencyObject> Tree(DependencyObject root)
+    {
+        var stack = new Stack<DependencyObject>(); stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var o = stack.Pop(); yield return o;
+            if (o is Visual || o is System.Windows.Media.Media3D.Visual3D)
+                for (int i = VisualTreeHelper.GetChildrenCount(o) - 1; i >= 0; i--) stack.Push(VisualTreeHelper.GetChild(o, i));
+        }
+    }
+
+    /// <summary>WPF on Windows throws InvalidOperationException when a ToolTip with StaysOpen=false is opened through
+    /// the ToolTip property (Wine never hovers in the smoke test, so it never showed). Find any such tooltip.</summary>
+    internal static IEnumerable<string> ForbiddenToolTips(DependencyObject root) =>
+        Tree(root).OfType<FrameworkElement>()
+            .Where(e => e.ToolTip is ToolTip t && !t.StaysOpen)
+            .Select(e => e.GetType().Name + (string.IsNullOrEmpty(e.Name) ? "" : " " + e.Name));
 }

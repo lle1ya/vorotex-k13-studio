@@ -174,18 +174,36 @@ public partial class MainWindow
         return row;
     }
 
-    /// <summary>Small round «?» — hover or click shows the text.</summary>
+    /// <summary>Small round «?» — hover shows a plain tooltip, click opens a popup that closes on any outside click.
+    /// (A ToolTip with StaysOpen=false set through the ToolTip property throws on real Windows — v5.6 bug.)</summary>
     private FrameworkElement InfoDot(string text)
     {
-        var tip = new ToolTip { Content = new TextBlock { Text = text, MaxWidth = 340, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, LineHeight = 18 }, StaysOpen = false };
         var b = new Button { Style = (Style)FindResource("GhostButton"), Padding = new Thickness(0), Width = 22, Height = 22, Margin = new Thickness(6, 1, 0, 0), VerticalAlignment = VerticalAlignment.Center, Cursor = Cursors.Help,
-            ToolTip = tip, Content = new Border { Width = 16, Height = 16, CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1.2), BorderBrush = R("MutedBrush"),
+            ToolTip = new TextBlock { Text = text, MaxWidth = 340, TextWrapping = TextWrapping.Wrap },
+            Content = new Border { Width = 16, Height = 16, CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1.2), BorderBrush = R("MutedBrush"),
                 Child = new TextBlock { Text = "?", FontSize = 10.5, FontWeight = FontWeights.SemiBold, Foreground = R("MutedBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, -1, 0, 0) } } };
+        b.SetValue(AutomationHelpKey, text);
         ToolTipService.SetInitialShowDelay(b, 150);
         ToolTipService.SetShowDuration(b, 30000);
-        b.Click += (_, _) => { tip.PlacementTarget = b; tip.IsOpen = !tip.IsOpen; };
+        var pop = new System.Windows.Controls.Primitives.Popup
+        {
+            StaysOpen = false, AllowsTransparency = true,
+            PlacementTarget = b, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom, VerticalOffset = 4,
+            Child = new Border { Background = R("PanelBrush"), BorderBrush = R("BorderBrush"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 10, 12, 10), Margin = new Thickness(0, 0, 8, 8),
+                Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 12, ShadowDepth = 2, Opacity = 0.18 },
+                Child = new TextBlock { Text = text, MaxWidth = 340, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, LineHeight = 18, Foreground = R("TextBrush") } }
+        };
+        long closedAt = 0;
+        pop.Opened += (_, _) => ToolTipService.SetIsEnabled(b, false);
+        pop.Closed += (_, _) => { closedAt = Environment.TickCount64; ToolTipService.SetIsEnabled(b, true); };
+        // the outside-click that closes the popup is the same click on «?» — don't reopen it right away
+        b.Click += (_, _) => { if (Environment.TickCount64 - closedAt > 250) pop.IsOpen = true; };
+        b.Tag = pop;
         return b;
     }
+
+    /// <summary>Marks «?» buttons (value = help text) so the smoke test can find and click them.</summary>
+    internal static readonly DependencyProperty AutomationHelpKey = DependencyProperty.RegisterAttached("InfoDotHelp", typeof(string), typeof(MainWindow));
 
     private FrameworkElement StatusLine(ProfileStoreData d)
     {

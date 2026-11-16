@@ -133,12 +133,29 @@ public sealed class HostMapper : IDisposable
     public bool LayerActive => _layer != null;
 
     /// <summary>Hook thread. True = the event belongs to the PC layer (swallow it).</summary>
-    private bool RouteLayer(ushort vk, bool down)
+    private readonly HashSet<ushort> _routedDown = new();
+    private int _pressLogs;
+
+    /// <summary>Key injection and logging leave the hook thread: anything slow inside a low-level hook makes Windows
+    /// skip the hook for that event (the keypad's raw code — or its release — then gets lost).</summary>
+    private readonly System.Collections.Concurrent.BlockingCollection<Action> _work = new();
+    private Thread? _worker;
+    private void Post(Action a)
+    {
+        if (_worker == null)
+        {
+            _worker = new Thread(() => { foreach (var w in _work.GetConsumingEnumerable()) { try { w(); } catch { } } }) { IsBackground = true, Name = "K13 inject" };
+            _worker.Start();
+        }
+        _work.Add(a);
+    }
+
+    private bool RouteLayer(ushort vk, bool down, long? timeMs = null)
     {
         var l = _layer;
         if (l == null)
         {
-            if (_routerFor != null) { foreach (var o in _router.ReleaseAll()) Do(o, null); _router.SetLayer(new PcLayerState()); _routerFor = null; }
+            if (_routerFor != null) { foreach (var o in _router.ReleaseAll()) Do(o, null); _router.SetLayer(new PcLayerState()); _routerFor = null; _routedDown.Clear(); }
             return false;
         }
         if (!ReferenceEquals(l, _routerFor))
@@ -147,7 +164,17 @@ public sealed class HostMapper : IDisposable
             _routerFor = l;
         }
         if (!_router.Owns(vk)) return false;
-        foreach (var o in _router.Route(vk, down, l.Cfg, v => _settings.Enabled && IsTrigger(v))) Do(o, l);
+        bool fresh = down && !_routedDown.Contains(vk);
+        if (down) _routedDown.Add(vk); else _routedDown.Remove(vk);
+        var before = _router.LastResolved;
+        var outs = _router.Route(vk, down, l.Cfg, v => _settings.Enabled && IsTrigger(v), timeMs);
+        foreach (var o in outs) Do(o, l);
+        if (down && (fresh || !ReferenceEquals(before, _router.LastResolved)) && _pressLogs < 400)
+        {
+            _pressLogs++;
+            int col = _router.ColumnOf(vk); var a = _router.LastResolved; string prof = l.Profile;
+            Post(() => App.Log($"[hook] кнопка {col} (VK 0x{vk:X2}) в профиле «{prof}» → {a?.Kind} {(a == null ? "" : KeyCatalog.Name(a.Code))}: " + string.Join(", ", outs.Select(x => x.Kind))));
+        }
         return true;
     }
 
@@ -158,8 +185,8 @@ public sealed class HostMapper : IDisposable
     {
         switch (o.Kind)
         {
-            case PcOutKind.KeyDown: InjectVk(o.Vk, true); break;
-            case PcOutKind.KeyUp: InjectVk(o.Vk, false); break;
+            case PcOutKind.KeyDown: { var v = o.Vk; Post(() => InjectVk(v, true)); break; }
+            case PcOutKind.KeyUp: { var v = o.Vk; Post(() => InjectVk(v, false)); break; }
             case PcOutKind.HostDown: Handle(o.Vk, true); break;
             case PcOutKind.HostUp: Handle(o.Vk, false); break;
             case PcOutKind.StartMacro or PcOutKind.StartMacroHeld when l != null && o.Slot < l.Cfg.Macros.Count:
@@ -239,7 +266,7 @@ public sealed class HostMapper : IDisposable
                         if (down0 && !IsRingTrigger(vk) && ring.WantsKey(vk)) { _ringKeys.Add(vk); _ui.BeginInvoke(() => ring.OnKey(vk, true)); return (IntPtr)1; }
                         if (!down0 && _ringKeys.Remove(vk)) { _ui.BeginInvoke(() => ring.OnKey(vk, false)); return (IntPtr)1; }
                     }
-                    if (RouteLayer(vk, down0)) return (IntPtr)1;
+                    if (RouteLayer(vk, down0, k.time)) return (IntPtr)1;
                     bool always = AlwaysSwallow.Contains(vk);
                     var s = _settings;
                     if (s.Enabled && IsTrigger(vk))
