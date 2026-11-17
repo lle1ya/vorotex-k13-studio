@@ -400,6 +400,21 @@ public static class SmokeTest
                 w.DemoRepeat(s, MacroRepeatMode.Count, 1); w.DemoKeypadHolds(null); w.DemoPcLayer(false);
                 if (w.KeyAt(9) != tabWas) w.DemoSetKey(9, tabWas);
             });
+            // v5.9.7: the safety stop — a «пока зажата» play fed by keypad taps stops by itself when the taps stop
+            Step($"{th}: v5.9.7 страховка автоклика без сигналов K13", () =>
+            {
+                if (MacroPlayer.WatchdogMs <= PcLayerRouter.MaxGapMs + 100) throw new InvalidOperationException("страховка короче паузы отпускания");
+                var m = new MacroSlot { RepeatMode = MacroRepeatMode.WhileHeld, Events = { new() { Down = true, Code = 0, Delay = 2 }, new() { Down = false, Code = 0, Delay = 2 } } };
+                MacroPlayer.PlayWhileHeld(m); MacroPlayer.KeepAlive();
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                while (MacroPlayer.IsPlaying && sw.ElapsedMilliseconds < 3000) System.Threading.Thread.Sleep(20);
+                if (MacroPlayer.IsPlaying) { MacroPlayer.Stop(); throw new InvalidOperationException("макрос играет без сигналов дольше 3 с"); }
+                if (sw.ElapsedMilliseconds < MacroPlayer.WatchdogMs - 50) throw new InvalidOperationException($"остановился слишком рано: {sw.ElapsedMilliseconds} мс");
+                // without taps (toggle / legacy key-up scheme) the watchdog stays off
+                MacroPlayer.PlayWhileHeld(m); System.Threading.Thread.Sleep(MacroPlayer.WatchdogMs + 300);
+                bool still = MacroPlayer.IsPlaying; MacroPlayer.Stop();
+                if (!still) throw new InvalidOperationException("страховка сработала без сигналов клавиатуры");
+            });
             // v5.9.4: honest hold / autoclick hints — through the PC a hold is invisible (toggle), on the keypad «проверяется»
             Step($"{th}: v5.9.4 «пока зажата» и автоклик — через ПК и в клавиатуре", () =>
             {

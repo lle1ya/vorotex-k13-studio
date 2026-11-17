@@ -79,6 +79,7 @@ public sealed class HostMapper : IDisposable
     /// (nothing can be swallowed any more), but the action runs. Returns false when the hook thread is not running.
     /// </summary>
     private bool _routingMissed; // hook thread only
+    private int _tapsHook, _tapsRaw; // v5.9.7: taps of the current hold by path (hook thread only)
     /// <summary>v5.9.5: the hook itself (not the Raw Input fallback) routed a keypad press — UI thread.</summary>
     public event Action? HookRouted;
 
@@ -115,7 +116,19 @@ public sealed class HostMapper : IDisposable
             {
                 if (m.message == WM_APP_TICK)
                 {
-                    try { foreach (var o in _router.Tick((uint)Environment.TickCount)) Do(o, _layer); } catch { }
+                    try
+                    {
+                        var outs = _router.Tick((uint)Environment.TickCount);
+                        foreach (var o in outs) Do(o, _layer);
+                        if (outs.Count > 0 && _tapsHook + _tapsRaw > 0)
+                        {
+                            // v5.9.7: which path delivered the taps of the hold that just ended, and whether the stop was sent
+                            int th = _tapsHook, tr = _tapsRaw; bool stop = outs.Any(x => x.Kind is PcOutKind.StopMacro or PcOutKind.KeyUp or PcOutKind.HostUp);
+                            _tapsHook = _tapsRaw = 0;
+                            Post(() => App.Log($"[hold] сигналы этого удержания: через перехватчик {th}, через Raw Input {tr}; команда остановки {(stop ? "отправлена" : "не нужна")}"));
+                        }
+                    }
+                    catch (Exception ex) { App.Log("[hold] ошибка таймера: " + ex.Message); }
                     continue;
                 }
                 if (m.message == WM_APP_MISSED)
@@ -221,13 +234,13 @@ public sealed class HostMapper : IDisposable
         bool fresh = down && !_routedDown.Contains(vk);
         if (down) _routedDown.Add(vk); else _routedDown.Remove(vk);
         foreach (var o in outs) Do(o, l);
-        bool acted = outs.Any(x => x.Kind != PcOutKind.Note);
+        bool acted = outs.Any(x => x.Kind is not (PcOutKind.Note or PcOutKind.Alive));
         if (!acted) fresh = false; // v5.9.6: repeated taps of a held key — nothing new happened
         if (down && acted && (fresh || !ReferenceEquals(before, _router.LastResolved)) && _pressLogs < 400)
         {
             _pressLogs++;
             int col = _router.ColumnOf(vk); var a = _router.LastResolved; string prof = l.Profile;
-            Post(() => App.Log($"[hook] кнопка {col} (VK 0x{vk:X2}) в профиле «{prof}» → {a?.Kind} {(a == null ? "" : KeyCatalog.Name(a.Code))}: " + string.Join(", ", outs.Select(x => x.Kind))));
+            Post(() => App.Log($"[hook] кнопка {col} (VK 0x{vk:X2}) в профиле «{prof}» → {a?.Kind} {(a == null ? "" : KeyCatalog.Name(a.Code))}: " + string.Join(", ", outs.Where(x => x.Kind != PcOutKind.Alive).Select(x => x.Kind))));
         }
         if (down && fresh && !_routingMissed && HookRouted is { } hr) _ui.BeginInvoke(hr);
         if (down && fresh) { var lr = LayerRouted; if (lr != null) { int c = _router.ColumnOf(vk); var a2 = _router.LastResolved; string pn = l.Profile; _ui.BeginInvoke(() => lr(c, vk, pn, a2)); } }
@@ -248,9 +261,14 @@ public sealed class HostMapper : IDisposable
             case PcOutKind.StartMacro or PcOutKind.StartMacroHeld or PcOutKind.StartMacroLoop when l != null && o.Slot < l.Cfg.Macros.Count:
                 var m = l.Cfg.Macros[o.Slot].Clone(); bool held = o.Kind == PcOutKind.StartMacroHeld;
                 if (o.Kind == PcOutKind.StartMacroLoop) m.RepeatMode = MacroRepeatMode.Toggle; // v5.9.4: second press stops (MacroPlayer.Play)
-                _ui.BeginInvoke(() => { if (held) MacroPlayer.PlayWhileHeld(m); else MacroPlayer.Play(m); });
+                // v5.9.7: start / heartbeat / stop all go through the same ordered worker (was: UI thread — a busy UI could delay the stop)
+                Post(() => { if (held) MacroPlayer.PlayWhileHeld(m); else MacroPlayer.Play(m); });
                 break;
-            case PcOutKind.StopMacro: _ui.BeginInvoke(() => MacroPlayer.Stop()); break;
+            case PcOutKind.StopMacro: Post(() => MacroPlayer.Stop("отпускание")); break;
+            case PcOutKind.Alive:
+                if (_routingMissed) _tapsRaw++; else _tapsHook++;
+                Post(MacroPlayer.KeepAlive);
+                break;
             case PcOutKind.Note:
                 {
                     string text = o.Shell; int col = o.Slot; int code = o.Code;
@@ -487,27 +505,64 @@ public static class MacroPlayer
         });
     }
 
+    /// <summary>v5.9.7 safety stop: a «пока зажата» play fed by keypad taps (<see cref="KeepAlive"/>) stops by itself when no
+    /// tap came for this long — even if the release was never detected (lost timer, router state, anything).</summary>
+    public const int WatchdogMs = 600;
+    private static long _lastAlive;            // Environment.TickCount64 of the last tap (0 = play not fed by taps)
+    private static string? _stopReason;
+    private static long _stopAsked;
+
     /// <summary>v5.6: «пока зажата» through the PC — plays in a loop until <see cref="Stop"/> (key released).</summary>
     public static void PlayWhileHeld(MacroSlot m)
     {
         var prev = System.Threading.Interlocked.Exchange(ref _playing, null);
         try { prev?.Cancel(); } catch (ObjectDisposedException) { }
+        System.Threading.Interlocked.Exchange(ref _lastAlive, 0); _stopReason = null; _stopAsked = 0;
         if (m.Events.Count == 0) return;
         var cts = new System.Threading.CancellationTokenSource();
         _playing = cts;
         var events = m.Events.Select(e => e.Clone()).ToList();
+        long started = Environment.TickCount64;
+        var watch = new System.Threading.Timer(_ =>
+        {
+            long last = System.Threading.Interlocked.Read(ref _lastAlive);
+            if (last == 0 || Environment.TickCount64 - last <= WatchdogMs) return;
+            if (System.Threading.Interlocked.CompareExchange(ref _playing, null, cts) == cts)
+            {
+                _stopReason = $"страховка: {Environment.TickCount64 - last} мс нет сигналов от K13"; _stopAsked = Environment.TickCount64;
+                try { cts.Cancel(); } catch (ObjectDisposedException) { }
+            }
+        }, null, 50, 50);
         _task = System.Threading.Tasks.Task.Run(() =>
         {
-            try { MacroSequencer.Run(events, int.MaxValue, Send, cts.Token); }
+            int passes = 0;
+            try { passes = MacroSequencer.Run(events, int.MaxValue, Send, cts.Token); }
             catch (Exception ex) { App.Log("Макрос: " + ex.Message); }
-            finally { System.Threading.Interlocked.CompareExchange(ref _playing, null, cts); cts.Dispose(); }
+            finally
+            {
+                watch.Dispose();
+                long last = System.Threading.Interlocked.Read(ref _lastAlive), now = Environment.TickCount64;
+                if (last != 0)
+                    App.Log($"[hold] макрос «пока зажата» остановлен ({_stopReason ?? "?"}): играл {now - started} мс, проходов {passes}; " +
+                            $"после последнего сигнала K13 {now - last} мс, после команды остановки {(_stopAsked > 0 ? now - _stopAsked : -1)} мс");
+                System.Threading.Interlocked.CompareExchange(ref _playing, null, cts); cts.Dispose();
+            }
         });
     }
 
+    public static bool IsPlaying => System.Threading.Volatile.Read(ref _playing) != null;
+
+    /// <summary>v5.9.7: a keypad tap of the held key arrived — keeps the current «пока зажата» play alive (arms its watchdog).</summary>
+    public static void KeepAlive()
+    {
+        if (System.Threading.Volatile.Read(ref _playing) != null) System.Threading.Interlocked.Exchange(ref _lastAlive, Environment.TickCount64);
+    }
+
     /// <summary>Stops a playing macro without waiting (its held keys are released by the sequencer).</summary>
-    public static void Stop()
+    public static void Stop(string? reason = null)
     {
         var prev = System.Threading.Interlocked.Exchange(ref _playing, null);
+        if (prev != null && reason != null) { _stopReason = reason; _stopAsked = Environment.TickCount64; }
         try { prev?.Cancel(); } catch (ObjectDisposedException) { }
     }
 

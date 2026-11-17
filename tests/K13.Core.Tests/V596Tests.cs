@@ -74,26 +74,33 @@ public class V596Tests
         Assert.Contains(end, x => x.Kind == PcOutKind.StopMacro && x.Slot == 1);
         Assert.Contains(end, x => x.Kind == PcOutKind.Note && x.Shell.Contains("интервал ≈ 40 мс"));
         Assert.Equal(0, r.StreamCount);
-        Assert.Equal(160, r.GapFor(9));                                     // adaptive: 4 × 40 ms
+        Assert.Equal(120, r.GapFor(9));                                     // v5.9.7 adaptive: max(3 × 40, 40 + 30) ms
         // next hold: ends after the shorter adaptive gap
         Hold(r, vk, main, 5000, taps: 5, period: 40);
         Assert.Contains(r.Tick(5000 + 4 * 40 + 170), x => x.Kind == PcOutKind.StopMacro);
     }
 
     [Fact]
-    public void One_tap_after_the_write_means_no_repeat_and_the_key_toggles()
+    public void One_tap_after_the_write_stops_and_two_single_presses_mean_no_repeat()
     {
+        // v5.9.7: a single tap is a short press — the macro is stopped (v5.9.6 kept it running); only after
+        // NoRepeatAfterSingles single-tap presses in a row the key counts as «keypad does not repeat» and toggles
         var (r, main, vk, _) = Setup(written: true);
         var o = Tap(r, vk, main, 1000);
-        Assert.Equal(PcOutKind.StartMacroHeld, Assert.Single(o).Kind);
+        Assert.Equal(PcOutKind.StartMacroHeld, Assert.Single(o, x => x.Kind != PcOutKind.Alive).Kind);
         var end = r.Tick(1000 + 16 + PcLayerRouter.DefaultGapMs + 50);
-        Assert.DoesNotContain(end, x => x.Kind == PcOutKind.StopMacro);    // keeps clicking
+        Assert.Contains(end, x => x.Kind == PcOutKind.StopMacro);
+        Assert.DoesNotContain(end, x => x.Kind == PcOutKind.Note && x.Code == 0);
+        Assert.False(r.KnownNoRepeat(9));
+        Tap(r, vk, main, 2000);
+        end = r.Tick(2000 + 16 + PcLayerRouter.DefaultGapMs + 50);
+        Assert.Contains(end, x => x.Kind == PcOutKind.StopMacro);
         var verdict = Assert.Single(end, x => x.Kind == PcOutKind.Note);
         Assert.Equal(0, verdict.Code);
         Assert.Contains("НЕ повторяет", verdict.Shell);
         Assert.True(r.KnownNoRepeat(9));
-        // the next press stops it (host Play toggles)
-        Assert.Equal(PcOutKind.StartMacroLoop, Assert.Single(Tap(r, vk, main, 3000)).Kind);
+        // from now on start / stop
+        Assert.Equal(PcOutKind.StartMacroLoop, Assert.Single(Tap(r, vk, main, 3000), x => x.Kind != PcOutKind.Alive).Kind);
         Assert.DoesNotContain(r.Tick(3000 + 1000), x => x.Kind == PcOutKind.StopMacro);
     }
 

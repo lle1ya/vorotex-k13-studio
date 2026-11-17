@@ -266,7 +266,8 @@ public static class PcLayerPlanner
 /// ~16 ms Scroll Lock+F tap), so the macro loops until the same key is pressed again, like «до повторного нажатия».
 /// Note (v5.9.6): a log line for studio.log in <see cref="PcOut.Shell"/>; Slot = column; Code = 1 «keypad repeats»,
 /// 0 «keypad does not repeat», 2 = information only.</summary>
-public enum PcOutKind { KeyDown, KeyUp, HostDown, HostUp, StartMacro, StartMacroHeld, StopMacro, Shell, FirmwareOnly, StartMacroLoop, Note }
+/// <remarks>v5.9.7: <c>Alive</c> = a tap of a held repeating key arrived (Slot = column) — the host player's watchdog heartbeat.</remarks>
+public enum PcOutKind { KeyDown, KeyUp, HostDown, HostUp, StartMacro, StartMacroHeld, StopMacro, Shell, FirmwareOnly, StartMacroLoop, Note, Alive }
 
 /// <summary>One thing the hook must do for a keypad event.</summary>
 public readonly record struct PcOut(PcOutKind Kind, ushort Vk = 0, int Slot = -1, string Shell = "", byte Code = 0);
@@ -343,16 +344,21 @@ public sealed class PcLayerRouter
 
     // ── v5.9.6: hold through the PC. A key whose tap macro carries the hold bit should make the keypad repeat the
     // Scroll Lock+F tap while held; the key counts as held while taps keep coming and is released when they stop.
-    public const int DefaultGapMs = 300, MinGapMs = 150, MaxGapMs = 600;
+    // v5.9.7: shorter tail after the release (v5.9.6: 300 ms / 4 × period ≥ 150 ms — the autoclick visibly kept going).
+    public const int DefaultGapMs = 150, MinGapMs = 90, MaxGapMs = 400;
+    /// <summary>Single-tap presses in a row (without any repeating press) before a key counts as «keypad does not repeat».</summary>
+    public const int NoRepeatAfterSingles = 2;
     private HashSet<int> _holdWant = new(), _holdWritten = new();
     private readonly HashSet<int> _noRepeat = new(), _repeats = new(), _toldWrite = new();
-    private readonly Dictionary<int, int> _period = new();
+    private readonly Dictionary<int, int> _period = new(), _maxGap = new(), _singles = new();
     private sealed class TapStream { public int Col; public long First, Last; public int Taps; public readonly List<int> Gaps = new(); }
     private readonly Dictionary<ushort, TapStream> _streams = new();
     public int StreamCount => _streams.Count;
 
-    /// <summary>Gap after the last tap that ends a hold: 4 × the measured tap period, else <see cref="DefaultGapMs"/>.</summary>
-    public int GapFor(int col) => _period.TryGetValue(col, out int p) ? Math.Clamp(p * 4, MinGapMs, MaxGapMs) : DefaultGapMs;
+    /// <summary>Gap after the last tap that ends a hold: max(3 × measured median period, longest measured gap + 30 ms),
+    /// clamped to <see cref="MinGapMs"/>…<see cref="MaxGapMs"/>; before any measurement <see cref="DefaultGapMs"/>.</summary>
+    public int GapFor(int col) => _period.TryGetValue(col, out int p)
+        ? Math.Clamp(Math.Max(p * 3, (_maxGap.TryGetValue(col, out int mx) ? mx : p) + 30), MinGapMs, MaxGapMs) : DefaultGapMs;
     public bool KnownNoRepeat(int col) => _noRepeat.Contains(col);
 
     /// <param name="want">Columns whose action is a «пока зажата» macro (what «Записать» writes with the hold bit).</param>
@@ -360,7 +366,7 @@ public sealed class PcLayerRouter
     public void SetHold(IEnumerable<int> want, IEnumerable<int> written)
     {
         var w = new HashSet<int>(want); var wr = new HashSet<int>(written);
-        if (!wr.SetEquals(_holdWritten)) { _noRepeat.Clear(); _repeats.Clear(); _period.Clear(); }
+        if (!wr.SetEquals(_holdWritten)) { _noRepeat.Clear(); _repeats.Clear(); _period.Clear(); _maxGap.Clear(); _singles.Clear(); }
         if (!w.SetEquals(_holdWant)) _toldWrite.Clear();
         _holdWant = w; _holdWritten = wr;
     }
@@ -381,20 +387,26 @@ public sealed class PcLayerRouter
             {
                 var sorted = s.Gaps.OrderBy(x => x).ToList();
                 int med = sorted[sorted.Count / 2];
-                _period[s.Col] = med;
+                _period[s.Col] = med; _maxGap[s.Col] = sorted[^1]; _singles.Remove(s.Col);
                 o.Add(new PcOut(PcOutKind.Note, Slot: s.Col, Code: 2, Shell:
                     $"[hold] кнопка {s.Col}: отпущена — сигналов {s.Taps} за {s.Last - s.First} мс, интервал ≈ {med} мс (мин {sorted[0]}, макс {sorted[^1]}); конец удержания — пауза больше {gap} мс"));
                 if (h != null) { if (h.WasHold) o.Add(new PcOut(PcOutKind.StopMacro, Slot: h.Action.MacroSlot)); else Release(h, o); }
             }
-            else if (h != null && h.Action.Kind == PcKeyKind.Macro && h.Mode == MacroRepeatMode.WhileHeld && !_repeats.Contains(s.Col))
+            else
             {
-                // one tap only: the keypad does not repeat the macro → keep it running, the next press stops it (toggle)
-                _noRepeat.Add(s.Col);
-                o.Add(new PcOut(PcOutKind.Note, Slot: s.Col, Code: 0, Shell:
-                    $"[hold] кнопка {s.Col}: за {gap} мс после нажатия пришёл только один сигнал — клавиатура НЕ повторяет макрос с битом «пока зажата». " +
-                    "Кнопка работает как «до повторного нажатия»: макрос продолжается, следующее нажатие остановит."));
+                // v5.9.7: one tap = a short press (or a keypad that does not repeat): ALWAYS stop — v5.9.6 kept the macro
+                // running here (toggle fallback), so a quick tap right after start-up could leave the autoclick on.
+                // (a key already in the start / stop fallback — Mode = Toggle — keeps its macro until the next press)
+                if (h != null && h.Mode != MacroRepeatMode.Toggle) { if (h.WasHold) o.Add(new PcOut(PcOutKind.StopMacro, Slot: h.Action.MacroSlot)); else Release(h, o); }
+                bool holdMacro = h != null && h.WasHold && h.Mode != MacroRepeatMode.Toggle;
+                int n = _singles[s.Col] = (_singles.TryGetValue(s.Col, out int c0) ? c0 : 0) + 1;
+                if (holdMacro && !_repeats.Contains(s.Col) && n >= NoRepeatAfterSingles && _noRepeat.Add(s.Col))
+                    o.Add(new PcOut(PcOutKind.Note, Slot: s.Col, Code: 0, Shell:
+                        $"[hold] кнопка {s.Col}: {n} нажатия подряд — по одному сигналу (пауза {gap} мс): клавиатура НЕ повторяет макрос с битом «пока зажата». " +
+                        "Дальше кнопка работает как «до повторного нажатия»: первое нажатие запускает, следующее останавливает."));
+                else if (holdMacro)
+                    o.Add(new PcOut(PcOutKind.Note, Slot: s.Col, Code: 2, Shell: $"[hold] кнопка {s.Col}: короткое нажатие — один сигнал, макрос остановлен (пауза {gap} мс)"));
             }
-            else if (h != null) Release(h, o);
         }
         return o;
     }
@@ -415,6 +427,7 @@ public sealed class PcLayerRouter
             {
                 int gap = (int)(nowMs!.Value - ts.Last);
                 ts.Gaps.Add(gap); ts.Last = nowMs.Value; ts.Taps++;
+                o.Add(new PcOut(PcOutKind.Alive, Slot: col));
                 if (ts.Taps == 2 && _repeats.Add(col))
                 {
                     _noRepeat.Remove(col);
@@ -455,6 +468,7 @@ public sealed class PcLayerRouter
                     case PcKeyKind.Shell: o.Add(new PcOut(PcOutKind.Shell, Shell: a.Shell, Code: a.Code)); break;
                     case PcKeyKind.FirmwareOnly: o.Add(new PcOut(PcOutKind.FirmwareOnly, Code: a.Code)); break;
                 }
+                if (stream) o.Add(new PcOut(PcOutKind.Alive, Slot: col));   // v5.9.7: arms the player's watchdog
             }
             if (nowMs is long n) h!.LastMs = n;
             if (h!.Action.Kind == PcKeyKind.Key) o.Add(new PcOut(h.ViaHost ? PcOutKind.HostDown : PcOutKind.KeyDown, h.Action.Vk, Code: h.Action.Code));
