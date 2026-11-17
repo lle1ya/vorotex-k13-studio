@@ -156,7 +156,7 @@ public partial class MainWindow
     internal void DemoKeypadHolds(string? profile)
     {
         var p = profile == null ? null : _store.Find(profile);
-        _deviceImage = p?.Device == null ? null : K13MemoryCodec.Encode(Layer.Active ? PcLayerPlanner.Apply(p.Device, Layer, HoldCols()) : p.Device, DefaultImage);
+        _deviceImage = p?.Device == null ? null : K13MemoryCodec.Encode(PcLayerPlanner.Target(p.Device, Layer, HoldCols()), DefaultImage);
         PushMapper();
         RefreshDirty(); RefreshLayout();
     }
@@ -233,6 +233,7 @@ public partial class MainWindow
             if (_hookBlockedBy != null)
                 return Banner(true, $"Активное окно «{_hookBlockedBy}», похоже, запущено от администратора: Windows не даёт Studio перехватывать кнопки и нажимать клавиши или мышь в нём. " +
                                     "Запустите Studio от имени администратора (правой кнопкой по exe) или запускайте это окно без прав администратора.", null, null);
+            if (NormalModeBanner() is { } nb) return nb;   // v5.10.1: Normal explains «Num 2»; Game / a verified write clears it
             if (_kpUnexpectedVk != 0)
                 return Banner(true, $"Клавиатура прислала «{VkName(_kpUnexpectedVk)}» вместо своего сигнала — кнопки через ПК сейчас не работают. Нажмите «Подготовить снова» или выключите «Кнопки по профилю».", null, null);
             if (kp != null && !PcLayerPlanner.LooksPrepared(Layer, kp))
@@ -242,16 +243,7 @@ public partial class MainWindow
                 return Banner(true, $"В клавиатуре другое на: {KeyList(mism.Select(m => m.Column).Take(4))} — нажмите «Записать».", null, null);
             return Banner(false, $"Кнопки меняются вместе с профилем (через ПК) — сейчас «{_profile.Name}».", null, null);
         }
-        // v5.8: «factory keys» = hardware mode Normal (stick toggles Normal/Game), not a lost layout
-        if (_kpForeignVk != 0 && _hwMode != HwMode.Game || _hwMode == HwMode.Normal && _connected && !_offline)
-        {
-            string what = _kpForeignVk != 0 ? $"Клавиатура прислала «{VkName(_kpForeignVk)}» — она в режиме Normal (заводские клавиши). " : "Клавиатура в режиме Normal (заводские клавиши). ";
-            return _activationFailed
-                ? Banner(true, what + "Включить Game не удалось — нажмите стик (загорится синий индикатор между Tab и 9) или ⋯ → «Сохранить диагностику».",
-                         "Прочитать память", async () => { if (await ReadDevice(auto: false) != null) { _kpForeignVk = 0; _activationFailed = false; await RefreshHwMode("после чтения"); RefreshModeBanner(); } })
-                : Banner(_kpForeignVk != 0, what + "Ваши назначения работают в режиме Game: нажмите стик или «Включить Game сейчас» (без записи).",
-                         "Включить Game сейчас", async () => await ActivateKeypad(auto: false));
-        }
+        if (NormalModeBanner() is { } nb2) return nb2;
         if (kp != null && StickTilts.Unassigned(kp) is { Count: > 0 } emptyTilts && _connected && !_offline)
             return Banner(true, $"Наклоны стика в клавиатуре не назначены ({emptyTilts.Count} из 4) — с записанной раскладкой они ничего не посылают. " +
                                 "Нажмите «Записать», чтобы прописать стрелки.", "Записать", async () => await WriteDevice());
@@ -270,6 +262,28 @@ public partial class MainWindow
         var profiles = _store.Data.Profiles.Where(p => p.Device != null).ToList();
         bool differ = profiles.Count > 1 && PcLayerPlanner.Columns.Any(c => profiles.Select(p => p.Device!.GetKey(c)).Distinct().Count() > 1);
         return differ ? Banner(false, "Кнопки записаны в клавиатуре и не меняются вместе с профилем.", "Сделать через ПК…", async () => await PrepareKeypad()) : null;
+    }
+
+    /// <summary>v5.8: «factory keys» = hardware mode Normal (stick toggles Normal/Game), not a lost layout. v5.10.1: shared by both modes.</summary>
+    private FrameworkElement? NormalModeBanner()
+    {
+        if (!(_kpForeignVk != 0 && _hwMode != HwMode.Game || _hwMode == HwMode.Normal && _connected && !_offline)) return null;
+            string what = _kpForeignVk != 0 ? $"Клавиатура прислала «{VkName(_kpForeignVk)}» — она в режиме Normal (заводские клавиши). " : "Клавиатура в режиме Normal (заводские клавиши). ";
+            return _activationFailed
+                ? Banner(true, what + "Включить Game не удалось — нажмите стик (загорится синий индикатор между Tab и 9) или ⋯ → «Сохранить диагностику».",
+                         "Прочитать память", async () => { if (await ReadDevice(auto: false) != null) { _kpForeignVk = 0; _activationFailed = false; await RefreshHwMode("после чтения"); RefreshModeBanner(); } })
+                : Banner(_kpForeignVk != 0, what + "Ваши назначения работают в режиме Game: нажмите стик или «Включить Game сейчас» (без записи).",
+                         "Включить Game сейчас", async () => await ActivateKeypad(auto: false));
+    }
+
+    /// <summary>v5.10.1: the keypad state became OK (Game, verified write, replug check matched, routed key) — drop stale «прислала …» warnings.</summary>
+    internal void ClearKeypadWarnings(string why)
+    {
+        if (_kpForeignVk == 0 && _kpUnexpectedVk == 0 && !_activationFailed) return;
+        _kpForeignVk = 0; _kpUnexpectedVk = 0; _activationFailed = false;
+        Log($"[k13] предупреждения о клавишах сняты ({why}).");
+        RefreshModeBanner();
+        if (_selCol >= 0) BuildEditor();
     }
 
     private FrameworkElement Banner(bool warn, string text, string? action, Func<Task>? onAction)
@@ -304,13 +318,14 @@ public partial class MainWindow
             muted = a.Kind == PcKeyKind.Macro ? $"Через ПК: макрос выполняет компьютер, пока программа запущена. В другом профиле кнопка делает своё."
                                               : $"Через ПК: в профиле «{_profile.Name}» — {PcLayerPlanner.Describe(a)}. В другом профиле кнопка делает своё.";
             if (a.Kind == PcKeyKind.FirmwareOnly) warn = $"«{KeyCatalog.Name(a.Code)}» умеет только сама клавиатура — в режиме «через ПК» эта кнопка ничего не сделает.";
-            if (kp != null && kp.GetKey(col) != PcLayerPlanner.CellFor(Layer, Layer.Keys.First(k => k.Column == col))) warn = $"Клавиатура не подготовлена: сейчас эта кнопка посылает «{KpName(kp.GetKey(col))}».";
+            // v5.10.1: expected = what «Записать» writes (chord macro or the hold code «Меню»), not just the chord cell
+            if (kp != null && !PcLayerPlanner.SameCell(DeviceTarget, kp, col)) warn = $"Клавиатура не подготовлена: сейчас эта кнопка посылает «{KpName(kp.GetKey(col))}».";
         }
         else
         {
             if (Layer.Active) muted = key ? "Эта кнопка записана в клавиатуре и не меняется вместе с профилем." : "Джойстик и нажатие стика записаны в клавиатуре.";
             else if (KeyCatalog.IsMacro(Cfg.GetKey(col))) muted = "Макрос записан в клавиатуру и работает без программы; в другом профиле — только после «Записать».";
-            if (kp != null && kp.GetKey(col) != DeviceTarget.GetKey(col))
+            if (kp != null && !PcLayerPlanner.SameCell(DeviceTarget, kp, col))
                 warn = $"Сейчас в клавиатуре: «{KpName(kp.GetKey(col))}». Нажмите «Записать», чтобы было как здесь" + (Layer.Active || !key ? "." : ", или включите «Кнопки по профилю».");
         }
         _keyModeHelp = muted; // v5.7: the calm explanation goes into «?» next to the title; only warnings stay on screen
@@ -424,7 +439,8 @@ public partial class MainWindow
 
     internal void OnLayerRouted(int col, ushort vk, string profile, PcKeyAction? a)
     {
-        if (!_k13RoutedSeen) { _k13RoutedSeen = true; _kpUnexpectedVk = 0; RefreshModeBanner(); }
+        if (!_k13RoutedSeen) { _k13RoutedSeen = true; RefreshModeBanner(); }
+        if (_kpUnexpectedVk != 0 || _kpForeignVk != 0) ClearKeypadWarnings("кнопка K13 сработала через ПК");
         if (_exiting) return;
         string what = a == null ? "—" : a.Kind switch
         {
@@ -468,6 +484,15 @@ public partial class MainWindow
         DemoSetKey(col, (byte)(KeyCatalog.FirstMacro + slot)); return slot;
     }
     internal void DemoSetKey(int col, byte code) { Cfg.SetKey(col, code); RefreshAll(); }
+    internal void DemoHwMode(HwMode? m)
+    {
+        if (m == null) { _connected = _deviceImage != null; _hwMode = HwMode.Unknown; _kpForeignVk = 0; _kpUnexpectedVk = 0; UpdateConn(); RefreshModeBanner(); return; }
+        _connected = true;
+        var raw = new byte[21]; raw[0] = K13Layout.ReportId; raw[3] = (byte)(m == HwMode.Game ? 0xC0 : 0x40);
+        SetHwMode(new K13Status(raw), "проверка");
+    }
+    internal void DemoKeypadKey(ushort vk) => OnKeypadKey(vk, 0, true);
+    internal string EditorText() => SmokeTest.AllText(this);
     internal string DemoActiveProfile => _profile.Name;
     internal void DemoActivate(string name) => ActivateProfile(name, "проверка");
     internal void DemoRemoveProfile(string name) { _store.Data.Profiles.RemoveAll(p => p.Name == name); RefreshAll(); }
@@ -498,6 +523,7 @@ public partial class MainWindow
         if (_ringOverlay?.IsOpen == true && vk is not (0x1B or 0x0D) && _ringOverlay.WantsKey(vk)) _ringTiltFromK13 = true;
         if (_ringOverlay?.IsOpen == true && _ringLogged < 60) { _ringLogged++; Log($"[ring] при открытом кольце клавиатура прислала «{VkName(vk)}» (VK 0x{vk:X2})" + (_ringOverlay.WantsKey(vk) ? " — наклон/выбор" : " — не наклон стика")); }
         if (!Layer.Active) { CheckForeignKey(vk); return; }
+        if (_hwMode == HwMode.Normal) { CheckForeignKey(vk); return; }   // v5.10.1: in Normal the factory key is expected, not a broken preparation
         var h = PcLayerHealth.Check(Layer, KeypadCfg, vk);
         if (h == PcHealth.Unexpected && _kpUnexpectedVk != vk)
         {

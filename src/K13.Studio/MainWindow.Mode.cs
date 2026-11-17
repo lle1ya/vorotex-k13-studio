@@ -58,7 +58,7 @@ public partial class MainWindow
             Log($"[mode] режим клавиатуры: {K13Mode.Name(_hwMode)} → {K13Mode.Name(m)} ({why}; статус байт 3 = {(st.Raw.Length > 3 ? st.Raw[3].ToString("X2") : "—")})");
             _hwMode = m;
             if (m != HwMode.Game) _selfGame = false;
-            if (m == HwMode.Game) { _kpForeignVk = 0; _activationFailed = false; }
+            if (m == HwMode.Game) ClearKeypadWarnings("режим Game");
             UpdateConn(); RefreshModeBanner();
         }
     }

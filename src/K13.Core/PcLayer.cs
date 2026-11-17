@@ -333,15 +333,29 @@ public static class PcLayerPlanner
     /// </summary>
     public static List<Mismatch> Compare(K13DeviceConfig profile, PcLayerState state, K13DeviceConfig keypad, IEnumerable<int>? holdColumns = null)
     {
-        var want = Apply(profile, state, holdColumns);
+        var want = Target(profile, state, holdColumns);
         var list = new List<Mismatch>();
         foreach (var c in K13Layout.Controls.Where(c => c.Kind != ControlKind.Hidden || c.Column == 16))
-        {
-            byte w = want.GetKey(c.Column), k = keypad.GetKey(c.Column);
-            if (w != k) list.Add(new Mismatch(c.Column, w, k));
-        }
+            if (!SameCell(want, keypad, c.Column)) list.Add(new Mismatch(c.Column, want.GetKey(c.Column), keypad.GetKey(c.Column)));
         return list;
     }
+
+    /// <summary>v5.10.1: what «Записать» puts into the keypad — the one expected content for every check.
+    /// «через ПК»: chord macros + the plain hold code («Меню»); otherwise: PC actions as Scroll Lock + F chord macros.</summary>
+    public static K13DeviceConfig Target(K13DeviceConfig profile, PcLayerState state, IEnumerable<int>? holdColumns = null) =>
+        state.Active ? Apply(profile, state, holdColumns) : ApplyHostChords(profile);
+
+    /// <summary>v5.10.1: the keypad cell does what the target cell does — same code, or both are macros with the same steps
+    /// (the slot number may differ, e.g. a chord macro in another free slot).</summary>
+    public static bool SameCell(K13DeviceConfig want, K13DeviceConfig keypad, int column)
+    {
+        byte w = want.GetKey(column), k = keypad.GetKey(column);
+        if (w == k) return !KeyCatalog.IsMacro(w) || SlotSame(want, keypad, KeyCatalog.MacroSlotOf(w), KeyCatalog.MacroSlotOf(k));
+        return KeyCatalog.IsMacro(w) && KeyCatalog.IsMacro(k) && SlotSame(want, keypad, KeyCatalog.MacroSlotOf(w), KeyCatalog.MacroSlotOf(k));
+    }
+
+    private static bool SlotSame(K13DeviceConfig a, K13DeviceConfig b, int sa, int sb) =>
+        sa < a.Macros.Count && sb < b.Macros.Count && SameMacro(a.Macros[sa], b.Macros[sb]) && a.Macros[sa].RepeatMode == b.Macros[sb].RepeatMode;
 
     /// <summary>Does the keypad look prepared for this state (every mapped key sends its code)?</summary>
     public static bool LooksPrepared(PcLayerState state, K13DeviceConfig keypad) =>

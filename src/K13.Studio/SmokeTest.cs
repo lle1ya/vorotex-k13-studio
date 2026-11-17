@@ -498,6 +498,36 @@ public static class SmokeTest
                 w.SetCheckUpdates(on);
                 if (MainWindow.CurrentVersion < new Version(0, 5, 10)) throw new InvalidOperationException("версия сборки не поднята");
             });
+            // v5.10.1: the expected keypad content is what «Записать» writes — no false warnings; stale ones clear on Game
+            Step($"{th}: v5.10.1 нет ложных предупреждений, устаревшие снимаются", () =>
+            {
+                string prof = w.DemoActiveProfile;
+                w.DemoPcLayer(false);
+                byte was = w.KeyAt(0);
+                w.DemoSetKey(0, 0x6A);                                            // PC action on key 1, «через ПК» off
+                w.DemoKeypadHolds(prof);                                         // keypad = what «Записать» wrote (chord macro)
+                w.ShowPage(0); w.SelectControl(0); Render(w, 0);
+                if (w.ModeBannerText.Contains("делает не то") || w.EditorText().Contains("Сейчас в клавиатуре")) throw new InvalidOperationException("ложное предупреждение у действия на ПК: " + w.ModeBannerText);
+                w.SelectControl(-1); w.DemoSetKey(0, was);
+                // hold key with «Меню» in «через ПК»
+                byte tabWas = w.KeyAt(9);
+                int s = w.DemoMacroOnKey(9); w.DemoRepeat(s, MacroRepeatMode.WhileHeld, 1);
+                w.DemoPcLayer(true); w.DemoKeypadHolds(prof);
+                var hc = w.HoldColsWritten();
+                if (hc.Count != 1) throw new InvalidOperationException("код «Меню» не записан в образ");
+                w.ShowPage(0); w.SelectControl(hc.Keys.First()); Render(w, 0);
+                if (w.EditorText().Contains("Клавиатура не подготовлена")) throw new InvalidOperationException("ложное «не подготовлена» у кнопки с «Меню»");
+                if (w.ModeBannerWarns) throw new InvalidOperationException("ложное предупреждение вверху: " + w.ModeBannerText);
+                w.SelectControl(-1);
+                // Normal after replug: «Num 2» → Normal banner; Game → gone
+                w.DemoHwMode(HwMode.Normal); w.DemoKeypadKey(0x62); Render(w, 0);
+                if (!w.ModeBannerText.Contains("Normal")) throw new InvalidOperationException("в Normal нет объяснения: " + w.ModeBannerText);
+                w.DemoHwMode(HwMode.Game); Render(w, 0);
+                if (w.ModeBannerWarns) throw new InvalidOperationException("предупреждение осталось после перехода в Game: " + w.ModeBannerText);
+                w.DemoHwMode(null);
+                w.DemoRepeat(s, MacroRepeatMode.Count, 1); w.DemoKeypadHolds(null); w.DemoPcLayer(false);
+                if (w.KeyAt(9) != tabWas) w.DemoSetKey(9, tabWas);
+            });
             Step($"{th}: маленькое окно 960×640", () => { w.Width = 960; w.Height = 640; for (int p = 0; p < 4; p++) Render(w, p); });
             Step($"{th}: выход", () => w.ExitApp());
         }

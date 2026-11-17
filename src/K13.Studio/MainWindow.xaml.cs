@@ -836,7 +836,7 @@ public partial class MainWindow : Window
             if (r.Ok && !r.NothingToDo)
             {
                 if (r.Written != null && r.After != null && r.BackupAfter != null) { _store.Data.ReplugCheck = PendingReplugCheck.From(r.Written, r.After, r.BackupAfter); _replugAsked = false; SaveStore(); }
-                _kpForeignVk = 0;
+                ClearKeypadWarnings("запись проверена");
                 if (r.KeysChanged) ShowWrittenHint(secs);
                 else if (!quiet) StatusText.Text = $"Готово за {secs:0.0} с — подсветка уже обновлена на клавиатуре.";
             }
