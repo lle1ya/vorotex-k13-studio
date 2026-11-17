@@ -285,7 +285,8 @@ public partial class MainWindow
             host.Children.Add(g);
             host.Children.Add(T("Как нажимать:", 13, muted: true, bottom: 6));
             var g2 = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3 };
-            foreach (var (i, t, sub) in new[] { (0, "Щелчок", "один раз"), (1, "Двойной", "два щелчка"), (2, "Автоклик", "пока зажата") })
+            var where = KeyWhere(_selCol);
+            foreach (var (i, t, sub) in new[] { (0, "Щелчок", "один раз"), (1, "Двойной", "два щелчка"), (2, "Автоклик", where == HoldWhere.Pc ? "старт / стоп" : "пока зажата") })
             {
                 int ii = i;
                 g2.Children.Add(BigOption(i == 2 ? "\uE895" : "\uE8B0", t, sub, _mouseMode == i, () => { _mouseMode = ii; Paint(); }));
@@ -295,12 +296,26 @@ public partial class MainWindow
             if (ShowTech) host.Children.Add(T(sure // v5.7: code provenance only with «Технические подробности»
                 ? "Код левой кнопки подтверждён: именно так её записывает родная программа (ваш прежний макрос «ЛКМ»)."
                 : "Код этой кнопки определён по анализу родной программы — будет проверено при первой записи.", 12, muted: true).With(t => t.Margin = new Thickness(0, 12, 0, 0)));
-            host.Children.Add(T("Щелчок хранится в клавиатуре как маленький макрос и работает без программы.", 12, muted: true).With(t => t.Margin = new Thickness(0, 4, 0, 0)));
+            host.Children.Add(T(MouseHint(_mouseMode, where), 12, muted: true).With(t => { t.Margin = new Thickness(0, 4, 0, 0); t.TextWrapping = TextWrapping.Wrap; }));
         }
         Paint();
         EditorHost.Children.Add(host);
         return () => _lastError = ApplyMouse(_mouseBtn, _mouseMode);
     }
+
+    /// <summary>v5.9.4: honest hint under the mouse tile (where the click runs; autoclick in the keypad is not confirmed yet).</summary>
+    internal static string MouseHint(int mode, HoldWhere where) => where switch
+    {
+        HoldWhere.Pc => mode == 2
+            ? "Через ПК: включены «Кнопки по профилю», щелчки выполняет программа на ПК (она должна быть запущена). Удержание кнопки ей не видно, поэтому автоклик работает как «до повторного нажатия»: первое нажатие запускает, второе останавливает. " +
+              "Чтобы щелчок хранился в самой клавиатуре: выключите «Кнопки по профилю (через ПК)» и нажмите «Записать»."
+            : "Через ПК: включены «Кнопки по профилю», щелчок выполняет программа на ПК (она должна быть запущена). " +
+              "Чтобы щелчок хранился в самой клавиатуре: выключите «Кнопки по профилю (через ПК)» и нажмите «Записать».",
+        _ => (mode == 2
+                ? "Автоклик в клавиатуре (проверяется): щелчок хранится в клавиатуре как маленький макрос с режимом «пока зажата», как в родной программе, но повтор при удержании без программы ещё не подтверждён."
+                : "Щелчок хранится в клавиатуре как маленький макрос и работает без программы.")
+             + (where == HoldWhere.KeypadNotWritten ? " В клавиатуру он попадёт после «Записать»." : ""),
+    };
 
     private Border BigOption(string glyph, string title, string sub, bool on, Action click)
     {

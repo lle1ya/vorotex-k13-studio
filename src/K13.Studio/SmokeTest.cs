@@ -363,6 +363,33 @@ public static class SmokeTest
                 Dialog(w.BuildPrepareDialog());
                 w.DemoKeypadHolds(null);
             });
+            // v5.9.4: honest hold / autoclick hints — through the PC a hold is invisible (toggle), on the keypad «проверяется»
+            Step($"{th}: v5.9.4 «пока зажата» и автоклик — через ПК и в клавиатуре", () =>
+            {
+                int t = w.FirstNamedMacroOtherThan(-1);
+                w.DemoPcLayer(true);
+                w.DemoRepeat(t, MacroRepeatMode.WhileHeld, 1); Render(w, 2);
+                string pc = AllText(w);
+                foreach (var must in new[] { "Через ПК", "работает как «До повторного нажатия»", "Удержание кнопки ей не видно", MainWindow.ToKeypadSteps })
+                    if (!pc.Contains(must)) throw new InvalidOperationException($"через ПК, пока зажата: нет «{must}»");
+                if (pc.Contains("Работает в самой клавиатуре")) throw new InvalidOperationException("осталось «Работает в самой клавиатуре»");
+                w.DemoRepeat(t, MacroRepeatMode.Toggle, 1); Render(w, 2);
+                if (!AllText(w).Contains("Через ПК: включены «Кнопки по профилю», макрос выполняет программа на ПК")) throw new InvalidOperationException("через ПК, до повторного: нет подсказки");
+                w.ShowPage(0); w.SelectControl(9); w.OpenTile("mouse"); Render(w, 0);
+                string mpc = AllText(w);
+                if (!mpc.Contains("старт / стоп") || !mpc.Contains("выключите «Кнопки по профилю (через ПК)» и нажмите «Записать»") || mpc.Contains("работает без программы."))
+                    throw new InvalidOperationException("мышь через ПК: подсказка неверна");
+                w.OpenTile(null); w.SelectControl(-1);
+                w.DemoPcLayer(false);
+                w.DemoRepeat(t, MacroRepeatMode.WhileHeld, 1); Render(w, 2);
+                string kp = AllText(w);
+                if (!kp.Contains("В клавиатуре (проверяется)") || kp.Contains("Через ПК: включены")) throw new InvalidOperationException("в клавиатуре: нет «(проверяется)»");
+                w.ShowPage(0); w.SelectControl(9); w.OpenTile("mouse"); Render(w, 0);
+                if (AllText(w).Contains("старт / стоп")) throw new InvalidOperationException("мышь в клавиатуре: подпись «старт / стоп»");
+                if (!MainWindow.MouseHint(2, MainWindow.HoldWhere.KeypadNotWritten).Contains("Автоклик в клавиатуре (проверяется)")) throw new InvalidOperationException("автоклик без «(проверяется)»");
+                w.OpenTile(null); w.SelectControl(-1);
+                w.DemoRepeat(t, MacroRepeatMode.Count, 1);
+            });
             Step($"{th}: маленькое окно 960×640", () => { w.Width = 960; w.Height = 640; for (int p = 0; p < 4; p++) Render(w, p); });
             Step($"{th}: выход", () => w.ExitApp());
         }

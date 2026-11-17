@@ -202,8 +202,9 @@ public sealed class HostMapper : IDisposable
             case PcOutKind.KeyUp: { var v = o.Vk; Post(() => InjectVk(v, false)); break; }
             case PcOutKind.HostDown: Handle(o.Vk, true); break;
             case PcOutKind.HostUp: Handle(o.Vk, false); break;
-            case PcOutKind.StartMacro or PcOutKind.StartMacroHeld when l != null && o.Slot < l.Cfg.Macros.Count:
+            case PcOutKind.StartMacro or PcOutKind.StartMacroHeld or PcOutKind.StartMacroLoop when l != null && o.Slot < l.Cfg.Macros.Count:
                 var m = l.Cfg.Macros[o.Slot].Clone(); bool held = o.Kind == PcOutKind.StartMacroHeld;
+                if (o.Kind == PcOutKind.StartMacroLoop) m.RepeatMode = MacroRepeatMode.Toggle; // v5.9.4: second press stops (MacroPlayer.Play)
                 _ui.BeginInvoke(() => { if (held) MacroPlayer.PlayWhileHeld(m); else MacroPlayer.Play(m); });
                 break;
             case PcOutKind.StopMacro: _ui.BeginInvoke(() => MacroPlayer.Stop()); break;

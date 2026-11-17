@@ -230,7 +230,9 @@ public static class PcLayerPlanner
         a.Events.Count == b.Events.Count && a.Events.Zip(b.Events).All(p => p.First.Down == p.Second.Down && p.First.Code == p.Second.Code);
 }
 
-public enum PcOutKind { KeyDown, KeyUp, HostDown, HostUp, StartMacro, StartMacroHeld, StopMacro, Shell, FirmwareOnly }
+/// <summary>StartMacroLoop (v5.9.4): «пока зажата» in the chord scheme — the PC cannot see a hold there (the keypad sends a
+/// ~16 ms Scroll Lock+F tap), so the macro loops until the same key is pressed again, like «до повторного нажатия».</summary>
+public enum PcOutKind { KeyDown, KeyUp, HostDown, HostUp, StartMacro, StartMacroHeld, StopMacro, Shell, FirmwareOnly, StartMacroLoop }
 
 /// <summary>One thing the hook must do for a keypad event.</summary>
 public readonly record struct PcOut(PcOutKind Kind, ushort Vk = 0, int Slot = -1, string Shell = "", byte Code = 0);
@@ -305,6 +307,9 @@ public sealed class PcLayerRouter
 
     public bool IsChord => _chord;
 
+    /// <summary>v5.9.4: «пока зажата» cannot be detected in this layer state (chord scheme) and runs as «до повторного нажатия».</summary>
+    public static bool HoldBecomesToggle(PcLayerState state) => state.Active && state.Scheme == PcLayerState.ChordScheme;
+
     /// <param name="nowMs">Event time (ms, monotonic); null = treat every down while held as auto-repeat.</param>
     public List<PcOut> Route(ushort vk, bool down, K13DeviceConfig profile, Func<ushort, bool> isHostTrigger, long? nowMs = null)
     {
@@ -324,13 +329,16 @@ public sealed class PcLayerRouter
             {
                 var a = PcLayerPlanner.Resolve(profile, col);
                 var mode = a.Kind == PcKeyKind.Macro && a.MacroSlot >= 0 && a.MacroSlot < profile.Macros.Count ? profile.Macros[a.MacroSlot].RepeatMode : MacroRepeatMode.Count;
+                // v5.9.4: chord scheme = the release comes ~16 ms after the press whatever the finger does → hold works as toggle
+                bool loop = _chord && mode == MacroRepeatMode.WhileHeld;
+                if (loop) mode = MacroRepeatMode.Toggle;
                 h = new Held(a, a.Kind == PcKeyKind.Key && isHostTrigger(a.Vk), mode);
                 LastResolved = a;
                 _held[vk] = h;
                 switch (a.Kind)
                 {
                     case PcKeyKind.Macro when a.MacroSlot < profile.Macros.Count && profile.Macros[a.MacroSlot].IsUsed:
-                        o.Add(new PcOut(mode == MacroRepeatMode.WhileHeld ? PcOutKind.StartMacroHeld : PcOutKind.StartMacro, Slot: a.MacroSlot, Code: a.Code)); break;
+                        o.Add(new PcOut(loop ? PcOutKind.StartMacroLoop : mode == MacroRepeatMode.WhileHeld ? PcOutKind.StartMacroHeld : PcOutKind.StartMacro, Slot: a.MacroSlot, Code: a.Code)); break;
                     case PcKeyKind.Shell: o.Add(new PcOut(PcOutKind.Shell, Shell: a.Shell, Code: a.Code)); break;
                     case PcKeyKind.FirmwareOnly: o.Add(new PcOut(PcOutKind.FirmwareOnly, Code: a.Code)); break;
                 }
