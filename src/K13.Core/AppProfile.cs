@@ -260,6 +260,11 @@ public sealed class ProfileStoreData
     public PcLayerState PcLayer { get; set; } = new();
     /// <summary>v5.7: show technical details (bytes, codes, addresses, hex). Off by default — calmer screens.</summary>
     public bool ShowTechDetails { get; set; }
+    /// <summary>v5.10: look for a newer release on GitHub (once a day, notify only — never downloads or installs).</summary>
+    public bool CheckUpdates { get; set; } = true;
+    public DateTime LastUpdateCheck { get; set; }
+    /// <summary>v5.10: the release the user said «Не сейчас» to — not offered again (the ⋯ menu still shows it).</summary>
+    public string? SkippedUpdate { get; set; }
     public bool MinimizeToTray { get; set; } = true;
     public bool DarkTheme { get; set; }
     public bool WelcomeShown { get; set; }

@@ -239,8 +239,15 @@ public static class SmokeTest
             Step($"{th}: меню ⋯ — включение Game и тест команды", () =>
             {
                 var main = AllText(w.MainMenu());
-                foreach (var t in new[] { "Включить Game сейчас", "Автоматически включать Game при подключении", "Тест: какая команда включает Game" })
+                foreach (var t in new[] { "Включить Game сейчас", "Автоматически включать Game при подключении", "Восстановить из резервной копии" })
                     if (!main.Contains(t)) throw new InvalidOperationException("нет пункта " + t);
+                // v5.10: diagnostic tools only with «технические подробности»
+                bool tech = w.ShowTech;
+                w.SetShowTech(false);
+                if (AllText(w.MainMenu()).Contains("Тест: какая команда включает Game")) throw new InvalidOperationException("тест команды виден без технических подробностей");
+                w.SetShowTech(true);
+                if (!AllText(w.MainMenu()).Contains("Тест: какая команда включает Game")) throw new InvalidOperationException("нет теста команды в технических подробностях");
+                w.SetShowTech(tech);
                 // v5.8.2: action first, then a separator, then the setting
                 var items = w.MainMenu().Items.Cast<object>().ToList();
                 int Idx(string t) => items.FindIndex(i => i is MenuItem mi && AllText(mi).Contains(t));
@@ -439,12 +446,57 @@ public static class SmokeTest
                 w.DemoPcLayer(false);
                 w.DemoRepeat(t, MacroRepeatMode.WhileHeld, 1); Render(w, 2);
                 string kp = AllText(w);
-                if (!kp.Contains("В клавиатуре (проверяется)") || kp.Contains("Через ПК: включены")) throw new InvalidOperationException("в клавиатуре: нет «(проверяется)»");
+                if (!kp.Contains("не останавливает повтор") || kp.Contains("Через ПК: включены")) throw new InvalidOperationException("в клавиатуре: нет честной подсказки про удержание");
                 w.ShowPage(0); w.SelectControl(9); w.OpenTile("mouse"); Render(w, 0);
                 if (AllText(w).Contains("старт / стоп")) throw new InvalidOperationException("мышь в клавиатуре: подпись «старт / стоп»");
-                if (!MainWindow.MouseHint(2, MainWindow.HoldWhere.KeypadNotWritten).Contains("Автоклик в клавиатуре (проверяется)")) throw new InvalidOperationException("автоклик без «(проверяется)»");
+                if (!MainWindow.MouseHint(2, MainWindow.HoldWhere.KeypadNotWritten).Contains("не останавливает щелчки")) throw new InvalidOperationException("автоклик в клавиатуре без честной подсказки");
                 w.OpenTile(null); w.SelectControl(-1);
                 w.DemoRepeat(t, MacroRepeatMode.Count, 1);
+            });
+            // v5.10: «Действие на ПК» without «через ПК» goes to the keypad as the Scroll Lock + F chord, never as F14–F24
+            Step($"{th}: v5.10 действие на ПК — сочетание Scroll Lock + F вместо F14–F24", () =>
+            {
+                w.DemoPcLayer(false);
+                byte was = w.KeyAt(3);
+                w.DemoSetKey(3, 0x69);
+                var target = w.DeviceTarget;
+                if (!KeyCatalog.IsMacro(target.GetKey(3))) throw new InvalidOperationException($"в цели записи у кнопки код 0x{target.GetKey(3):X2}, а не макрос-сочетание");
+                var mac = target.Macros[KeyCatalog.MacroSlotOf(target.GetKey(3))];
+                if (!mac.Events.Any(e => e.Code == 0x47) || !mac.Events.Any(e => e.Code == 0x3A)) throw new InvalidOperationException("макрос-сочетание не Scroll Lock + F1");
+                for (int c = 0; c < K13Layout.KeymapColumns; c++) if (PcLayerPlanner.IsHostTrigger(target.GetKey(c))) throw new InvalidOperationException($"в цели записи остался F14–F24 у кнопки {c}");
+                var rs = w.RoutedState;
+                if (!rs.Keys.Any(k => k.Column == 3 && k.Code == 0x3A) || rs.Scheme != PcLayerState.ChordScheme) throw new InvalidOperationException("перехватчик не ждёт Scroll Lock + F1 для кнопки");
+                w.DemoSetKey(3, was);
+            });
+            // v5.10: restore from a backup = a new profile, the keypad changes only via «Записать»
+            Step($"{th}: v5.10 восстановление из резервной копии", () =>
+            {
+                if (!AllText(w.MainMenu()).Contains("Восстановить из резервной копии")) throw new InvalidOperationException("нет пункта «Восстановить из резервной копии»");
+                string prev = w.DemoActiveProfile;
+                var f = Path.Combine(Path.GetTempPath(), "k13-smoke-restore.bin");
+                File.WriteAllBytes(f, MainWindow.DefaultImage);
+                string name = w.RestoreFromBackup(f, ask: false);
+                if (w.DemoActiveProfile != name || !name.StartsWith("Копия от ")) throw new InvalidOperationException($"копия не открылась профилем ({w.DemoActiveProfile})");
+                Render(w, 0);
+                if (!AllText(w).Contains("нажмите «Записать»")) throw new InvalidOperationException("нет подсказки «нажмите «Записать»» после восстановления");
+                w.DemoActivate(prev); w.DemoRemoveProfile(name);
+                File.Delete(f);
+                bool threw = false;
+                File.WriteAllBytes(f, new byte[100]);
+                try { w.RestoreFromBackup(f, ask: false); } catch (K13FormatException) { threw = true; }
+                File.Delete(f);
+                if (!threw || w.AllProfiles().Any(p => p.Name.StartsWith("Копия от "))) throw new InvalidOperationException("испорченная копия не отклонена");
+            });
+            // v5.10: update check — notify only, can be switched off
+            Step($"{th}: v5.10 проверка обновлений в меню ⋯", () =>
+            {
+                bool on = w.CheckUpdatesOn;
+                var t = AllText(w.MainMenu());
+                if (!t.Contains("Проверять обновления") || !t.Contains("Проверить обновления сейчас")) throw new InvalidOperationException("нет пунктов проверки обновлений");
+                w.SetCheckUpdates(!on);
+                if (w.CheckUpdatesOn == on) throw new InvalidOperationException("проверку обновлений не выключить");
+                w.SetCheckUpdates(on);
+                if (MainWindow.CurrentVersion < new Version(0, 5, 10)) throw new InvalidOperationException("версия сборки не поднята");
             });
             Step($"{th}: маленькое окно 960×640", () => { w.Width = 960; w.Height = 640; for (int p = 0; p < 4; p++) Render(w, p); });
             Step($"{th}: выход", () => w.ExitApp());

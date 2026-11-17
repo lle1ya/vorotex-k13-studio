@@ -141,7 +141,7 @@ public partial class MainWindow
                 var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Резервная копия для восстановления 0x000F", Filter = "Резервная копия K13|*.bin|Все файлы|*.*", InitialDirectory = BackupStore.EnsureFolder() };
                 if (dlg.ShowDialog(this) != true) return;
                 byte[] bak;
-                try { bak = File.ReadAllBytes(dlg.FileName); } catch (Exception ex) { MessageBox.Show(this, "Не удалось прочитать файл: " + ex.Message, Title); return; }
+                try { bak = File.ReadAllBytes(dlg.FileName); } catch (Exception ex) { MessageBox.Show(this, "Не удалось прочитать файл: " + FriendlyError.Text(ex), Title); return; }
                 var (t, err) = K13RememberMode.RestoreTarget(c, bak);
                 if (t is null) { MessageBox.Show(this, err!, Title, MessageBoxButton.OK, MessageBoxImage.Warning); Log("[remember] восстановление отклонено: " + err); return; }
                 Log($"[remember] восстановление из {dlg.FileName}: 0x000F = {t:X2}.");
@@ -188,7 +188,7 @@ public partial class MainWindow
         catch (Exception ex)
         {
             Log("[remember] ошибка: " + ex.Message);
-            MessageBox.Show(this, "Не удалось: " + ex.Message, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, "Не удалось: " + FriendlyError.Text(ex), Title, MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally { _busy = false; UpdateConn(); }
     }

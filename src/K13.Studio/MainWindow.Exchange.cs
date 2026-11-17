@@ -107,7 +107,7 @@ public partial class MainWindow
                 StatusText.Text = "Профили сохранены: " + dlg.FileName;
                 w.DialogResult = true;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { notes.Text = "Не удалось сохранить: " + ex.Message; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { notes.Text = "Не удалось сохранить: " + FriendlyError.Text(ex); }
         };
         copy.Click += (_, _) =>
         {
@@ -167,13 +167,13 @@ public partial class MainWindow
         catch (ProfileImportException ex)
         {
             Log("Импорт отклонён: " + ex.Message);
-            MessageBox.Show(this, "Этот профиль нельзя импортировать.\n\n" + ex.Message + "\n\nНичего не изменено.", "Импорт профилей", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, "Этот профиль нельзя импортировать.\n\n" + FriendlyError.Text(ex) + "\n\nНичего не изменено.", "Импорт профилей", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
         catch (Exception ex)
         {
             App.Log("import: " + ex);
-            MessageBox.Show(this, "Не удалось прочитать профиль: " + ex.Message + "\n\nНичего не изменено.", "Импорт профилей", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, "Не удалось прочитать профиль: " + FriendlyError.Text(ex) + "\n\nНичего не изменено.", "Импорт профилей", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
         var dlg = BuildImportDialog(pv, out var answer);

@@ -19,7 +19,7 @@ internal static class HostActionsWindow
         var root = new DockPanel { Margin = new Thickness(24) };
         var head = new StackPanel();
         head.Children.Add(new TextBlock { Text = "Действия на ПК", FontSize = 20, FontWeight = FontWeights.SemiBold });
-        head.Children.Add(Ui.Label("Клавиатура посылает «редкую» клавишу (F13–F24), а программа превращает её в действие. Отличает короткое нажатие от удержания и распознаёт диагонали джойстика (два направления сразу).", true, 4));
+        head.Children.Add(Ui.Label("Клавиатура посылает служебный сигнал (F13 или Scroll Lock + F), а программа превращает её в действие. Отличает короткое нажатие от удержания и распознаёт диагонали джойстика (два направления сразу).", true, 4));
         DockPanel.SetDock(head, Dock.Top);
         root.Children.Add(head);
 

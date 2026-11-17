@@ -24,6 +24,9 @@ public sealed class PcLayerState
     public int Scheme { get; set; }
     public const int ChordScheme = 1;
 
+    /// <summary>v5.10: the key the user chose for the one real hold («Меню» code); -1 = automatic.</summary>
+    public int HoldColumn { get; set; } = -1;
+
     /// <summary>Prepared with the old F14–F24 scheme — must be prepared again.</summary>
     public bool Legacy => Active && Scheme != ChordScheme;
 
@@ -33,7 +36,7 @@ public sealed class PcLayerState
     public int CodeColumn(byte code) => Keys.FirstOrDefault(k => k.Code == code)?.Column ?? -1;
     public bool IsMapped(int column) => Keys.Any(k => k.Column == column);
 
-    public PcLayerState Clone() => new() { Keys = Keys.Select(k => new PcLayerKey { Column = k.Column, Code = k.Code }).ToList(), PreparedAt = PreparedAt, Scheme = Scheme };
+    public PcLayerState Clone() => new() { Keys = Keys.Select(k => new PcLayerKey { Column = k.Column, Code = k.Code }).ToList(), PreparedAt = PreparedAt, Scheme = Scheme, HoldColumn = HoldColumn };
 
     /// <summary>Drops anything a hand-edited / damaged file could contain: unknown columns, codes outside the pool, duplicates.</summary>
     public List<string> Normalize()
@@ -89,8 +92,72 @@ public static class PcLayerPlanner
         return d;
     }
 
-    /// <summary>The keypad macro a prepared key runs in the chord scheme. v5.9.6: <paramref name="hold"/> sets the vendor's
-    /// «пока зажата» bit (table byte 3 bit 7, mode1) — the keypad should then repeat the tap while the key is held.</summary>
+    // ── v5.10: «Действие на ПК» without «через ПК». The profile keeps the key's trigger code F14–F24 (0x69–0x73) as an
+    // identifier (its host binding has TriggerVk F14–F24), but the K13 does not send those codes (§26.1). In the keypad the
+    // key gets a free macro slot with the same «Scroll Lock + F<i>» chord as the «через ПК» mode (F14 → F1 … F24 → F11),
+    // and the PC turns the chord back into F14–F24. One path for both modes; old profiles need no change, just «Записать».
+    public const byte FirstHostTrigger = 0x69, LastHostTrigger = 0x73;
+    public static bool IsHostTrigger(byte code) => code is >= FirstHostTrigger and <= LastHostTrigger;
+    public static byte ChordFor(byte hostTrigger) => ChordPool[hostTrigger - FirstHostTrigger];
+
+    /// <summary>Keys (keymap row 0) whose cell is a PC-action trigger F14–F24 → chord F1–F11 (for the hook, outside «через ПК»).</summary>
+    public static PcLayerState HostChordState(K13DeviceConfig cfg)
+    {
+        var st = new PcLayerState { Scheme = PcLayerState.ChordScheme };
+        for (int col = 0; col < K13Layout.KeymapColumns; col++)
+            if (IsHostTrigger(cfg.GetKey(col))) st.Keys.Add(new PcLayerKey { Column = col, Code = ChordFor(cfg.GetKey(col)) });
+        return st;
+    }
+
+    /// <summary>What to write outside «через ПК»: every F14–F24 cell becomes a free macro slot with its chord.
+    /// <paramref name="noSlot"/> = keys left without a slot (all 16 macro slots busy) — they cannot work.</summary>
+    public static K13DeviceConfig ApplyHostChords(K13DeviceConfig cfg, out List<int> noSlot)
+    {
+        noSlot = new List<int>();
+        var c = cfg.Clone();
+        var used = new HashSet<int>();
+        for (int col = 0; col < K13Layout.KeymapColumns; col++)
+            for (int row = 0; row < K13Layout.KeymapRows; row++)
+                if (KeyCatalog.IsMacro(c.GetKey(col, row))) used.Add(KeyCatalog.MacroSlotOf(c.GetKey(col, row)));
+        var free = new Queue<int>(Enumerable.Range(0, Math.Min(c.Macros.Count, KeyCatalog.MacroCodeCount)).Where(i => !used.Contains(i) && !c.Macros[i].IsUsed));
+        for (int col = 0; col < K13Layout.KeymapColumns; col++)
+        {
+            byte code = c.GetKey(col);
+            if (!IsHostTrigger(code)) continue;
+            if (free.Count == 0) { noSlot.Add(col); continue; }
+            int slot = free.Dequeue();
+            c.Macros[slot] = ChordMacro(ChordFor(code));
+            c.SetKey(col, (byte)(KeyCatalog.FirstMacro + slot));
+        }
+        return c;
+    }
+
+    public static K13DeviceConfig ApplyHostChords(K13DeviceConfig cfg) => ApplyHostChords(cfg, out _);
+
+    /// <summary>Back from the keypad to the profile (outside «через ПК»): a key whose macro is exactly a chord «Scroll Lock + F1…F11»
+    /// gets its F14–F24 trigger code again and the slot is freed. Other macros stay.</summary>
+    public static K13DeviceConfig RevertHostChords(K13DeviceConfig keypad)
+    {
+        var c = keypad.Clone();
+        for (int col = 0; col < K13Layout.KeymapColumns; col++)
+        {
+            byte cell = c.GetKey(col);
+            if (!KeyCatalog.IsMacro(cell)) continue;
+            int slot = KeyCatalog.MacroSlotOf(cell);
+            if (slot >= c.Macros.Count) continue;
+            for (int i = 0; i < ChordPool.Length; i++)
+                if (SameMacro(c.Macros[slot], ChordMacro(ChordPool[i])))
+                {
+                    c.SetKey(col, (byte)(FirstHostTrigger + i));
+                    c.Macros[slot] = new MacroSlot();
+                    break;
+                }
+        }
+        return c;
+    }
+
+    /// <summary>The keypad macro a prepared key runs in the chord scheme: Scroll Lock ↓, F&lt;i&gt; ↓↑, Scroll Lock ↑ (no hold bit —
+    /// the firmware would not stop it on release, §33.2; a real hold uses the plain «Меню» code).</summary>
     public static MacroSlot ChordMacro(byte fkey) => new()
     {
         Repeat = 1,
@@ -352,9 +419,11 @@ public sealed class PcLayerRouter
         if (vk == PcLayerPlanner.ChordPrefixVk)
         {
             swallow = true;
-            if (down) _prefix = true; else { _prefix = false; _prefixUpAt = nowMs ?? _prefixUpAt; }
+            if (down) { _prefix = true; _prefixDownAt = nowMs; } else { _prefix = false; _prefixUpAt = nowMs ?? _prefixUpAt; }
             return new List<PcOut>();
         }
+        // v5.10: a Scroll Lock whose release was lost (keypad unplugged mid-chord, hook skipped) must not keep eating the real F keys
+        if (_prefix && nowMs is long n0 && _prefixDownAt is long d0 && n0 - d0 > PrefixStaleMs) _prefix = false;
         if (down && _map.ContainsKey(vk) && (_prefix || _chordDown.Contains(vk) || nowMs is long t && t - _prefixUpAt <= ChordGraceMs))
         {
             swallow = true; _chordDown.Add(vk);
@@ -370,6 +439,11 @@ public sealed class PcLayerRouter
     }
 
     public bool IsChord => _chord;
+
+    /// <summary>v5.10: Scroll Lock held longer than this (no auto-repeat refresh) is treated as released. The keypad macro holds it ≈ 30 ms.</summary>
+    public const int PrefixStaleMs = 1000;
+    private long? _prefixDownAt;
+
 
     // ── v5.9.8: real hold through the PC. The K13 firmware does NOT stop a hold-bit (mode1) macro when the key is released
     // (logs 17.11 13:35 and 14:05: the Scroll Lock+F tap kept repeating after the release — until the next press or ≈ 83 taps /
@@ -464,7 +538,7 @@ public sealed class PcLayerRouter
     /// <summary>Keys still held (e.g. on exit / when the mode is switched off) → their releases.</summary>
     public List<PcOut> ReleaseAll()
     {
-        _prefix = false; _chordDown.Clear();
+        _prefix = false; _chordDown.Clear(); _prefixDownAt = null;
         var o = new List<PcOut>();
         foreach (var h in _held.Values) Release(h, o);
         _held.Clear();

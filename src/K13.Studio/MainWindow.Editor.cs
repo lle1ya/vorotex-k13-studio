@@ -732,7 +732,7 @@ public partial class MainWindow
                 codes.Add(cd);
             }
         }
-        catch (Exception ex) { return ex.Message; }
+        catch (Exception ex) { return FriendlyError.Text(ex); }
         byte current = Cfg.GetKey(_selCol);
         int slot = KeyCatalog.IsMacro(current) && Labels.ComboOf(Cfg.Macros[KeyCatalog.MacroSlotOf(current)]) != null ? KeyCatalog.MacroSlotOf(current) : FreeMacroSlot();
         if (slot < 0) return "Нет свободного места для сочетания (все 11 макросов заняты).";
@@ -757,7 +757,7 @@ public partial class MainWindow
         byte trig = tap.Kind == HostActionKind.Ring && hold.Kind == HostActionKind.None ? ProfileMigrations.RingTrigger(Cfg, _profile.Host, _selCol)
             : current is >= 0x68 and <= 0x73 ? current : FreeTriggerCode();
         if (trig == 0) trig = FreeTriggerCode();
-        if (trig == 0) return "Все служебные клавиши F13–F24 уже заняты.";
+        if (trig == 0) return "Свободных кодов для действий на ПК больше нет (их 12). Уберите действие с другой кнопки.";
         ushort vk = (ushort)(0x7C + (trig - 0x68));
         var b = _profile.Host.Keys.FirstOrDefault(k => k.TriggerVk == vk);
         if (b == null) { b = new HostKeyBinding { TriggerVk = vk }; _profile.Host.Keys.Add(b); }
@@ -766,15 +766,15 @@ public partial class MainWindow
         Cfg.SetKey(_selCol, trig);
         Log($"{DeviceView.ControlName(_selCol)}: {KeyCatalog.Name(trig)} → {tap}.");
         Changed(); RefreshHostSummary();
-        if (!KeyCatalog.FirmwareSends(trig) && !Layer.Active)
-        {   // v5.6.4: the action is keyed to F14–F24, which the K13 does not send — it only works through «Кнопки по профилю»
-            StatusText.Text = HostNeedsLayerText;
-            Log(HostNeedsLayerText);
+        if (!Layer.Active)
+        {   // v5.10: the key is written as a «Scroll Lock + F» macro — it needs a free macro slot
+            PcLayerPlanner.ApplyHostChords(Cfg, out var noSlot);
+            if (noSlot.Contains(_selCol)) { StatusText.Text = NoSlotText; Log(NoSlotText); }
         }
         return null;
     }
 
-    internal const string HostNeedsLayerText = "Действие на ПК сработает, только если включить «Кнопки по профилю»: клавиатура K13 не посылает служебные коды F14–F24.";
+    internal const string NoSlotText = "Для действия на ПК кнопке нужна свободная ячейка макроса, а все 16 заняты. Удалите ненужный макрос — иначе эта кнопка работать не будет.";
 
     private int FreeMacroSlot()
     {

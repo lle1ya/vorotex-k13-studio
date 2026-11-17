@@ -28,6 +28,6 @@ internal static class Autostart
             else if (k.GetValue(ValueName) != null) k.DeleteValue(ValueName, false);
             return null;
         }
-        catch (Exception ex) { return ex.Message; }
+        catch (Exception ex) { return Vorotex.K13.FriendlyError.Text(ex); }
     }
 }

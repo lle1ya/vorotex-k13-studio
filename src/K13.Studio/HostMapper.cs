@@ -83,7 +83,10 @@ public sealed class HostMapper : IDisposable
 
     private void Diag(string msg)
     {
-        App.Log("[hook] " + msg);          // file, written directly (never waits for the UI)
+        // v5.10: never write the file on the hook thread — the first K13 press after start-up wrote «первое событие…» here,
+        // together with the JIT of the routing code that made Windows time the hook out: the press leaked to the active window
+        // and came back through Raw Input («мимо режима»).
+        Post(() => App.Log("[hook] " + msg));
         var l = UiLog;
         if (l != null) _ui.BeginInvoke(() => l("[перехват] " + msg));
     }
@@ -99,6 +102,7 @@ public sealed class HostMapper : IDisposable
         _thread = new Thread(() =>
         {
             _threadId = GetCurrentThreadId();
+            Warmup();
             _hook = Native.SetWindowsHookEx(Native.WH_KEYBOARD_LL, _proc, Native.GetModuleHandle(null), 0);
             int err = Marshal.GetLastWin32Error();
             if (_hook == IntPtr.Zero) Diag($"НЕ установлен: SetWindowsHookEx(WH_KEYBOARD_LL) ошибка Win32 {err}");
@@ -110,9 +114,12 @@ public sealed class HostMapper : IDisposable
             {
                 if (m.message == WM_APP_MISSED)
                 {
+                    ushort mvk = (ushort)m.wParam; bool mdown = m.lParam != IntPtr.Zero;
+                    if (TakeLate(mvk, mdown)) { if (_dupLogs++ < 20) Diag($"повтор VK 0x{mvk:X2} через Raw Input отброшен — перехватчик уже выполнил это нажатие"); continue; }
                     _routingMissed = true;
-                    try { RouteLayer((ushort)m.wParam, m.lParam != IntPtr.Zero, (uint)Environment.TickCount); } catch { }
+                    try { RouteLayer(mvk, mdown, (uint)Environment.TickCount); } catch { }
                     finally { _routingMissed = false; }
+                    MaybeReinstall();
                 }
             }
             Native.UnhookWindowsHookEx(_hook);
@@ -121,6 +128,63 @@ public sealed class HostMapper : IDisposable
         }) { IsBackground = true, Name = "K13 keyboard hook", Priority = ThreadPriority.AboveNormal };
         _thread.Start();
         ready.Wait(3000);
+    }
+
+    // ── v5.10: hook reliability ──────────────────────────────────────────────────────────────────────────────────────────
+    private const uint LateHookMs = 150;
+    private readonly List<(ushort Vk, bool Down, int At)> _late = new();   // hook thread only
+    private int _dupLogs, _missedSinceHook, _missedFirstAt; private long _eventsAtMiss;
+
+    private void NoteLate(ushort vk, bool down)
+    {
+        int now = Environment.TickCount;
+        _late.RemoveAll(x => now - x.At > 2000);
+        if (_late.Count < 64) _late.Add((vk, down, now));
+    }
+
+    private bool TakeLate(ushort vk, bool down)
+    {
+        int now = Environment.TickCount;
+        _late.RemoveAll(x => now - x.At > 2000);
+        int i = _late.FindIndex(x => x.Vk == vk && x.Down == down);
+        if (i < 0) return false;
+        _late.RemoveAt(i);
+        return true;
+    }
+
+    /// <summary>Windows silently removes a low-level hook that timed out several times. If K13 presses keep coming only through
+    /// Raw Input (8 events within 5 s, no hook call meanwhile), install the hook again.</summary>
+    private void MaybeReinstall()
+    {
+        int now = Environment.TickCount; long ev = Interlocked.Read(ref _events);
+        if (_missedSinceHook == 0 || ev != _eventsAtMiss || now - _missedFirstAt > 5000) { _missedSinceHook = 0; _missedFirstAt = now; _eventsAtMiss = ev; }
+        if (++_missedSinceHook < 8) return;
+        _missedSinceHook = 0;
+        if (_hook != IntPtr.Zero) Native.UnhookWindowsHookEx(_hook);
+        _hook = Native.SetWindowsHookEx(Native.WH_KEYBOARD_LL, _proc, Native.GetModuleHandle(null), 0);
+        Diag(_hook == IntPtr.Zero ? "переустановить перехватчик не удалось" : "перехватчик не получал кнопки K13 — установлен заново");
+    }
+
+    /// <summary>JIT-compiles the hook path before the hook is installed (the first call must not be slow).</summary>
+    private void Warmup()
+    {
+        try
+        {
+            foreach (var name in new[] { nameof(HookProc), nameof(RouteLayer), nameof(Do), nameof(Handle), nameof(NoteLate), nameof(TakeLate), nameof(Post) })
+                foreach (var mi in typeof(HostMapper).GetMethods(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public).Where(m => m.Name == name && !m.IsGenericMethodDefinition))
+                    System.Runtime.CompilerServices.RuntimeHelpers.PrepareMethod(mi.MethodHandle);
+            // run the router once on a scratch instance (generic dictionaries, records, LINQ in Feed/Route)
+            var r = new PcLayerRouter();
+            var cfg = K13MemoryCodec.Decode(MainWindow.DefaultImage);
+            var st = new PcLayerState { Scheme = PcLayerState.ChordScheme, Keys = { new PcLayerKey { Column = 0, Code = PcLayerPlanner.ChordPool[0] } } };
+            r.SetLayer(st); r.SetHold(Array.Empty<int>(), new Dictionary<int, byte>());
+            ushort f = KeyCatalog.ToVirtualKey(PcLayerPlanner.ChordPool[0]);
+            foreach (var (v, d) in new (ushort, bool)[] { (PcLayerPlanner.ChordPrefixVk, true), (f, true), (f, false), (PcLayerPlanner.ChordPrefixVk, false) })
+                r.Feed(v, d, cfg, _ => false, 1000, out _);
+            NoteLate(0, true); TakeLate(0, true);
+            _ = Marshal.SizeOf<Native.KBDLLHOOKSTRUCT>();
+        }
+        catch (Exception ex) { App.Log("[hook] прогрев: " + ex.Message); }
     }
 
     public void Stop()
@@ -146,21 +210,24 @@ public sealed class HostMapper : IDisposable
     }
 
     /// <summary>v5.6: keys through the PC. Empty state = the keypad keeps its own keys (nothing is translated).</summary>
-    public void UpdateLayer(PcLayerState state, K13DeviceConfig profileCfg, string profileName, IEnumerable<int>? holdWant = null, IReadOnlyDictionary<int, byte>? holdWritten = null)
+    public void UpdateLayer(PcLayerState state, K13DeviceConfig profileCfg, string profileName, IEnumerable<int>? holdWant = null, IReadOnlyDictionary<int, byte>? holdWritten = null, bool hostOnly = false)
     {
-        if (!state.Active) { if (_layer != null) App.Log("[hook] кнопки через ПК выключены"); _layer = null; return; }
+        if (!state.Active) { if (_layer != null) App.Log(_hostOnly ? "[hook] действий на ПК через Scroll Lock + F нет" : "[hook] кнопки через ПК выключены"); _layer = null; _hostOnly = hostOnly; return; }
+        if (hostOnly != _hostOnly) { _hostOnly = hostOnly; _layer = null; }
         bool was = _layer != null;
         var hw = (holdWant ?? Array.Empty<int>()).OrderBy(x => x).ToArray();
         var hr = new Dictionary<int, byte>(holdWritten ?? new Dictionary<int, byte>());
         var prev = _layer;
         string Desc(Dictionary<int, byte> d) => string.Join(", ", d.OrderBy(x => x.Key).Select(x => $"{x.Key} → {KeyCatalog.Name(x.Value)}"));
-        if (prev == null || !prev.HoldWant.SequenceEqual(hw) || Desc(prev.HoldWritten) != Desc(hr))
+        if (!hostOnly && (prev == null || !prev.HoldWant.SequenceEqual(hw) || Desc(prev.HoldWritten) != Desc(hr)))
             App.Log($"[hold] «пока зажата» через ПК: кнопки с удержанием [{string.Join(", ", hw)}], код удержания записан в клавиатуре [{Desc(hr)}]");
         _layer = new LayerSnapshot(state.Clone(), profileCfg.Clone(), profileName, hw, hr);
-        if (!was) App.Log($"[hook] кнопки через ПК: {state.Keys.Count} кнопок, профиль «{profileName}»");
+        if (!was) App.Log(hostOnly ? $"[hook] действия на ПК через Scroll Lock + F: {state.Keys.Count} кнопок, профиль «{profileName}»"
+                                   : $"[hook] кнопки через ПК: {state.Keys.Count} кнопок, профиль «{profileName}»");
     }
 
     public bool LayerActive => _layer != null;
+    private bool _hostOnly; // v5.10: the routed state is only the PC-action keys (mode «через ПК» off)
 
     /// <summary>Hook thread. True = the event belongs to the PC layer (swallow it).</summary>
     /// <summary>v5.6.2: a fresh press went through the PC layer (column, vk, profile, action) — UI thread.</summary>
@@ -183,7 +250,28 @@ public sealed class HostMapper : IDisposable
         _work.Add(a);
     }
 
+    private readonly object _routerLock = new();
+
     private bool RouteLayer(ushort vk, bool down, long? timeMs = null)
+    {
+        lock (_routerLock) return RouteLayerCore(vk, down, timeMs); // uncontended except for KeypadGone()
+    }
+
+    /// <summary>v5.10: the keypad was unplugged — its releases will never come: stop a playing macro, release held keys,
+    /// forget a half-finished Scroll Lock chord (otherwise the real keyboard's F keys could be taken).</summary>
+    public void KeypadGone()
+    {
+        lock (_routerLock)
+        {
+            var outs = _router.ReleaseAll();
+            foreach (var o in outs) Do(o, null);
+            _routedDown.Clear();
+        }
+        Post(() => MacroPlayer.Stop("клавиатура отключена"));
+        Diag("клавиатура отключена — удержания сброшены");
+    }
+
+    private bool RouteLayerCore(ushort vk, bool down, long? timeMs)
     {
         var l = _layer;
         if (l == null)
@@ -323,7 +411,13 @@ public sealed class HostMapper : IDisposable
                         if (down0 && !IsRingTrigger(vk) && ring.WantsKey(vk)) { _ringKeys.Add(vk); _ui.BeginInvoke(() => ring.OnKey(vk, true)); return (IntPtr)1; }
                         if (!down0 && _ringKeys.Remove(vk)) { _ui.BeginInvoke(() => ring.OnKey(vk, false)); return (IntPtr)1; }
                     }
-                    if (RouteLayer(vk, down0, k.time)) return (IntPtr)1;
+                        if (RouteLayer(vk, down0, k.time))
+                    {
+                        // v5.10: a slow hook call may have been timed out by Windows → the same event comes back via Raw Input
+                        uint took = (uint)Environment.TickCount - k.time;
+                        if (took > LateHookMs) NoteLate(vk, down0);
+                        return (IntPtr)1;
+                    }
                     bool always = AlwaysSwallow.Contains(vk);
                     var s = _settings;
                     if (s.Enabled && IsTrigger(vk))

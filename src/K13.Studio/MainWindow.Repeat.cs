@@ -8,7 +8,7 @@ namespace Vorotex.Studio;
 
 /// <summary>v4.8: macro repeat mode as a segmented pill control (1× · N× with stepper · while held · toggle).
 /// All four modes are stored in the keypad's macro table (same bits as the vendor app). v5.9.4: «пока зажата» / «до повторного
-/// нажатия» running without the PC is not confirmed yet → «в клавиатуре (проверяется)»; with «Кнопки по профилю (через ПК)» the PC
+/// нажатия» without the PC: the firmware does not stop a hold macro on release (v5.10 hint says so); with «Кнопки по профилю (через ПК)» the PC
 /// plays the macro and cannot see a hold (chord tap), so «пока зажата» runs as toggle there.</summary>
 public partial class MainWindow
 {
@@ -33,13 +33,17 @@ public partial class MainWindow
 
     /// <summary>v5.9.4/v5.9.6: where a «пока зажата» / «до повторного нажатия» macro actually runs.
     /// Pc = through the PC, no plain hold code in the keypad yet (toggle until «Записать»); PcHold = the key sends the plain hold
-    /// code (v5.9.8, real release); PcNoRepeat = no free hold code left for this key (start / stop).</summary>
-    internal enum HoldWhere { Pc, PcHold, PcNoRepeat, Keypad, KeypadNotWritten }
+    /// code (v5.9.8, real release); PcNoCode = no free hold code left for this key (start / stop).</summary>
+    internal enum HoldWhere { Pc, PcHold, PcNoCode, Keypad, KeypadNotWritten }
 
-    internal static bool ViaPc(HoldWhere w) => w is HoldWhere.Pc or HoldWhere.PcHold or HoldWhere.PcNoRepeat;
+    internal static bool ViaPc(HoldWhere w) => w is HoldWhere.Pc or HoldWhere.PcHold or HoldWhere.PcNoCode;
 
     internal const string ToKeypadSteps = "Чтобы макрос работал в самой клавиатуре: выключите «Кнопки по профилю (через ПК)» и нажмите «Записать».";
     internal const string NeedsWriteForHold = "Чтобы «Пока зажата» работала по удержанию, нажмите «Записать»: кнопке в клавиатуре запишется отдельный код («Меню») с настоящим отпусканием.";
+    /// <summary>v5.10: measured 17.11.2026 — the K13 firmware keeps repeating a hold macro after the release (§33.2).</summary>
+    internal const string KeypadHoldTruth = "В клавиатуре: прошивка K13 не останавливает повтор, когда кнопку отпускают, — макрос идёт до следующего нажатия (или около 3 секунд). " +
+        "Настоящее «Пока зажата» работает с включёнными «Кнопками по профилю (через ПК)».";
+    internal const string KeypadToggleTruth = "В клавиатуре: режим записан так же, как его записывает родная программа; без программы на ПК мы его не проверяли.";
     internal const string PlainHoldNote = "Пока включены «Кнопки по профилю», клавиша «Меню» обычной клавиатуры тоже работает как эта кнопка.";
 
     /// <summary>Honest hint: through the PC a hold is only visible if the keypad repeats the key's tap (hold bit, needs «Записать»);
@@ -54,16 +58,19 @@ public partial class MainWindow
             ? "Через ПК, по удержанию: кнопка посылает отдельный код («Меню») с настоящим отпусканием — макрос крутится, пока кнопка зажата, и останавливается, когда её отпустили. " +
               PlainHoldNote
             : "Через ПК: включены «Кнопки по профилю», макрос выполняет программа на ПК (она должна быть запущена). Первое нажатие запускает, второе останавливает. " + ToKeypadSteps,
-        HoldWhere.PcNoRepeat => hold
-            ? "Через ПК: по удержанию может работать только одна кнопка (свободный код для неё один — «Меню»), и он уже отдан другой кнопке. Здесь «Пока зажата» работает как «До повторного нажатия»: первое нажатие запускает, второе останавливает. " + ToKeypadSteps
+        HoldWhere.PcNoCode => hold
+            ? "Через ПК: по удержанию может работать только одна кнопка (свободный код для неё один — «Меню»), и он отдан другой кнопке. Здесь «Пока зажата» работает как «До повторного нажатия»: первое нажатие запускает, второе останавливает. Удержание можно отдать этой кнопке — ниже."
             : "Через ПК: включены «Кнопки по профилю», макрос выполняет программа на ПК (она должна быть запущена). Первое нажатие запускает, второе останавливает. " + ToKeypadSteps,
-        HoldWhere.Keypad => "В клавиатуре (проверяется): режим записан в клавиатуру так же, как его записывает родная программа, но работа без программы ещё не подтверждена.",
-        _ => "В клавиатуре (проверяется): режим записывается в клавиатуру так же, как в родной программе, но работа без программы ещё не подтверждена. " +
-             "Сейчас этого макроса в клавиатуре нет — нажмите «Записать».",
+        HoldWhere.Keypad => (hold ? KeypadHoldTruth : KeypadToggleTruth),
+        _ => (hold ? KeypadHoldTruth : KeypadToggleTruth) + " Сейчас этого макроса в клавиатуре нет — нажмите «Записать».",
     };
 
     private HoldWhere PcWhere(int col) =>
-        HoldColsWritten().ContainsKey(col) ? HoldWhere.PcHold : HoldCols().Contains(col) && !HoldColsPlanned().ContainsKey(col) ? HoldWhere.PcNoRepeat : HoldWhere.Pc;
+        HoldColsWritten().ContainsKey(col) ? HoldWhere.PcHold : HoldCols().Contains(col) && !HoldColsPlanned().ContainsKey(col) ? HoldWhere.PcNoCode : HoldWhere.Pc;
+
+    /// <summary>v5.10: the «через ПК» key that runs macro slot <paramref name="slot"/> in this profile, -1 = none.</summary>
+    internal int MacroColumn(int slot) => !Layer.Active ? -1 :
+        Layer.Keys.Select(k => k.Column).FirstOrDefault(c => KeyCatalog.IsMacro(Cfg.GetKey(c)) && KeyCatalog.MacroSlotOf(Cfg.GetKey(c)) == slot, -1);
 
     /// <summary>Macro slot <paramref name="slot"/>: played by the PC («через ПК» on) or by the keypad (written or not yet).</summary>
     internal HoldWhere MacroWhere(int slot)
@@ -111,11 +118,12 @@ public partial class MainWindow
         {
             var where = MacroWhere(sel);
             var onDevice = new DockPanel { Margin = new Thickness(4, 6, 0, 0) };
-            bool warn = where is HoldWhere.Pc or HoldWhere.PcNoRepeat;
+            bool warn = where is HoldWhere.Pc or HoldWhere.PcNoCode;
             var icon = new TextBlock { Text = warn ? "\uE7BA" : "\uE946", FontFamily = Icons, FontSize = 12, Foreground = R(warn ? "WarnBrush" : "MutedBrush"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 6, 0) };
             DockPanel.SetDock(icon, Dock.Left); onDevice.Children.Add(icon);
             onDevice.Children.Add(T(HoldHint(choice == RepeatChoice.Hold, where), 12, muted: true).With(t => t.TextWrapping = TextWrapping.Wrap));
             root.Children.Add(onDevice);
+            if (where == HoldWhere.PcNoCode && choice == RepeatChoice.Hold && MacroColumn(sel) is int hc and >= 0) root.Children.Add(HoldChooser(hc));
         }
 
         void Set(RepeatChoice c)
@@ -228,7 +236,7 @@ public partial class MainWindow
         wrap.Children.Add(Segment(RepeatChoice.Times, "N×", null, choice == RepeatChoice.Times ? "Раз" : "N раз", "Несколько раз: одно нажатие выполняет макрос заданное число раз подряд (2…65535).", stepper));
         wrap.Children.Add(Segment(RepeatChoice.Hold, null, "\uE7C9", "Пока зажата", "Пока зажата: макрос крутится по кругу, пока вы держите кнопку, и останавливается, когда её отпускаете."));
         wrap.Children.Add(Segment(RepeatChoice.Toggle, null, "\uE8EE", "До повторного нажатия",
-            "До повторного нажатия: первое нажатие запускает макрос по кругу, второе нажатие той же кнопки останавливает. Режим записывается в клавиатуру так же, как в родной программе; работа без ПК пока проверяется."));
+            "До повторного нажатия: первое нажатие запускает макрос по кругу, второе нажатие той же кнопки останавливает. Режим записывается в клавиатуру так же, как в родной программе."));
         // narrow editor: tidy 2×2 grid instead of a ragged wrap
         var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2 };
         root.SizeChanged += (_, e) =>

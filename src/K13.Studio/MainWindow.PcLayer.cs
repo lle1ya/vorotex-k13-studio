@@ -16,7 +16,11 @@ public partial class MainWindow
     private PcLayerState Layer => _store.Data.PcLayer;
 
     /// <summary>What the keypad must contain for the active profile in the current mode.</summary>
-    internal K13DeviceConfig DeviceTarget => Layer.Active ? PcLayerPlanner.Apply(Cfg, Layer, HoldCols()) : Cfg;
+    /// v5.10: outside «через ПК» the PC-action keys (F14–F24 in the profile) are written as «Scroll Lock + F» chord macros.
+    internal K13DeviceConfig DeviceTarget => Layer.Active ? PcLayerPlanner.Apply(Cfg, Layer, HoldCols()) : PcLayerPlanner.ApplyHostChords(Cfg);
+
+    /// <summary>v5.10: what the hook routes: the «через ПК» layer, or (mode off) the PC-action keys of the profile.</summary>
+    internal PcLayerState RoutedState => Layer.Active ? Layer : PcLayerPlanner.HostChordState(Cfg);
 
     /// <summary>v5.9.6: keys (through the PC) whose action is a «пока зажата» macro in any profile → their tap macro gets the hold bit.</summary>
     /// v5.9.8: ordered — keys that already have the plain hold code in the keypad first (stable), then the active profile's
@@ -30,12 +34,40 @@ public partial class MainWindow
         var written = PcLayerPlanner.HoldColumnsWritten(st, KeypadCfg);
         bool Mouse(int c) => PcLayerPlanner.Resolve(Cfg, c) is { Kind: PcKeyKind.Macro, MacroSlot: var ms } && ms >= 0 && ms < Cfg.Macros.Count &&
                              Cfg.Macros[ms].Events.Any(e => e.IsMouseButton);   // autoclick first — the main use of a hold
-        return set.OrderBy(c => written.ContainsKey(c) ? 0 : mine.Contains(c) && Mouse(c) ? 1 : mine.Contains(c) ? 2 : 3).ThenBy(c => c).ToList();
+        // v5.10: the key the user chose comes first
+        return set.OrderBy(c => c == st.HoldColumn ? -1 : written.ContainsKey(c) ? 0 : mine.Contains(c) && Mouse(c) ? 1 : mine.Contains(c) ? 2 : 3).ThenBy(c => c).ToList();
     }
     /// <summary>v5.9.8: keys that send the plain hold code in the keypad (last read / written image) → code.</summary>
     internal Dictionary<int, byte> HoldColsWritten() => PcLayerPlanner.HoldColumnsWritten(Layer, KeypadCfg);
     /// <summary>v5.9.8: hold keys that get a real hold after «Записать» (the others stay «до повторного нажатия»).</summary>
     internal Dictionary<int, byte> HoldColsPlanned() => PcLayerPlanner.HoldCodes(Layer, HoldCols());
+
+    /// <summary>v5.10: the key that gets (or has) the one real hold, -1 = none.</summary>
+    internal int HoldOwner() => HoldColsPlanned().Keys.DefaultIfEmpty(-1).First();
+
+    /// <summary>v5.10: «Отдать удержание этой кнопке» — the next «Записать» moves the «Меню» code there.</summary>
+    internal void ChooseHoldKey(int col)
+    {
+        if (col < 0 || !Layer.Active) return;
+        Layer.HoldColumn = col; SaveStore();
+        Log($"Удержание «через ПК» отдано кнопке «{DeviceView.ControlName(col)}» — нажмите «Записать».");
+        StatusText.Text = $"Удержание будет у кнопки «{DeviceView.ControlName(col)}» после «Записать».";
+        PushMapper(); RefreshDirty(); RefreshLayout();
+        if (_tile != null) BuildEditor();
+        RefreshMacros();
+    }
+
+    /// <summary>A small «Отдать удержание этой кнопке» link with the current owner (for hints of keys without the code).</summary>
+    private UIElement HoldChooser(int col)
+    {
+        int owner = HoldOwner();
+        var sp = new StackPanel { Margin = new Thickness(22, 4, 0, 0) };
+        if (owner >= 0) sp.Children.Add(T($"Сейчас удержание у кнопки «{DeviceView.ControlName(owner)}».", 12, muted: true));
+        var b = new Button { Style = (Style)FindResource("LinkButton"), Content = "Отдать удержание этой кнопке", HorizontalAlignment = HorizontalAlignment.Left, FontSize = 13 };
+        b.Click += (_, _) => ChooseHoldKey(col);
+        sp.Children.Add(b);
+        return sp;
+    }
     private string _holdWrittenKey = "";
 
     private byte[]? _kpImageRef;
@@ -57,7 +89,8 @@ public partial class MainWindow
         var written = HoldColsWritten();
         string key = string.Join(",", written.OrderBy(x => x.Key).Select(x => $"{x.Key}:{x.Value}"));
         if (key != _holdWrittenKey) _holdWrittenKey = key;
-        _mapper?.UpdateLayer(Layer, Cfg, _profile.Name, HoldCols(), written);
+        if (Layer.Active) _mapper?.UpdateLayer(Layer, Cfg, _profile.Name, HoldCols(), written);
+        else _mapper?.UpdateLayer(RoutedState, Cfg, _profile.Name, hostOnly: true);
     }
 
     private static string KeyList(IEnumerable<int> cols) => string.Join(", ", cols.Select(DeviceView.ControlName));
@@ -397,9 +430,10 @@ public partial class MainWindow
         {
             PcKeyKind.Macro => $"макрос «{MacroTitle(a.MacroSlot)}»",
             PcKeyKind.None => "ничего (кнопка отключена в этом профиле)",
+            _ when !Layer.Active && PcLayerPlanner.IsHostTrigger(a.Code) => "действие на ПК",
             _ => KeyCatalog.Name(a.Code),
         };
-        StatusText.Text = $"{char.ToUpperInvariant(DeviceView.ControlName(col)[0])}{DeviceView.ControlName(col)[1..]} → {what} (профиль «{profile}», через ПК).";
+        StatusText.Text = $"{char.ToUpperInvariant(DeviceView.ControlName(col)[0])}{DeviceView.ControlName(col)[1..]} → {what} (профиль «{profile}», {(Layer.Active ? "через ПК" : "действие на ПК")}).";
     }
 
     private string MacroTitle(int slot) => _profile.MacroNames.TryGetValue(slot, out var n) && !string.IsNullOrWhiteSpace(n) ? n : $"Макрос {slot + 1}";
@@ -408,7 +442,8 @@ public partial class MainWindow
     /// <summary>v5.9.5: Raw Input saw a K13 key the hook never got (Windows did not call the hook) → route it anyway.</summary>
     internal void OnKeypadRaw(ushort vk, ushort scan, bool down)
     {
-        bool missed = Layer.Active && !Layer.Legacy && (vk == PcLayerPlanner.ChordPrefixVk || Layer.Keys.Any(k => KeyCatalog.ToVirtualKey(k.Code) == vk) ||
+        var routed = RoutedState;
+        bool missed = routed.Active && !routed.Legacy && (vk == PcLayerPlanner.ChordPrefixVk || routed.Keys.Any(k => KeyCatalog.ToVirtualKey(k.Code) == vk) ||
                       HoldColsWritten().Values.Any(c => KeyCatalog.ToVirtualKey(c) == vk));   // v5.9.8: plain hold key
         if (missed && _mapper?.FeedMissed(vk, down) == true)
         {
@@ -433,6 +468,9 @@ public partial class MainWindow
         DemoSetKey(col, (byte)(KeyCatalog.FirstMacro + slot)); return slot;
     }
     internal void DemoSetKey(int col, byte code) { Cfg.SetKey(col, code); RefreshAll(); }
+    internal string DemoActiveProfile => _profile.Name;
+    internal void DemoActivate(string name) => ActivateProfile(name, "проверка");
+    internal void DemoRemoveProfile(string name) { _store.Data.Profiles.RemoveAll(p => p.Name == name); RefreshAll(); }
 
     internal void DemoHookBlocked(string? name) { _hookBlockedBy = name; _missedFg = name; RefreshModeBanner(); }
     internal string ModeBannerText => ModeBanner.Visibility == Visibility.Visible ? SmokeTest.AllText(ModeBanner) : "";

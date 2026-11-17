@@ -160,7 +160,7 @@ internal sealed class HostActionPanel : StackPanel
         if (k != HostActionKind.None && action.Value.Length == 0) { error = "Укажите значение действия."; return false; }
         if (k == HostActionKind.KeyCombo)
         {
-            try { KeyCombo.Parse(action.Value); } catch (Exception ex) { error = ex.Message; return false; }
+            try { KeyCombo.Parse(action.Value); } catch (Exception ex) { error = FriendlyError.Text(ex); return false; }
         }
         return true;
     }

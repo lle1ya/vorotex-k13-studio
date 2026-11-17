@@ -207,8 +207,8 @@ public partial class MainWindow
         sym.Checked += (_, _) => { if (_loading) return; led.Symmetry = true; Changed(false); };
         sym.Unchecked += (_, _) => { if (_loading) return; led.Symmetry = false; Changed(false); };
         gen.Children.Add(sym);
-        var react = new CheckBox { Style = (Style)FindResource("Switch"), Content = "Реакция на нажатия (экспериментально)", IsChecked = led.Colors[0].X >= 2,
-            ToolTip = "Где прошивка хранит этот флаг, точно не установлено." };
+        var react = new CheckBox { Style = (Style)FindResource("Switch"), Content = "Реакция на нажатия", IsChecked = led.Colors[0].X >= 2,
+            ToolTip = "Флаг записывается так же, как в родной программе; на всех ревизиях K13 он не проверен." };
         react.Checked += (_, _) => { if (_loading) return; led.Colors[0].X = 2; Changed(false); };
         react.Unchecked += (_, _) => { if (_loading) return; led.Colors[0].X = 1; Changed(false); };
         gen.Children.Add(react);

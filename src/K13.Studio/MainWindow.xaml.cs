@@ -124,6 +124,7 @@ public partial class MainWindow : Window
         Closing += OnClosing;
         WireDragDrop();
         if (!offline && !_store.Data.WelcomeShown) Loaded += (_, _) => ShowWelcome(true);
+        if (!offline) Loaded += (_, _) => ScheduleUpdateCheck();
         if (startMinimized) { WindowState = WindowState.Minimized; Loaded += (_, _) => Hide(); }
         Log($"Запуск v{typeof(App).Assembly.GetName().Version} (PID {Environment.ProcessId}, {Environment.ProcessPath}). Запись в клавиатуру: включена (с подтверждением, бэкапом и проверкой).");
     }
@@ -168,7 +169,7 @@ public partial class MainWindow : Window
             {
                 try { if (File.Exists(_store.FilePath)) File.Copy(_store.FilePath, _store.FilePath + $".before-unsafe-fix-{DateTime.Now:yyyyMMdd-HHmmss}.json"); } catch { }
                 Dispatcher.BeginInvoke(() => MessageBox.Show(this, string.Join("\n\n", unsafeNotes) +
-                    "\n\nПрограмма больше не перехватывает обычные клавиши основной клавиатуры. Для кольца и действий используются F13–F24, которые посылает только VOROTEX.",
+                    "\n\nПрограмма больше не перехватывает обычные клавиши основной клавиатуры. Для кольца и действий на ПК кнопки VOROTEX посылают служебные сигналы (F13 или Scroll Lock + F).",
                     Title, MessageBoxButton.OK, MessageBoxImage.Warning), DispatcherPriority.ApplicationIdle);
             }
         }
@@ -331,6 +332,8 @@ public partial class MainWindow : Window
         m.Items.Add(new Separator());
         Item("\uE896", "Прочитать с клавиатуры", ReadBtn_Click, _connected && !_busy && !_offline);
         Item("\uE74E", "Сохранить резервную копию", BackupBtn_Click, _connected && !_busy && !_offline);
+        Item("\uE777", "Восстановить из резервной копии…", ImportBin_Click)
+            .ToolTip = "Открыть сохранённую копию памяти как профиль. В клавиатуру она попадёт только после «Записать» и подтверждения.";
         Item("\uE72C", "Кнопки не печатают? Вернуть обычный режим", Unstick_Click, _connected && !_busy && !_offline);
         // v5.8.2: one-shot action and the setting are visually apart (makers ticked the setting instead of the action)
         Item("\uE768", "Включить Game сейчас", async (_, _) => await ActivateKeypad(auto: false), _connected && !_busy && !_offline)
@@ -342,11 +345,14 @@ public partial class MainWindow : Window
         Item("\uE7BA", RememberMenuText(), (_, _) => ShowRememberDialog())
             .ToolTip = "Заводской флаг клавиатуры: помнить последний режим (Normal или Game) после переподключения USB, даже без программы. Откроется окно с объяснением; запись — только после подтверждения.";
         m.Items.Add(new Separator());
-        Item("\uE9CE", "Тест: какая команда включает Game…", (_, _) => RunBisect(), _connected && !_busy && !_offline);
-        Item("\uE9D9", "План записи (пробный прогон)", PlanBtn_Click);
-        m.Items.Add(new Separator());
+        if (ShowTech)
+        {
+            // v5.10: diagnostic tools only with «Показать технические подробности»
+            Item("\uE9CE", "Тест: какая команда включает Game…", (_, _) => RunBisect(), _connected && !_busy && !_offline);
+            Item("\uE9D9", "План записи (пробный прогон)", PlanBtn_Click);
+            m.Items.Add(new Separator());
+        }
         Item("\uE8B5", "Импорт из config.ini…", ImportIni_Click);
-        Item("\uE8E5", "Импорт резервной копии (.bin)…", ImportBin_Click);
         Item("\uE838", "Открыть папку резервных копий", (_, _) => OpenBackupFolder());
         Item("\uE9F9", "Сохранить диагностику…", (_, _) => SaveDiagnostics());
         m.Items.Add(new Separator());
@@ -354,6 +360,11 @@ public partial class MainWindow : Window
         Item("\uE897", "Как пользоваться", (_, _) => ShowWelcome(true));
         Item("\uE950", "Устройство и журнал…", (_, _) => DeviceWindow.Show(this, DeviceInfo(), _deviceImage, LogText.ToString()));
         Item(ShowTech ? "\uE73E" : "\uE9D9", ShowTech ? "Скрыть технические подробности" : "Показать технические подробности", (_, _) => SetShowTech(!ShowTech));
+        m.Items.Add(new Separator());
+        if (_newer is { } nw) Item("\uE896", $"Открыть страницу версии {nw.Tag}", (_, _) => OpenReleasePage(nw.Url));
+        Item("\uE895", "Проверить обновления сейчас", async (_, _) => await CheckUpdatesAsync(manual: true), !_offline);
+        Item(_store.Data.CheckUpdates ? "\uE73E" : "", "Проверять обновления (раз в день)", (_, _) => SetCheckUpdates(!_store.Data.CheckUpdates))
+            .ToolTip = "Раз в день программа спрашивает GitHub, нет ли новой версии, и только сообщает. Ничего не скачивает и не устанавливает.";
         m.Items.Add(new Separator());
         Item("\uE7E8", "Выход", (_, _) => ExitApp());
         return m;
@@ -420,7 +431,8 @@ public partial class MainWindow : Window
     internal void SetupDiagonals()
     {
         if (MessageBox.Show(this,
-                "Джойстик будет посылать F13 (←), F14 (→), F15 (↓), F16 (↑), а программа превратит их обратно в стрелки и добавит 4 диагонали (по умолчанию Home / PgUp / End / PgDn — можно изменить).\n\n" +
+                "Джойстик будет посылать служебные сигналы для ПК, а программа превратит их обратно в стрелки и добавит 4 диагонали (по умолчанию Home / PgUp / End / PgDn — можно изменить).\n\n" +
+                "Важно: прошивка K13 посылает только F13 (←); →, ↓, ↑ идут коротким сочетанием Scroll Lock + F, поэтому удержание и диагонали с ними могут не работать — проверьте на своей клавиатуре.\n\n" +
                 "Раскладка джойстика попадёт в клавиатуру после нажатия «Записать». Продолжить?", Title, MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
         (int col, byte code, string arrow)[] map = { (12, 0x68, "Left"), (13, 0x69, "Right"), (14, 0x6A, "Down"), (15, 0x6B, "Up") };
         foreach (var (col, code, arrow) in map)
@@ -458,21 +470,49 @@ public partial class MainWindow : Window
             MessageBox.Show(this, $"Импортировано профилей: {list.Count}." + (notes.Count > 0 ? "\n\nЗамечания:\n• " + string.Join("\n• ", notes) : ""), Title);
             ActivateProfile(last!, "импорт");
         }
-        catch (Exception ex) { MessageBox.Show(this, "Ошибка импорта: " + ex.Message, Title); }
+        catch (Exception ex) { MessageBox.Show(this, "Ошибка импорта: " + FriendlyError.Text(ex), Title); }
     }
 
     private void ImportBin_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new Microsoft.Win32.OpenFileDialog { Filter = "Резервная копия K13|*.bin|Все файлы|*.*", InitialDirectory = BackupStore.DefaultFolder };
+        // v5.10: «Восстановить из резервной копии…» — newest copies first; the copy becomes a profile, the keypad changes only via «Записать» + its confirm.
+        var folder = BackupStore.EnsureFolder();
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Выберите резервную копию (новые — сверху, если отсортировать по дате)",
+            Filter = "Резервная копия K13|*.bin|Все файлы|*.*", InitialDirectory = folder,
+            FileName = NewestBackupName(folder) ?? ""
+        };
         if (dlg.ShowDialog(this) != true) return;
+        try { RestoreFromBackup(dlg.FileName, ask: true); }
+        catch (Exception ex) { Log("Резервная копия: " + ex.Message); MessageBox.Show(this, "Не удалось открыть резервную копию: " + FriendlyError.Text(ex) + "\n\nНичего не изменено.", Title, MessageBoxButton.OK, MessageBoxImage.Warning); }
+    }
+
+    internal static string? NewestBackupName(string folder)
+    {
         try
         {
-            var cfg = K13MemoryCodec.Decode(File.ReadAllBytes(dlg.FileName));
-            var name = _store.UniqueName(System.IO.Path.GetFileNameWithoutExtension(dlg.FileName));
-            _store.Data.Profiles.Add(new AppProfile { Name = name, Device = cfg });
-            ActivateProfile(name, "из резервной копии");
+            return new DirectoryInfo(folder).GetFiles("*.bin").Where(x => x.Length >= K13Layout.MinImageLength)
+                .OrderByDescending(x => x.LastWriteTimeUtc).FirstOrDefault()?.Name;
         }
-        catch (Exception ex) { MessageBox.Show(this, "Не удалось разобрать файл: " + ex.Message, Title); }
+        catch { return null; }
+    }
+
+    /// <summary>v5.10: a backup image → a new profile (never a device write). Returns the profile name.</summary>
+    internal string RestoreFromBackup(string file, bool ask)
+    {
+        var cfg = K13MemoryCodec.Decode(File.ReadAllBytes(file));
+        if (!Layer.Active) cfg = PcLayerPlanner.RevertHostChords(cfg);
+        var when = File.GetLastWriteTime(file);
+        var name = _store.UniqueName("Копия от " + when.ToString("dd.MM.yyyy HH.mm"));
+        _store.Data.Profiles.Add(new AppProfile { Name = name, Device = cfg });
+        ActivateProfile(name, "из резервной копии " + Path.GetFileName(file));
+        string text = $"Резервная копия от {when:dd.MM.yyyy HH:mm} открыта как профиль «{name}». Клавиатура пока не изменена.\n\n" +
+                      "Чтобы вернуть эту копию в клавиатуру, нажмите «Записать»: программа покажет, что изменится, и попросит подтверждение." +
+                      (Layer.Active ? "\n\nСейчас включены «Кнопки по профилю (через ПК)» — кнопки запишутся в этом режиме. Чтобы вернуть копию в точности, сначала выключите его." : "");
+        StatusText.Text = $"Открыта резервная копия от {when:dd.MM.yyyy HH:mm} — для возврата в клавиатуру нажмите «Записать».";
+        if (ask) MessageBox.Show(this, text, "Восстановление из резервной копии", MessageBoxButton.OK, MessageBoxImage.Information);
+        return name;
     }
 
     private void Tray_Changed(object sender, RoutedEventArgs e) { if (!_loading) { _store.Data.MinimizeToTray = TrayBox.IsChecked == true; SaveStore(); } }
@@ -524,6 +564,7 @@ public partial class MainWindow : Window
         {
             _connected = false; _devicePath = null; _imageFresh = false; _hwMode = HwMode.Unknown; _selfGame = false;
             Log("Клавиатура отключена.");
+            try { _mapper?.KeypadGone(); } catch (Exception ex) { Log("Сброс удержаний: " + ex.Message); }
             UpdateConn();
         }
     }
@@ -556,7 +597,7 @@ public partial class MainWindow : Window
             Log("Отправлено завершение сеанса (07 18 11 / 07 18 00 / 07 20) — память не изменялась.");
             StatusText.Text = "Клавиатура переведена в обычный режим. Проверьте кнопки.";
         }
-        catch (Exception ex) { Log("Завершение сеанса: " + ex.Message); StatusText.Text = ex.Message; }
+        catch (Exception ex) { Log("Завершение сеанса: " + FriendlyError.Text(ex)); StatusText.Text = FriendlyError.Text(ex); }
         finally { _busy = false; UpdateConn(); ExitIfPending(); }
     }
 
@@ -579,14 +620,14 @@ public partial class MainWindow : Window
     {
         var f = BackupStore.EnsureFolder();
         try { Process.Start(new ProcessStartInfo("explorer.exe", f) { UseShellExecute = true })?.Dispose(); }
-        catch (Exception ex) { MessageBox.Show(this, "Не удалось открыть папку " + f + ": " + ex.Message, Title); }
+        catch (Exception ex) { MessageBox.Show(this, "Не удалось открыть папку " + f + ": " + FriendlyError.Text(ex), Title); }
     }
 
     /// <summary>v5.6.4: write/read failure dialog with «Открыть папку» and «Сохранить диагностику».</summary>
     internal Window BuildWriteErrorDialog(Exception ex, out Func<MessageBoxResult> answer)
     {
         var folder = BackupStore.EnsureFolder();
-        var text = "Ошибка записи: " + ex.Message + "\n\n" +
+        var text = "Ошибка записи: " + FriendlyError.Text(ex) + "\n\n" +
                    (ex is K13ReadMismatchException rm && rm.SavedFiles.Count > 0
                        ? "Оба прохода чтения сохранены для разработчиков:\n" + string.Join("\n", rm.SavedFiles.Take(2).Select(Path.GetFileName)) + "\n\n" : "") +
                    "Папка резервных копий:\n" + folder;
@@ -624,7 +665,7 @@ public partial class MainWindow : Window
             StatusText.Text = "Диагностика сохранена: " + zip;
             try { Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + zip + "\"") { UseShellExecute = true })?.Dispose(); } catch { }
         }
-        catch (Exception ex) { MessageBox.Show(this, "Не удалось сохранить диагностику: " + ex.Message, Title, MessageBoxButton.OK, MessageBoxImage.Warning); }
+        catch (Exception ex) { MessageBox.Show(this, "Не удалось сохранить диагностику: " + FriendlyError.Text(ex), Title, MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
 
     /// <summary>v5.7: bytes, codes, addresses and hex are shown only when this is on (⋯ menu). Off by default.</summary>
@@ -683,7 +724,7 @@ public partial class MainWindow : Window
         {
             Log("Ошибка чтения: " + ex.Message);
             if (ex is K13ReadMismatchException rm) { App.Log("read: " + rm.Details); Log("Оба прохода сохранены: " + string.Join(", ", rm.SavedFiles)); }
-            StatusText.Text = "Ошибка чтения: " + ex.Message;
+            StatusText.Text = "Ошибка чтения: " + FriendlyError.Text(ex);
             return null;
         }
         finally
@@ -704,11 +745,12 @@ public partial class MainWindow : Window
         if (MessageBox.Show(this, $"Память прочитана и сохранена в резервную копию.\n\nЗаменить настройки профиля «{_profile.Name}» данными с клавиатуры?\n(Действия на ПК профиля сохранятся.)",
                 Title, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
         {
-            try { ProfileMigrations.ReplaceDevice(_profile, K13MemoryCodec.Decode(img)); } // v5.7.3: stale macro names dropped
+            // v5.7.3: stale macro names dropped; v5.10: «Scroll Lock + F» macros of PC-action keys → their F14–F24 trigger again
+            try { var kp = K13MemoryCodec.Decode(img); ProfileMigrations.ReplaceDevice(_profile, Layer.Active ? kp : PcLayerPlanner.RevertHostChords(kp)); }
             catch (Exception ex)
             {
                 Log("Не удалось разобрать память клавиатуры: " + ex.Message);
-                MessageBox.Show(this, "Память прочитана и сохранена, но разобрать её не удалось:\n" + ex.Message + "\n\nПрофиль не изменён.", Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(this, "Память прочитана и сохранена, но разобрать её не удалось:\n" + FriendlyError.Text(ex) + "\n\nПрофиль не изменён.", Title, MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             SaveStore(); RefreshAll();
@@ -729,7 +771,7 @@ public partial class MainWindow : Window
         if (quiet && !_store.Data.WriteConfirmed) return false;
         var what = target ?? DeviceTarget; // v5.6: in «через ПК» mode the mapped keys are written as their F14–F24 codes
         try { K13MemoryCodec.Validate(what); }
-        catch (Exception ex) { MessageBox.Show(this, "Профиль содержит ошибку: " + ex.Message, Title); return false; }
+        catch (Exception ex) { MessageBox.Show(this, "Профиль содержит ошибку: " + FriendlyError.Text(ex), Title); return false; }
         if (!_store.Data.WriteConfirmed)
         {
             if (MessageBox.Show(this,
@@ -805,7 +847,7 @@ public partial class MainWindow : Window
         {
             _imageFresh = false; // the keypad may now differ from the cached image – re-read before the next write
             Log("Ошибка записи: " + ex.Message); App.Log("write: " + ex);
-            StatusText.Text = "Ошибка записи: " + ex.Message;
+            StatusText.Text = "Ошибка записи: " + FriendlyError.Text(ex);
             ShowWriteError(ex);
             return false;
         }
@@ -868,7 +910,7 @@ public partial class MainWindow : Window
                 fill = (Brush)FindResource(diff.Count == 0 ? "OkBrush" : "WarnBrush");
             }
         }
-        catch (Exception ex) { tip = "Ошибка в профиле: " + ex.Message; fill = (Brush)FindResource("ErrBrush"); }
+        catch (Exception ex) { tip = "Ошибка в профиле: " + FriendlyError.Text(ex); fill = (Brush)FindResource("ErrBrush"); }
         SyncDot.Fill = fill;
         RefreshModeBanner();
         WriteBtn.ToolTip = "Записать настройки профиля в клавиатуру.\nПеред записью сохраняется резервная копия, после — проверка чтением; при ошибке всё возвращается как было.\n\n" + tip;

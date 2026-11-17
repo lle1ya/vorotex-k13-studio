@@ -168,14 +168,14 @@ public partial class MainWindow
         bool needsWrite = isTrig && onDevice != code;
         var probed = ProbedTriggerFor(_selCol);
         string head, body; string glyph; Brush color;
-        if (isTrig && !needsWrite) { glyph = "\uE73E"; color = R("OkBrush"); head = $"Готово: кнопка посылает {KeyCatalog.Name(code)} — программа откроет кольцо"; body = "Программа перехватывает эту клавишу. Работает, пока программа запущена (можно закрыть окно — она останется в трее)."; }
+        if (isTrig && !needsWrite) { glyph = "\uE73E"; color = R("OkBrush"); head = $"Готово: кнопка посылает {SignalName(code)} — программа откроет кольцо"; body = "Программа перехватывает эту клавишу. Работает, пока программа запущена (можно закрыть окно — она останется в трее)."; }
         else if (probed is ushort vk) { glyph = "\uE73E"; color = R("OkBrush"); head = $"Кольцо откроется по клавише {KeyCombo.VkName(vk)} (проверено)"; body = "Эту клавишу программа перехватывает и не пропускает дальше."; }
         else
         {
             glyph = "\uE7BA"; color = R("WarnBrush");
-            head = isTrig ? $"Нужна запись: клавиатура должна посылать {KeyCatalog.Name(code)}" : "Кнопка должна посылать служебную клавишу F13–F24";
+            head = isTrig ? $"Нужна запись: клавиатура должна посылать {SignalName(code)}" : "Кнопка должна посылать служебный сигнал для ПК";
             body = $"Сейчас {DeviceView.ControlName(_selCol)} посылает «{KeyCatalog.Name(onDevice ?? code)}». " +
-                   "Программа назначит свободную F13–F24, в клавиатуру это попадёт после нажатия «Записать». " +
+                   "Программа назначит кнопке свободный служебный сигнал (F13 или Scroll Lock + F), в клавиатуру он попадёт после нажатия «Записать». " +
                    "Если кнопка уже посылает какую-то клавишу — нажмите «Проверить» и используйте её.";
         }
         var sp = new StackPanel();
@@ -196,7 +196,8 @@ public partial class MainWindow
     private byte? DeviceKey(int col)
     {
         if (_deviceImage == null) return null;
-        try { return K13MemoryCodec.Decode(_deviceImage).GetKey(col); } catch { return null; }
+        // v5.10: a PC-action key is a «Scroll Lock + F» macro in the keypad — show it as its F14–F24 trigger
+        try { var kp = K13MemoryCodec.Decode(_deviceImage); return (Layer.Active ? kp : PcLayerPlanner.RevertHostChords(kp)).GetKey(col); } catch { return null; }
     }
 
     /// <summary>Waits for the next physical key and offers to use it as the ring trigger (no device writes).</summary>
@@ -231,9 +232,9 @@ public partial class MainWindow
                 ? "\nВсё в порядке: по этой клавише уже открывается кольцо действий."
                 : safety == TriggerSafety.Forbidden
                 ? "\nЭто обычная клавиша основной клавиатуры — её перехватывать нельзя (она перестала бы работать везде). " +
-                  "Если вы нажали её на VOROTEX — назначьте кнопке кольцо: программа запишет в неё F13–F24."
+                  "Если вы нажали её на VOROTEX — назначьте кнопке кольцо: программа запишет в неё служебный сигнал."
                 : safety == TriggerSafety.NeedsConfirmation
-                ? "\nТакая клавиша может быть и на основной клавиатуре — после перехвата она перестанет там работать. Надёжнее F13–F24."
+                ? "\nТакая клавиша может быть и на основной клавиатуре — после перехвата она перестанет там работать. Надёжнее назначить кнопке кольцо — программа запишет служебный сигнал."
                 : "\nЕё можно перехватывать для кольца действий без записи в клавиатуру.");
             if (safety == TriggerSafety.Forbidden) ringOk = true; // hides «use»
             use.Visibility = ringOk ? Visibility.Collapsed : Visibility.Visible;
@@ -286,7 +287,7 @@ public partial class MainWindow
             host.Children.Add(T("Как нажимать:", 13, muted: true, bottom: 6));
             var g2 = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3 };
             var where = KeyWhere(_selCol);
-            foreach (var (i, t, sub) in new[] { (0, "Щелчок", "один раз"), (1, "Двойной", "два щелчка"), (2, "Автоклик", where is HoldWhere.Pc or HoldWhere.PcNoRepeat ? "старт / стоп" : "пока зажата") })
+            foreach (var (i, t, sub) in new[] { (0, "Щелчок", "один раз"), (1, "Двойной", "два щелчка"), (2, "Автоклик", where is HoldWhere.Pc or HoldWhere.PcNoCode ? "старт / стоп" : "пока зажата") })
             {
                 int ii = i;
                 g2.Children.Add(BigOption(i == 2 ? "\uE895" : "\uE8B0", t, sub, _mouseMode == i, () => { _mouseMode = ii; Paint(); }));
@@ -297,6 +298,7 @@ public partial class MainWindow
                 ? "Код левой кнопки подтверждён: именно так её записывает родная программа (ваш прежний макрос «ЛКМ»)."
                 : "Код этой кнопки определён по анализу родной программы — будет проверено при первой записи.", 12, muted: true).With(t => t.Margin = new Thickness(0, 12, 0, 0)));
             host.Children.Add(T(MouseHint(_mouseMode, where), 12, muted: true).With(t => { t.Margin = new Thickness(0, 4, 0, 0); t.TextWrapping = TextWrapping.Wrap; }));
+            if (_mouseMode == 2 && where == HoldWhere.PcNoCode) host.Children.Add(HoldChooser(_selCol));
         }
         Paint();
         EditorHost.Children.Add(host);
@@ -304,6 +306,9 @@ public partial class MainWindow
     }
 
     /// <summary>v5.9.4: honest hint under the mouse tile (where the click runs; autoclick in the keypad is not confirmed yet).</summary>
+    /// <summary>v5.10: what the keypad really sends for a PC-action code: F14–F24 travel as «Scroll Lock + F1…F11».</summary>
+    internal static string SignalName(byte code) => PcLayerPlanner.IsHostTrigger(code) ? $"Scroll Lock + {KeyCatalog.Name(PcLayerPlanner.ChordFor(code))}" : KeyCatalog.Name(code);
+
     internal static string MouseHint(int mode, HoldWhere where)
     {
         const string toKeypad = "Чтобы щелчок хранился в самой клавиатуре: выключите «Кнопки по профилю (через ПК)» и нажмите «Записать».";
@@ -316,8 +321,9 @@ public partial class MainWindow
             HoldWhere.Pc => pc + "Чтобы автоклик работал по удержанию, нажмите «Записать»: кнопке в клавиатуре запишется отдельный код («Меню») с настоящим отпусканием. " +
                             "До записи удержание программе не видно, и автоклик работает как «до повторного нажатия»: первое нажатие запускает, второе останавливает.",
             HoldWhere.PcHold => "Через ПК, по удержанию: кнопка посылает отдельный код («Меню») — пока кнопка зажата, программа щёлкает, отпустили — перестала. " + PlainHoldNote,
-            HoldWhere.PcNoRepeat => "Через ПК: по удержанию может работать только одна кнопка (код «Меню» уже отдан другой), поэтому здесь автоклик работает как «до повторного нажатия»: первое нажатие запускает, второе останавливает. " + toKeypad,
-            _ => "Автоклик в клавиатуре (проверяется): щелчок хранится в клавиатуре как маленький макрос с режимом «пока зажата», как в родной программе, но повтор при удержании без программы ещё не подтверждён." +
+            HoldWhere.PcNoCode => "Через ПК: по удержанию может работать только одна кнопка (код «Меню» уже отдан другой), поэтому здесь автоклик работает как «до повторного нажатия»: первое нажатие запускает, второе останавливает. Удержание можно отдать этой кнопке — ниже.",
+            _ => "Автоклик в клавиатуре: прошивка K13 не останавливает щелчки, когда кнопку отпускают, — они идут до следующего нажатия (или около 3 секунд). " +
+                 "Чтобы автоклик работал строго по удержанию, включите «Кнопки по профилю (через ПК)»." +
                  (where == HoldWhere.KeypadNotWritten ? " В клавиатуру он попадёт после «Записать»." : ""),
         };
     }
