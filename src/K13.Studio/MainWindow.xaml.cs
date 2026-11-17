@@ -69,6 +69,7 @@ public partial class MainWindow : Window
             _tray = new TrayIcon();
             _mapper = new HostMapper(Dispatcher);
             _mapper.Log += Log;
+            _mapper.HookRouted += () => { if (_hookBlockedBy != null || _missedFg != null) { _hookBlockedBy = null; _missedFg = null; RefreshModeBanner(); } };
             _mapper.UiLog += m => LogText.AppendLine($"{DateTime.Now:HH:mm:ss} {m}");
             _mapper.SwitchProfileRequested += n => ActivateProfile(n, "действие клавиши");
             _mapper.MacroProvider = i => i >= 0 && i < Cfg.Macros.Count ? Cfg.Macros[i] : null;
@@ -76,7 +77,7 @@ public partial class MainWindow : Window
             _mapper.Ring = _ringOverlay;
             _mapper.LayerRouted += OnLayerRouted;
             _k13Keys = new K13KeyMonitor();
-            _k13Keys.KeypadKey += OnKeypadKey;
+            _k13Keys.KeypadKey += OnKeypadRaw;
             if (_k13Keys.Start()) Log("[k13] слежу за кнопками самой K13 (Raw Input, только VID_30FA&PID_2350).");
         }
 

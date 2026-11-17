@@ -173,6 +173,9 @@ public partial class MainWindow
         {
             if (Layer.Legacy)
                 return Banner(true, "Режим «через ПК» подготовлен по-старому (коды F14–F24) — эта клавиатура их не посылает. Подготовьте её заново.", "Подготовить снова", async () => await PrepareKeypad());
+            if (_hookBlockedBy != null)
+                return Banner(true, $"Активное окно «{_hookBlockedBy}», похоже, запущено от администратора: Windows не даёт Studio перехватывать кнопки и нажимать клавиши или мышь в нём. " +
+                                    "Запустите Studio от имени администратора (правой кнопкой по exe) или запускайте это окно без прав администратора.", null, null);
             if (_kpUnexpectedVk != 0)
                 return Banner(true, $"Клавиатура прислала «{VkName(_kpUnexpectedVk)}» вместо своего сигнала — кнопки через ПК сейчас не работают. Нажмите «Подготовить снова» или выключите «Кнопки по профилю».", null, null);
             if (kp != null && !PcLayerPlanner.LooksPrepared(Layer, kp))
@@ -378,6 +381,42 @@ public partial class MainWindow
     private string MacroTitle(int slot) => _profile.MacroNames.TryGetValue(slot, out var n) && !string.IsNullOrWhiteSpace(n) ? n : $"Макрос {slot + 1}";
 
     /// <summary>A key event that physically came from the K13 and was NOT taken by the PC layer.</summary>
+    /// <summary>v5.9.5: Raw Input saw a K13 key the hook never got (Windows did not call the hook) → route it anyway.</summary>
+    internal void OnKeypadRaw(ushort vk, ushort scan, bool down)
+    {
+        bool missed = Layer.Active && !Layer.Legacy && (vk == PcLayerPlanner.ChordPrefixVk || Layer.Keys.Any(k => KeyCatalog.ToVirtualKey(k.Code) == vk));
+        if (missed && _mapper?.FeedMissed(vk, down) == true)
+        {
+            _missedRouted++;
+            if (down && vk == PcLayerPlanner.ChordPrefixVk) NoteHookMissed();
+            return;
+        }
+        OnKeypadKey(vk, scan, down);
+    }
+
+    private int _missedRouted;
+    private string? _missedFg;
+    /// <summary>Elevated active window (Studio is not) — Windows blocks both the hook and SendInput there.</summary>
+    private string? _hookBlockedBy;
+
+    internal void DemoHookBlocked(string? name) { _hookBlockedBy = name; _missedFg = name; RefreshModeBanner(); }
+    internal string ModeBannerText => ModeBanner.Visibility == Visibility.Visible ? SmokeTest.AllText(ModeBanner) : "";
+
+    private void NoteHookMissed()
+    {
+        uint pid = 0; string name = "?";
+        try { Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out pid); name = Native.ProcessInfo(pid).Name is { Length: > 0 } n ? n : "?"; } catch { }
+        if (name == _missedFg) return;
+        _missedFg = name;
+        bool? fgAdmin = pid == 0 ? null : Native.IsElevated(pid), meAdmin = Native.IsElevated(0);
+        string adm = fgAdmin == true ? "запущено от администратора" : fgAdmin == false ? "не от администратора" : "права неизвестны (вероятно, от администратора)";
+        Log($"[hook] Windows не передала перехватчику кнопку K13 (Scroll Lock + F) — выполняю её через Raw Input. Активное окно: {name} ({adm}); Studio {(meAdmin == true ? "от администратора" : "без прав администратора")}. " +
+            "Нажатия Scroll Lock/F-клавиши в этом случае доходят и до активного окна.");
+        string? blocked = fgAdmin != false && meAdmin != true ? name : null;
+        if (blocked != _hookBlockedBy) { _hookBlockedBy = blocked; RefreshModeBanner(); }
+        if (blocked != null) StatusText.Text = $"Окно «{blocked}», похоже, запущено от администратора — Windows не даёт Studio нажимать клавиши и мышь в нём.";
+    }
+
     internal void OnKeypadKey(ushort vk, ushort scan, bool down)
     {
         if (!down) return;

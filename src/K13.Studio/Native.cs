@@ -35,6 +35,27 @@ internal static class Native
 
     public static readonly IntPtr InjectedTag = new(0x4B313353); // "K13S" – marks our own SendInput events
 
+    [DllImport("advapi32.dll", SetLastError = true)] private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+    [DllImport("advapi32.dll", SetLastError = true)] private static extern bool GetTokenInformation(IntPtr token, int cls, out int info, int len, out int ret);
+    [DllImport("kernel32.dll")] private static extern IntPtr GetCurrentProcess();
+    private const uint TOKEN_QUERY = 0x0008;
+    private const int TokenElevation = 20;
+
+    /// <summary>v5.9.5: true = elevated (admin), false = not, null = unknown. Access denied to the token of another user's
+    /// or a protected process is reported as null — the caller says «вероятно».</summary>
+    public static bool? IsElevated(uint pid)
+    {
+        IntPtr h = pid == 0 ? GetCurrentProcess() : OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (h == IntPtr.Zero) return null;
+        try
+        {
+            if (!OpenProcessToken(h, TOKEN_QUERY, out var tok)) return null;
+            try { return GetTokenInformation(tok, TokenElevation, out int e, 4, out _) ? e != 0 : null; }
+            finally { CloseHandle(tok); }
+        }
+        finally { if (pid != 0) CloseHandle(h); }
+    }
+
     [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool CloseHandle(IntPtr h);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern bool QueryFullProcessImageName(IntPtr h, uint flags, StringBuilder name, ref uint size);

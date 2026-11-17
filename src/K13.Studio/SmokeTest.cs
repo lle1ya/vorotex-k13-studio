@@ -363,6 +363,18 @@ public static class SmokeTest
                 Dialog(w.BuildPrepareDialog());
                 w.DemoKeypadHolds(null);
             });
+            // v5.9.5: K13 keys the hook never got (Raw Input fallback) and the «окно от администратора» banner
+            Step($"{th}: v5.9.5 кнопка мимо перехватчика и окно от администратора", () =>
+            {
+                w.DemoPcLayer(true);
+                foreach (var (vk, dn) in new (ushort, bool)[] { (0x91, true), (0x79, true), (0x79, false), (0x91, false) }) w.OnKeypadRaw(vk, (ushort)0, dn);
+                w.DemoHookBlocked("game");
+                if (!w.ModeBannerWarns || !w.ModeBannerText.Contains("запустите Studio от имени администратора", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("нет предупреждения про окно от администратора: " + w.ModeBannerText);
+                Render(w, 0);
+                w.DemoHookBlocked(null);
+                if (w.ModeBannerText.Contains("администратора")) throw new InvalidOperationException("предупреждение не снялось");
+                w.DemoPcLayer(false);
+            });
             // v5.9.4: honest hold / autoclick hints — through the PC a hold is invisible (toggle), on the keypad «проверяется»
             Step($"{th}: v5.9.4 «пока зажата» и автоклик — через ПК и в клавиатуре", () =>
             {

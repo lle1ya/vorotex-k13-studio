@@ -17,6 +17,8 @@ public sealed class HostMapper : IDisposable
     [DllImport("user32.dll")] private static extern bool PostThreadMessage(uint thread, uint msg, IntPtr w, IntPtr l);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     private const uint WM_QUIT = 0x12;
+    /// <summary>v5.9.5: a K13 key the low-level hook never saw (Raw Input reported it) — routed on the hook thread.</summary>
+    private const uint WM_APP_MISSED = 0x8000 + 0x13;
 
     private readonly Dispatcher _ui;
     private readonly Native.LowLevelKeyboardProc _proc;
@@ -65,6 +67,19 @@ public sealed class HostMapper : IDisposable
     public bool IsRunning => _hook != IntPtr.Zero;
     public long EventsSeen => Interlocked.Read(ref _events);
 
+    /// <summary>
+    /// v5.9.5: DM-Shvyrkov 17.11.2026 12:36:57–12:38:46 — the hook was installed but Windows did not call it at all (no
+    /// «первое событие»), while Raw Input saw every K13 Scroll Lock + F10, so «через ПК» did nothing. Keys the hook did not
+    /// swallow are fed to the same router on the hook thread (serialized with HookProc). They also reach the active window
+    /// (nothing can be swallowed any more), but the action runs. Returns false when the hook thread is not running.
+    /// </summary>
+    private bool _routingMissed; // hook thread only
+    /// <summary>v5.9.5: the hook itself (not the Raw Input fallback) routed a keypad press — UI thread.</summary>
+    public event Action? HookRouted;
+
+    public bool FeedMissed(ushort vk, bool down) =>
+        _threadId != 0 && _layer != null && PostThreadMessage(_threadId, WM_APP_MISSED, (IntPtr)vk, down ? (IntPtr)1 : IntPtr.Zero);
+
     private void Diag(string msg)
     {
         App.Log("[hook] " + msg);          // file, written directly (never waits for the UI)
@@ -90,7 +105,15 @@ public sealed class HostMapper : IDisposable
                       $"привязка F13: {DescribeF13(_settings)}");
             ready.Set();
             if (_hook == IntPtr.Zero) return;
-            while (GetMessage(out var m, IntPtr.Zero, 0, 0) > 0) { }
+            while (GetMessage(out var m, IntPtr.Zero, 0, 0) > 0)
+            {
+                if (m.message == WM_APP_MISSED)
+                {
+                    _routingMissed = true;
+                    try { RouteLayer((ushort)m.wParam, m.lParam != IntPtr.Zero, (uint)Environment.TickCount); } catch { }
+                    finally { _routingMissed = false; }
+                }
+            }
             Native.UnhookWindowsHookEx(_hook);
             _hook = IntPtr.Zero;
             Diag("снят");
@@ -187,6 +210,7 @@ public sealed class HostMapper : IDisposable
             int col = _router.ColumnOf(vk); var a = _router.LastResolved; string prof = l.Profile;
             Post(() => App.Log($"[hook] кнопка {col} (VK 0x{vk:X2}) в профиле «{prof}» → {a?.Kind} {(a == null ? "" : KeyCatalog.Name(a.Code))}: " + string.Join(", ", outs.Select(x => x.Kind))));
         }
+        if (down && fresh && !_routingMissed && HookRouted is { } hr) _ui.BeginInvoke(hr);
         if (down && fresh) { var lr = LayerRouted; if (lr != null) { int c = _router.ColumnOf(vk); var a2 = _router.LastResolved; string pn = l.Profile; _ui.BeginInvoke(() => lr(c, vk, pn, a2)); } }
         return true;
     }
