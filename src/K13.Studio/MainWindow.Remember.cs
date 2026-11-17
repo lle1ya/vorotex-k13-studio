@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using Vorotex.K13;
 
 namespace Vorotex.Studio;
@@ -19,8 +20,8 @@ public partial class MainWindow
     internal string RememberMenuText()
     {
         var (v, fresh) = RememberState;
-        string s = v is not byte b ? "неизвестно" : (K13RememberMode.IsOn(b) ? "вкл" : "выкл") + (fresh ? "" : ", по последнему чтению");
-        return $"Запоминать режим (эксперимент)… — {s}";
+        string st = v is not byte b ? "?" : (K13RememberMode.IsOn(b) ? "вкл" : "выкл") + (fresh ? "" : " (по последнему чтению)");
+        return $"Запоминать режим (эксперимент): {st}…";
     }
 
     private int BaseAddr => _status?.Base is int b and > 0 ? b : K13Layout.DefaultBase;
@@ -46,19 +47,71 @@ public partial class MainWindow
         "4. Переключите стиком в Normal (индикатор погаснет) и снова переподключите. Если осталась Normal — клавиатура помнит именно последний режим.\n" +
         "5. Сообщите результат; при желании выключите флаг здесь же.";
 
-    internal Window RememberDialog(byte? cur, bool canWrite, out Func<MessageBoxResult> answer)
+    internal enum RememberChoice { Close, Enable, Disable, Restore }
+
+    /// <summary>v5.9.2: the state is a big line; ON → default «Готово», disabling is a separate secondary button with its own confirm;
+    /// OFF → «Включить» is primary. No button changes meaning in the default position.</summary>
+    internal Window RememberDialog(byte? cur, bool canWrite, out Func<RememberChoice> answer)
     {
-        string state = cur is byte b ? K13RememberMode.Describe(b) : "неизвестно (клавиатура не прочитана)";
-        string text = $"Сейчас: {state}.\n\n" + RememberExplain +
-                      (canWrite ? "" : "\n\nПодключите клавиатуру, чтобы изменить настройку.");
-        if (!canWrite || cur is not byte c)
-            return MessageBox.Build(IsLoaded ? this : null, text, "Запоминать режим (эксперимент)", MessageBoxButton.OK, MessageBoxImage.Information, MessageBoxResult.OK, out answer);
-        if (!K13RememberMode.IsKnownPattern(c))
-            return MessageBox.Build(IsLoaded ? this : null, text + $"\n\n⚠ Значение 0x{c:X2} незнакомое — программа его менять не будет.", "Запоминать режим (эксперимент)",
-                MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No, out answer, new[] { "Восстановить из копии…", "Закрыть" });
-        return MessageBox.Build(IsLoaded ? this : null, text, "Запоминать режим (эксперимент)", MessageBoxButton.YesNoCancel, MessageBoxImage.Information, MessageBoxResult.Cancel, out answer,
-            new[] { K13RememberMode.IsOn(c) ? "Выключить" : "Включить (эксперимент)", "Восстановить из копии…", "Закрыть" });
+        var choice = RememberChoice.Close;
+        answer = () => choice;
+        var win = Ui.MakeWindow(IsLoaded ? this : null, "Запоминать режим (эксперимент)", 620, 200);
+        win.ResizeMode = ResizeMode.NoResize; win.SizeToContent = SizeToContent.Height;
+        bool known = cur is byte k && K13RememberMode.IsKnownPattern(k);
+        bool on = cur is byte c1 && K13RememberMode.IsOn(c1);
+        var root = new DockPanel { Margin = new Thickness(24, 14, 24, 20) };
+        var status = new TextBlock
+        {
+            Text = cur is null ? "Сейчас: НЕИЗВЕСТНО" : !known ? $"Сейчас: НЕЗНАКОМОЕ ЗНАЧЕНИЕ 0x{cur:X2}" : on ? "Сейчас: ВКЛЮЧЕНО" : "Сейчас: ВЫКЛЮЧЕНО",
+            FontSize = 22, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4),
+            Foreground = (System.Windows.Media.Brush)FindResource(!known ? "WarnBrush" : on ? "OkBrush" : "MutedBrush"),
+        };
+        DockPanel.SetDock(status, Dock.Top); root.Children.Add(status);
+        var sub = new TextBlock
+        {
+            Text = cur is null ? "Клавиатура не прочитана." + (canWrite ? "" : " Подключите клавиатуру, чтобы изменить настройку.")
+                 : !known ? "Программа такое значение менять не будет."
+                 : on ? $"Клавиатура должна помнить режим после переподключения (0x000F = {cur:X2}). Ничего нажимать не нужно — закройте программу и переподключите USB."
+                      : $"Клавиатура после подключения начинает в Normal (0x000F = {cur:X2}).",
+            TextWrapping = TextWrapping.Wrap, FontSize = 14, Margin = new Thickness(0, 0, 0, 10),
+        };
+        DockPanel.SetDock(sub, Dock.Top); root.Children.Add(sub);
+        var bar = new DockPanel { Margin = new Thickness(0, 18, 0, 0), LastChildFill = false };
+        DockPanel.SetDock(bar, Dock.Bottom); root.Children.Add(bar);
+        root.Children.Add(new ScrollViewer
+        {
+            MaxHeight = 360, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = new TextBlock { Text = RememberExplain, TextWrapping = TextWrapping.Wrap, FontSize = 13, LineHeight = 19, Foreground = (System.Windows.Media.Brush)FindResource("MutedBrush") },
+        });
+        Button B(string text, RememberChoice ch, bool primary = false, bool cancel = false, bool left = false)
+        {
+            var b = new Button { Content = text, MinWidth = 96, Padding = new Thickness(16, 7, 16, 7), IsDefault = primary, IsCancel = cancel,
+                                 Margin = left ? new Thickness(0, 0, 8, 0) : new Thickness(8, 0, 0, 0) };
+            b.Style = (Style)FindResource(primary ? "AccentButton" : left ? "GhostButton" : "GhostButton");
+            b.Click += (_, _) => { choice = ch; win.Close(); };
+            DockPanel.SetDock(b, left ? Dock.Left : Dock.Right);
+            if (primary) win.Loaded += (_, _) => b.Focus();
+            return b;
+        }
+        // right group (added right-to-left): the default action is always the rightmost
+        if (canWrite && known && !on)
+        {
+            bar.Children.Add(B("Включить (эксперимент)", RememberChoice.Enable, primary: true));
+            bar.Children.Add(B("Закрыть", RememberChoice.Close, cancel: true));
+        }
+        else bar.Children.Add(B("Готово", RememberChoice.Close, primary: true, cancel: true));
+        // left group: secondary actions with their own confirmation
+        if (canWrite && cur is byte && on && known) bar.Children.Add(B("Выключить запоминание…", RememberChoice.Disable, left: true));
+        if (canWrite && cur is byte) bar.Children.Add(B("Восстановить из копии…", RememberChoice.Restore, left: true));
+        win.Content = root;
+        return win;
     }
+
+    internal static Window DisableConfirm(Window? owner, byte cur, out Func<MessageBoxResult> answer) =>
+        MessageBox.Build(owner,
+            "Выключить запоминание?\n\nКлавиатура снова будет стартовать в Normal (заводские клавиши), режим Game придётся включать стиком или программой.\n\n" +
+            $"• Ячейка 0x000F: 0x{cur:X2} → 0x{cur & ~K13RememberMode.Bit:X2} (только бит 1). Перед записью — полная резервная копия, после — проверка.",
+            "Выключить запоминание режима", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No, out answer, new[] { "Выключить", "Не выключать" });
 
     internal async void ShowRememberDialog()
     {
@@ -73,35 +126,42 @@ public partial class MainWindow
             }
             catch (Exception ex) { Log("[remember] чтение 0x000F не удалось: " + ex.Message); canWrite = false; }
         }
-        var cur = RememberState.Value;
-        RememberDialog(canWrite ? cur : RememberState.Value, canWrite, out var answer).ShowDialog();
+        var cur = canWrite ? _rememberByte : RememberState.Value;
+        RememberDialog(cur, canWrite, out var answer).ShowDialog();
         var a = answer();
-        bool unknownPattern = cur is byte c0 && !K13RememberMode.IsKnownPattern(c0);
+        Log($"[remember] окно закрыто: {a}.");
         if (!canWrite || cur is not byte c) return;
-        if (!unknownPattern && a == MessageBoxResult.Yes)
+        switch (a)
         {
-            bool enable = !K13RememberMode.IsOn(c);
-            await RunRemember(x => K13RememberMode.Target(x, enable), enable ? "включить «запоминать режим»" : "выключить «запоминать режим»", c);
-        }
-        else if (unknownPattern ? a == MessageBoxResult.Yes : a == MessageBoxResult.No)
-        {
-            var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Резервная копия для восстановления 0x000F", Filter = "Резервная копия K13|*.bin|Все файлы|*.*", InitialDirectory = BackupStore.EnsureFolder() };
-            if (dlg.ShowDialog(this) != true) return;
-            byte[] bak;
-            try { bak = File.ReadAllBytes(dlg.FileName); } catch (Exception ex) { MessageBox.Show(this, "Не удалось прочитать файл: " + ex.Message, Title); return; }
-            var (t, err) = K13RememberMode.RestoreTarget(c, bak);
-            if (t is null) { MessageBox.Show(this, err!, Title, MessageBoxButton.OK, MessageBoxImage.Warning); Log("[remember] восстановление отклонено: " + err); return; }
-            Log($"[remember] восстановление из {dlg.FileName}: 0x000F = {t:X2}.");
-            await RunRemember(x => K13RememberMode.RestoreTarget(x, bak), $"восстановить 0x000F = {t:X2} из «{Path.GetFileName(dlg.FileName)}»", c);
+            case RememberChoice.Enable:
+                await RunRemember(x => K13RememberMode.Target(x, true), "включить «запоминать режим»", c, confirmed: false);
+                break;
+            case RememberChoice.Disable:
+                DisableConfirm(this, c, out var yes).ShowDialog();
+                if (yes() != MessageBoxResult.Yes) { Log("[remember] выключение отменено."); return; }
+                await RunRemember(x => K13RememberMode.Target(x, false), "выключить «запоминать режим»", c, confirmed: true);
+                break;
+            case RememberChoice.Restore:
+                var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Резервная копия для восстановления 0x000F", Filter = "Резервная копия K13|*.bin|Все файлы|*.*", InitialDirectory = BackupStore.EnsureFolder() };
+                if (dlg.ShowDialog(this) != true) return;
+                byte[] bak;
+                try { bak = File.ReadAllBytes(dlg.FileName); } catch (Exception ex) { MessageBox.Show(this, "Не удалось прочитать файл: " + ex.Message, Title); return; }
+                var (t, err) = K13RememberMode.RestoreTarget(c, bak);
+                if (t is null) { MessageBox.Show(this, err!, Title, MessageBoxButton.OK, MessageBoxImage.Warning); Log("[remember] восстановление отклонено: " + err); return; }
+                Log($"[remember] восстановление из {dlg.FileName}: 0x000F = {t:X2}.");
+                await RunRemember(x => K13RememberMode.RestoreTarget(x, bak), $"восстановить 0x000F = {t:X2} из «{Path.GetFileName(dlg.FileName)}»", c, confirmed: false);
+                break;
         }
     }
 
-    private async Task RunRemember(Func<byte, (byte? Target, string? Error)> decide, string what, byte cur)
+    internal const string RememberEnabledNext = "Теперь закройте программу (и в трее) и переподключите USB. Это окно больше открывать не нужно.";
+
+    private async Task RunRemember(Func<byte, (byte? Target, string? Error)> decide, string what, byte cur, bool confirmed)
     {
         var (t, err) = decide(cur);
         if (t is not byte target) { MessageBox.Show(this, err ?? "Отменено.", Title, MessageBoxButton.OK, MessageBoxImage.Warning); return; }
         if (target == cur) { MessageBox.Show(this, $"Менять нечего: 0x000F уже 0x{cur:X2}.", Title); return; }
-        if (MessageBox.ShowCustom(this,
+        if (!confirmed && MessageBox.ShowCustom(this,
                 $"Записать в клавиатуру: {what}?\n\n" +
                 $"• Ячейка 0x000F: 0x{cur:X2} → 0x{target:X2} (меняется только бит 1, один байт).\n" +
                 "• Сначала программа прочитает и сохранит полную резервную копию памяти, после записи — прочитает ячейку и сверит.\n" +
@@ -123,8 +183,10 @@ public partial class MainWindow
             _rememberByte = r.After; _rememberFresh = true;
             if (r.Written && _deviceImage is { Length: > K13RememberMode.Address } img) img[K13RememberMode.Address] = r.After;
             StatusText.Text = r.Message;
-            MessageBox.Show(this, r.Message + $"\n\nРезервная копия до изменения:\n{r.BackupPath}" +
-                (r.Ok && r.Written && K13RememberMode.IsOn(r.After) ? "\n\nТеперь проверьте: снимите галочку «Автоматически включать Game при подключении», включите Game стиком, закройте программу и переподключите USB — горит ли синий индикатор?" : ""),
+            bool enabledNow = r.Ok && r.Written && K13RememberMode.IsOn(r.After);
+            MessageBox.Show(this, (enabledNow ? "Запоминание режима ВКЛЮЧЕНО и проверено.\n\n" + RememberEnabledNext +
+                    "\n\n(Для чистой проверки галочка «Автоматически включать Game при подключении» должна быть снята. После переподключения: горит синий индикатор между Tab и 9 — работает.)"
+                    : r.Message) + $"\n\nРезервная копия до изменения:\n{r.BackupPath}",
                 Title, MessageBoxButton.OK, r.Ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
         }
         catch (Exception ex)

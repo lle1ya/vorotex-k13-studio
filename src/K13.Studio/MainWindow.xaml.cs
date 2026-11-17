@@ -505,7 +505,7 @@ public partial class MainWindow : Window
         {
             _connected = true; _devicePath = path;
             Log("Клавиатура подключена: " + path);
-            try { var st0 = await Task.Run(() => { using var d = K13Device.OpenFirst() ?? throw new IOException("не открылась"); return d.GetStatus(); }); SetHwMode(st0, "подключение"); }
+            try { var st0 = await Task.Run(() => { using var d = K13Device.OpenFirst() ?? throw new IOException("не открылась"); return d.GetStatus(); }); SetHwMode(st0, "подключение"); NoteConnectMode(); }
             catch (Exception ex) { Log("Статус: " + ex.Message); }
             UpdateConn();
             _kpForeignVk = 0;
@@ -521,7 +521,7 @@ public partial class MainWindow : Window
         }
         else if (!present && _connected)
         {
-            _connected = false; _devicePath = null; _imageFresh = false; _hwMode = HwMode.Unknown;
+            _connected = false; _devicePath = null; _imageFresh = false; _hwMode = HwMode.Unknown; _selfGame = false;
             Log("Клавиатура отключена.");
             UpdateConn();
         }

@@ -11,6 +11,23 @@ public partial class MainWindow
     private HwMode _hwMode = HwMode.Unknown;
     private int _modeTick;
     private bool _modeBusy;
+    /// <summary>v5.9.2: the keypad reported Game at connect before the app sent anything (remember-mode test).</summary>
+    private bool _selfGame;
+    private int _connectsSeen;
+
+    private void NoteConnectMode()
+    {
+        bool replug = ++_connectsSeen > 1;
+        var (v, fresh) = RememberState;
+        string flag = $"0x000F: {K13RememberMode.Describe(v)}{(v != null && !fresh ? ", по последнему известному образу" : "")}";
+        _selfGame = _hwMode == HwMode.Game && replug;
+        if (_hwMode == HwMode.Game)
+            Log(replug ? $"[mode] клавиатура сама стартовала в Game — программа ничего не отправляла ({flag})."
+                       : $"[mode] при запуске программы клавиатура уже в Game — программа ничего не отправляла; Game могли включить раньше ({flag}).");
+        else if (_hwMode == HwMode.Normal)
+            Log($"[mode] клавиатура стартовала в Normal ({flag}).");
+        UpdateConn();
+    }
 
     internal HwMode CurrentHwMode => _hwMode;
 
@@ -37,6 +54,7 @@ public partial class MainWindow
         {
             Log($"[mode] режим клавиатуры: {K13Mode.Name(_hwMode)} → {K13Mode.Name(m)} ({why}; статус байт 3 = {(st.Raw.Length > 3 ? st.Raw[3].ToString("X2") : "—")})");
             _hwMode = m;
+            if (m != HwMode.Game) _selfGame = false;
             if (m == HwMode.Game) { _kpForeignVk = 0; _activationFailed = false; }
             UpdateConn(); RefreshModeBanner();
         }
@@ -51,7 +69,7 @@ public partial class MainWindow
 
     private string ModeSuffix() => !_connected ? "" : _hwMode switch
     {
-        HwMode.Game => " · режим Game (ваши назначения)",
+        HwMode.Game => _selfGame ? " · режим Game (ваши назначения, включился сам при подключении)" : " · режим Game (ваши назначения)",
         HwMode.Normal => " · режим Normal (заводские клавиши)",
         _ => "",
     };
