@@ -20,10 +20,6 @@ public sealed class HostMapper : IDisposable
     /// <summary>v5.9.5: a K13 key the low-level hook never saw (Raw Input reported it) — routed on the hook thread.</summary>
     private const uint WM_APP_MISSED = 0x8000 + 0x13;
     /// <summary>v5.9.6: end holds whose taps stopped (router.Tick on the hook thread).</summary>
-    private const uint WM_APP_TICK = 0x8000 + 0x14;
-    private System.Threading.Timer? _holdTimer;
-    /// <summary>v5.9.6: (column, keypad repeats the tap) — the hold test result of the first press after a write. UI thread.</summary>
-    public event Action<int, bool>? HoldVerdict;
 
     private readonly Dispatcher _ui;
     private readonly Native.LowLevelKeyboardProc _proc;
@@ -40,7 +36,7 @@ public sealed class HostMapper : IDisposable
     private readonly HashSet<ushort> _ringKeys = new();
     private long _events;
     // v5.6: keys through the PC (prepared keypad sends F14–F24 → action of the ACTIVE profile)
-    private sealed record LayerSnapshot(PcLayerState State, K13DeviceConfig Cfg, string Profile, int[] HoldWant, int[] HoldWritten);
+    private sealed record LayerSnapshot(PcLayerState State, K13DeviceConfig Cfg, string Profile, int[] HoldWant, Dictionary<int, byte> HoldWritten);
     private volatile LayerSnapshot? _layer;
     private readonly PcLayerRouter _router = new(); // hook thread only; keeps held keys across profile switches
     private LayerSnapshot? _routerFor;
@@ -79,7 +75,6 @@ public sealed class HostMapper : IDisposable
     /// (nothing can be swallowed any more), but the action runs. Returns false when the hook thread is not running.
     /// </summary>
     private bool _routingMissed; // hook thread only
-    private int _tapsHook, _tapsRaw; // v5.9.7: taps of the current hold by path (hook thread only)
     /// <summary>v5.9.5: the hook itself (not the Raw Input fallback) routed a keypad press — UI thread.</summary>
     public event Action? HookRouted;
 
@@ -111,26 +106,8 @@ public sealed class HostMapper : IDisposable
                       $"привязка F13: {DescribeF13(_settings)}");
             ready.Set();
             if (_hook == IntPtr.Zero) return;
-            _holdTimer = new System.Threading.Timer(_ => { if (_router.StreamCount > 0 && _threadId != 0) PostThreadMessage(_threadId, WM_APP_TICK, IntPtr.Zero, IntPtr.Zero); }, null, 50, 50);
             while (GetMessage(out var m, IntPtr.Zero, 0, 0) > 0)
             {
-                if (m.message == WM_APP_TICK)
-                {
-                    try
-                    {
-                        var outs = _router.Tick((uint)Environment.TickCount);
-                        foreach (var o in outs) Do(o, _layer);
-                        if (outs.Count > 0 && _tapsHook + _tapsRaw > 0)
-                        {
-                            // v5.9.7: which path delivered the taps of the hold that just ended, and whether the stop was sent
-                            int th = _tapsHook, tr = _tapsRaw; bool stop = outs.Any(x => x.Kind is PcOutKind.StopMacro or PcOutKind.KeyUp or PcOutKind.HostUp);
-                            _tapsHook = _tapsRaw = 0;
-                            Post(() => App.Log($"[hold] сигналы этого удержания: через перехватчик {th}, через Raw Input {tr}; команда остановки {(stop ? "отправлена" : "не нужна")}"));
-                        }
-                    }
-                    catch (Exception ex) { App.Log("[hold] ошибка таймера: " + ex.Message); }
-                    continue;
-                }
                 if (m.message == WM_APP_MISSED)
                 {
                     _routingMissed = true;
@@ -138,7 +115,6 @@ public sealed class HostMapper : IDisposable
                     finally { _routingMissed = false; }
                 }
             }
-            _holdTimer?.Dispose(); _holdTimer = null;
             Native.UnhookWindowsHookEx(_hook);
             _hook = IntPtr.Zero;
             Diag("снят");
@@ -170,14 +146,16 @@ public sealed class HostMapper : IDisposable
     }
 
     /// <summary>v5.6: keys through the PC. Empty state = the keypad keeps its own keys (nothing is translated).</summary>
-    public void UpdateLayer(PcLayerState state, K13DeviceConfig profileCfg, string profileName, IEnumerable<int>? holdWant = null, IEnumerable<int>? holdWritten = null)
+    public void UpdateLayer(PcLayerState state, K13DeviceConfig profileCfg, string profileName, IEnumerable<int>? holdWant = null, IReadOnlyDictionary<int, byte>? holdWritten = null)
     {
         if (!state.Active) { if (_layer != null) App.Log("[hook] кнопки через ПК выключены"); _layer = null; return; }
         bool was = _layer != null;
-        var hw = (holdWant ?? Array.Empty<int>()).OrderBy(x => x).ToArray(); var hr = (holdWritten ?? Array.Empty<int>()).OrderBy(x => x).ToArray();
+        var hw = (holdWant ?? Array.Empty<int>()).OrderBy(x => x).ToArray();
+        var hr = new Dictionary<int, byte>(holdWritten ?? new Dictionary<int, byte>());
         var prev = _layer;
-        if (prev == null || !prev.HoldWant.SequenceEqual(hw) || !prev.HoldWritten.SequenceEqual(hr))
-            App.Log($"[hold] «пока зажата» через ПК: кнопки с удержанием [{string.Join(", ", hw)}], бит повтора записан в клавиатуре [{string.Join(", ", hr)}]");
+        string Desc(Dictionary<int, byte> d) => string.Join(", ", d.OrderBy(x => x.Key).Select(x => $"{x.Key} → {KeyCatalog.Name(x.Value)}"));
+        if (prev == null || !prev.HoldWant.SequenceEqual(hw) || Desc(prev.HoldWritten) != Desc(hr))
+            App.Log($"[hold] «пока зажата» через ПК: кнопки с удержанием [{string.Join(", ", hw)}], код удержания записан в клавиатуре [{Desc(hr)}]");
         _layer = new LayerSnapshot(state.Clone(), profileCfg.Clone(), profileName, hw, hr);
         if (!was) App.Log($"[hook] кнопки через ПК: {state.Keys.Count} кнопок, профиль «{profileName}»");
     }
@@ -265,16 +243,12 @@ public sealed class HostMapper : IDisposable
                 Post(() => { if (held) MacroPlayer.PlayWhileHeld(m); else MacroPlayer.Play(m); });
                 break;
             case PcOutKind.StopMacro: Post(() => MacroPlayer.Stop("отпускание")); break;
-            case PcOutKind.Alive:
-                if (_routingMissed) _tapsRaw++; else _tapsHook++;
-                Post(MacroPlayer.KeepAlive);
-                break;
+            case PcOutKind.Alive: Post(MacroPlayer.KeepAlive); break;
             case PcOutKind.Note:
                 {
                     string text = o.Shell; int col = o.Slot; int code = o.Code;
                     Post(() => App.Log(text));
                     var ul = UiLog; if (ul != null) _ui.BeginInvoke(() => ul(text));
-                    if (code is 0 or 1 && HoldVerdict is { } hv) _ui.BeginInvoke(() => hv(col, code == 1));
                     break;
                 }
             case PcOutKind.Shell: var sh = o.Shell; _ui.BeginInvoke(() => RunShell(sh)); break;
@@ -507,7 +481,7 @@ public static class MacroPlayer
 
     /// <summary>v5.9.7 safety stop: a «пока зажата» play fed by keypad taps (<see cref="KeepAlive"/>) stops by itself when no
     /// tap came for this long — even if the release was never detected (lost timer, router state, anything).</summary>
-    public const int WatchdogMs = 600;
+    public const int WatchdogMs = 1000;   // v5.9.8: heartbeat = OS auto-repeat of the held key (slowest ≈ 400 ms)
     private static long _lastAlive;            // Environment.TickCount64 of the last tap (0 = play not fed by taps)
     private static string? _stopReason;
     private static long _stopAsked;

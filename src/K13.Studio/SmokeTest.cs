@@ -375,8 +375,8 @@ public static class SmokeTest
                 if (w.ModeBannerText.Contains("администратора")) throw new InvalidOperationException("предупреждение не снялось");
                 w.DemoPcLayer(false);
             });
-            // v5.9.6: hold through the PC — the tap macro gets the hold bit after «Записать»; hints for written / no repeat
-            Step($"{th}: v5.9.6 «пока зажата» через ПК — бит повтора и проверка", () =>
+            // v5.9.8: real hold through the PC — the «пока зажата» key gets the plain code «Меню» (real release) after «Записать»
+            Step($"{th}: v5.9.8 «пока зажата» через ПК — код «Меню» с настоящим отпусканием", () =>
             {
                 w.DemoV56(); w.DemoPcLayer(true); w.DemoKeypadHolds(null);
                 byte tabWas = w.KeyAt(9);
@@ -385,25 +385,29 @@ public static class SmokeTest
                 w.DemoRepeat(s, MacroRepeatMode.WhileHeld, 1); Render(w, 2);
                 if (!w.HoldCols().Contains(9)) throw new InvalidOperationException("Tab не попал в кнопки с удержанием");
                 var kpImg = K13MemoryCodec.Decode(K13MemoryCodec.Encode(w.DeviceTarget, MainWindow.DefaultImage));
-                int idx = w.LayerState.Keys.FindIndex(k => k.Column == 9);
-                if (!kpImg.Macros[idx].Mode1Bit) throw new InvalidOperationException("в цели записи у Tab нет бита «пока зажата»");
-                if (!AllText(w).Contains(MainWindow.NeedsWriteForHold)) throw new InvalidOperationException("нет подсказки «нажмите «Записать»»");
+                var planned = w.HoldColsPlanned();
+                if (planned.Count != 1 || planned.Any(p => kpImg.GetKey(p.Key) != p.Value || p.Value != PcLayerPlanner.HoldPool[0]))
+                    throw new InvalidOperationException($"код «Меню» в цели записи неверен: удержание [{string.Join(",", w.HoldCols())}], коды [{string.Join(",", planned.Select(x => x.Key + ":" + x.Value))}]");
+                if (!planned.ContainsKey(9) && kpImg.GetKey(9) == PcLayerPlanner.HoldPool[0]) throw new InvalidOperationException("код «Меню» у двух кнопок");
+                if (!MainWindow.HoldHint(true, MainWindow.HoldWhere.PcHold).Contains("Через ПК, по удержанию") || !MainWindow.MouseHint(2, MainWindow.HoldWhere.PcHold).Contains("отпустили — перестала"))
+                    throw new InvalidOperationException("нет подсказки «по удержанию»");
+                if (kpImg.Macros.Any(m => m.Mode1Bit)) throw new InvalidOperationException("в цели записи остался бит «пока зажата» у макроса-сигнала");
+                if (!PcLayerPlanner.LooksPrepared(w.LayerState, kpImg)) throw new InvalidOperationException("цель записи с кодом «Меню» не считается подготовленной");
+                bool tabHolds = planned.ContainsKey(9);
+                if (!AllText(w).Contains(tabHolds ? MainWindow.NeedsWriteForHold : "только одна кнопка")) throw new InvalidOperationException("нет подсказки «нажмите «Записать»» / «только одна кнопка»");
                 w.DemoKeypadHolds("Основной"); w.SelectMacro(s); Render(w, 2);
-                if (!w.HoldColsWritten().Contains(9)) throw new InvalidOperationException("бит повтора не виден в образе клавиатуры");
-                if (!AllText(w).Contains("Через ПК (проверяется)")) throw new InvalidOperationException("нет подсказки «записано, проверяется»");
+                if (w.HoldColsWritten().Count != 1 || w.HoldColsWritten().ContainsKey(9) != tabHolds) throw new InvalidOperationException("код «Меню» не виден в образе клавиатуры");
+                if (!AllText(w).Contains(tabHolds ? "Через ПК, по удержанию" : "только одна кнопка")) throw new InvalidOperationException("подсказка у Tab не соответствует коду удержания");
                 w.ShowPage(0); w.SelectControl(9); w.OpenTile("mouse"); Render(w, 0);
-                if (AllText(w).Contains("старт / стоп")) throw new InvalidOperationException("автоклик с битом повтора подписан «старт / стоп»");
+                if (AllText(w).Contains("старт / стоп") == tabHolds) throw new InvalidOperationException("подпись автоклика «старт / стоп» не соответствует коду удержания");
                 w.OpenTile(null); w.SelectControl(-1);
-                w.DemoHoldVerdict(9, false); w.SelectMacro(s); Render(w, 2);
-                if (!AllText(w).Contains("клавиатура не повторяет сигнал кнопки")) throw new InvalidOperationException("нет подсказки «клавиатура не повторяет»");
-                w.DemoHoldVerdict(9, null);
                 w.DemoRepeat(s, MacroRepeatMode.Count, 1); w.DemoKeypadHolds(null); w.DemoPcLayer(false);
                 if (w.KeyAt(9) != tabWas) w.DemoSetKey(9, tabWas);
             });
             // v5.9.7: the safety stop — a «пока зажата» play fed by keypad taps stops by itself when the taps stop
-            Step($"{th}: v5.9.7 страховка автоклика без сигналов K13", () =>
+            Step($"{th}: v5.9.7 страховка автоклика без сигналов K13 (автоповтор)", () =>
             {
-                if (MacroPlayer.WatchdogMs <= PcLayerRouter.MaxGapMs + 100) throw new InvalidOperationException("страховка короче паузы отпускания");
+                if (MacroPlayer.WatchdogMs < 900) throw new InvalidOperationException("страховка короче медленного автоповтора клавиш");
                 var m = new MacroSlot { RepeatMode = MacroRepeatMode.WhileHeld, Events = { new() { Down = true, Code = 0, Delay = 2 }, new() { Down = false, Code = 0, Delay = 2 } } };
                 MacroPlayer.PlayWhileHeld(m); MacroPlayer.KeepAlive();
                 var sw = System.Diagnostics.Stopwatch.StartNew();

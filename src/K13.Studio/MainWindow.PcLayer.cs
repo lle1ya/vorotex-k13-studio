@@ -19,12 +19,23 @@ public partial class MainWindow
     internal K13DeviceConfig DeviceTarget => Layer.Active ? PcLayerPlanner.Apply(Cfg, Layer, HoldCols()) : Cfg;
 
     /// <summary>v5.9.6: keys (through the PC) whose action is a «пока зажата» macro in any profile → their tap macro gets the hold bit.</summary>
-    internal HashSet<int> HoldCols(PcLayerState? state = null) =>
-        PcLayerPlanner.HoldColumns(_store.Data.Profiles.Select(p => p == _profile ? Cfg : p.Device).Append(Cfg), state ?? Layer);
-    /// <summary>v5.9.6: keys whose tap macro in the keypad has the hold bit (last read / written image).</summary>
-    internal HashSet<int> HoldColsWritten() => PcLayerPlanner.HoldColumnsWritten(Layer, KeypadCfg);
-    /// <summary>v5.9.6: hold test result per key since the last write (true = the keypad repeats the tap).</summary>
-    private readonly Dictionary<int, bool> _holdVerdict = new();
+    /// v5.9.8: ordered — keys that already have the plain hold code in the keypad first (stable), then the active profile's
+    /// (autoclick first),
+    /// then by column (only the first <see cref="PcLayerPlanner.HoldPool"/>.Length get a real hold).
+    internal List<int> HoldCols(PcLayerState? state = null)
+    {
+        var st = state ?? Layer;
+        var set = PcLayerPlanner.HoldColumns(_store.Data.Profiles.Select(p => p == _profile ? Cfg : p.Device).Append(Cfg), st);
+        var mine = PcLayerPlanner.HoldColumns(new[] { Cfg }, st);
+        var written = PcLayerPlanner.HoldColumnsWritten(st, KeypadCfg);
+        bool Mouse(int c) => PcLayerPlanner.Resolve(Cfg, c) is { Kind: PcKeyKind.Macro, MacroSlot: var ms } && ms >= 0 && ms < Cfg.Macros.Count &&
+                             Cfg.Macros[ms].Events.Any(e => e.IsMouseButton);   // autoclick first — the main use of a hold
+        return set.OrderBy(c => written.ContainsKey(c) ? 0 : mine.Contains(c) && Mouse(c) ? 1 : mine.Contains(c) ? 2 : 3).ThenBy(c => c).ToList();
+    }
+    /// <summary>v5.9.8: keys that send the plain hold code in the keypad (last read / written image) → code.</summary>
+    internal Dictionary<int, byte> HoldColsWritten() => PcLayerPlanner.HoldColumnsWritten(Layer, KeypadCfg);
+    /// <summary>v5.9.8: hold keys that get a real hold after «Записать» (the others stay «до повторного нажатия»).</summary>
+    internal Dictionary<int, byte> HoldColsPlanned() => PcLayerPlanner.HoldCodes(Layer, HoldCols());
     private string _holdWrittenKey = "";
 
     private byte[]? _kpImageRef;
@@ -44,8 +55,8 @@ public partial class MainWindow
     {
         _mapper?.Update(_profile.Host, _profile.Name);
         var written = HoldColsWritten();
-        string key = string.Join(",", written.OrderBy(x => x));
-        if (key != _holdWrittenKey) { _holdWrittenKey = key; _holdVerdict.Clear(); }
+        string key = string.Join(",", written.OrderBy(x => x.Key).Select(x => $"{x.Key}:{x.Value}"));
+        if (key != _holdWrittenKey) _holdWrittenKey = key;
         _mapper?.UpdateLayer(Layer, Cfg, _profile.Name, HoldCols(), written);
     }
 
@@ -193,7 +204,7 @@ public partial class MainWindow
                 return Banner(true, $"Клавиатура прислала «{VkName(_kpUnexpectedVk)}» вместо своего сигнала — кнопки через ПК сейчас не работают. Нажмите «Подготовить снова» или выключите «Кнопки по профилю».", null, null);
             if (kp != null && !PcLayerPlanner.LooksPrepared(Layer, kp))
                 return Banner(true, "Клавиатура не подготовлена для режима «через ПК» — кнопки сейчас делают то, что в ней записано.", "Подготовить снова", async () => await PrepareKeypad());
-            var mism = kp == null ? new() : PcLayerPlanner.Compare(Cfg, Layer, kp);
+            var mism = kp == null ? new() : PcLayerPlanner.Compare(Cfg, Layer, kp, HoldCols());
             if (mism.Count > 0)
                 return Banner(true, $"В клавиатуре другое на: {KeyList(mism.Select(m => m.Column).Take(4))} — нажмите «Записать».", null, null);
             return Banner(false, $"Кнопки меняются вместе с профилем (через ПК) — сейчас «{_profile.Name}».", null, null);
@@ -213,7 +224,7 @@ public partial class MainWindow
                                 "Нажмите «Записать», чтобы прописать стрелки.", "Записать", async () => await WriteDevice());
         if (kp != null)
         {
-            var mism = PcLayerPlanner.Compare(Cfg, Layer, kp);
+            var mism = PcLayerPlanner.Compare(Cfg, Layer, kp, HoldCols());
             if (mism.Count > 0)
             {
                 var m0 = mism[0];
@@ -397,7 +408,8 @@ public partial class MainWindow
     /// <summary>v5.9.5: Raw Input saw a K13 key the hook never got (Windows did not call the hook) → route it anyway.</summary>
     internal void OnKeypadRaw(ushort vk, ushort scan, bool down)
     {
-        bool missed = Layer.Active && !Layer.Legacy && (vk == PcLayerPlanner.ChordPrefixVk || Layer.Keys.Any(k => KeyCatalog.ToVirtualKey(k.Code) == vk));
+        bool missed = Layer.Active && !Layer.Legacy && (vk == PcLayerPlanner.ChordPrefixVk || Layer.Keys.Any(k => KeyCatalog.ToVirtualKey(k.Code) == vk) ||
+                      HoldColsWritten().Values.Any(c => KeyCatalog.ToVirtualKey(c) == vk));   // v5.9.8: plain hold key
         if (missed && _mapper?.FeedMissed(vk, down) == true)
         {
             _missedRouted++;
@@ -412,14 +424,6 @@ public partial class MainWindow
     /// <summary>Elevated active window (Studio is not) — Windows blocks both the hook and SendInput there.</summary>
     private string? _hookBlockedBy;
 
-    internal void OnHoldVerdict(int col, bool repeats)
-    {
-        _holdVerdict[col] = repeats;
-        StatusText.Text = repeats ? $"{Cap(DeviceView.ControlName(col))}: клавиатура повторяет сигнал при удержании — «пока зажата» работает."
-                                  : $"{Cap(DeviceView.ControlName(col))}: клавиатура не повторяет сигнал при удержании — кнопка работает как «до повторного нажатия» (подробности в журнале).";
-        if (_tile != null) BuildEditor();
-        RefreshMacros();
-    }
     private static string Cap(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
     internal int SlotOnKey(int col) => KeyCatalog.IsMacro(Cfg.GetKey(col)) ? KeyCatalog.MacroSlotOf(Cfg.GetKey(col)) : -1;
     internal byte KeyAt(int col) => Cfg.GetKey(col);
@@ -429,7 +433,6 @@ public partial class MainWindow
         DemoSetKey(col, (byte)(KeyCatalog.FirstMacro + slot)); return slot;
     }
     internal void DemoSetKey(int col, byte code) { Cfg.SetKey(col, code); RefreshAll(); }
-    internal void DemoHoldVerdict(int col, bool? repeats) { if (repeats is bool r) _holdVerdict[col] = r; else _holdVerdict.Remove(col); }
 
     internal void DemoHookBlocked(string? name) { _hookBlockedBy = name; _missedFg = name; RefreshModeBanner(); }
     internal string ModeBannerText => ModeBanner.Visibility == Visibility.Visible ? SmokeTest.AllText(ModeBanner) : "";

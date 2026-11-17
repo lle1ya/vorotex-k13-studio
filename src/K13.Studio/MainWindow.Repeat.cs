@@ -32,14 +32,15 @@ public partial class MainWindow
     private static string TimesWord(int n) => RepeatCount.Word(n);
 
     /// <summary>v5.9.4/v5.9.6: where a «пока зажата» / «до повторного нажатия» macro actually runs.
-    /// Pc = through the PC, hold bit not in the keypad yet (toggle until «Записать»); PcHold = through the PC with the hold bit
-    /// written (the keypad should repeat the tap, unconfirmed); PcNoRepeat = written, but the first press showed no repeat.</summary>
+    /// Pc = through the PC, no plain hold code in the keypad yet (toggle until «Записать»); PcHold = the key sends the plain hold
+    /// code (v5.9.8, real release); PcNoRepeat = no free hold code left for this key (start / stop).</summary>
     internal enum HoldWhere { Pc, PcHold, PcNoRepeat, Keypad, KeypadNotWritten }
 
     internal static bool ViaPc(HoldWhere w) => w is HoldWhere.Pc or HoldWhere.PcHold or HoldWhere.PcNoRepeat;
 
     internal const string ToKeypadSteps = "Чтобы макрос работал в самой клавиатуре: выключите «Кнопки по профилю (через ПК)» и нажмите «Записать».";
-    internal const string NeedsWriteForHold = "Чтобы «Пока зажата» работала по удержанию, нажмите «Записать»: кнопке в клавиатуре запишется повтор её сигнала, пока она зажата.";
+    internal const string NeedsWriteForHold = "Чтобы «Пока зажата» работала по удержанию, нажмите «Записать»: кнопке в клавиатуре запишется отдельный код («Меню») с настоящим отпусканием.";
+    internal const string PlainHoldNote = "Пока включены «Кнопки по профилю», клавиша «Меню» обычной клавиатуры тоже работает как эта кнопка.";
 
     /// <summary>Honest hint: through the PC a hold is only visible if the keypad repeats the key's tap (hold bit, needs «Записать»);
     /// on the keypad the mode is written like the vendor app does, but running without the program is not confirmed yet.</summary>
@@ -50,11 +51,11 @@ public partial class MainWindow
               "До записи удержание программе не видно, и «Пока зажата» работает как «До повторного нажатия»: первое нажатие запускает, второе останавливает."
             : "Через ПК: включены «Кнопки по профилю», макрос выполняет программа на ПК (она должна быть запущена). Первое нажатие запускает, второе останавливает. " + ToKeypadSteps,
         HoldWhere.PcHold => hold
-            ? "Через ПК (проверяется): повтор сигнала записан в клавиатуру — пока кнопка зажата, клавиатура должна повторять её сигнал, и программа крутит макрос, пока сигналы идут. " +
-              "Если клавиатура не повторяет, программа заметит это при первом нажатии, напишет в журнал и будет работать как «До повторного нажатия»."
+            ? "Через ПК, по удержанию: кнопка посылает отдельный код («Меню») с настоящим отпусканием — макрос крутится, пока кнопка зажата, и останавливается, когда её отпустили. " +
+              PlainHoldNote
             : "Через ПК: включены «Кнопки по профилю», макрос выполняет программа на ПК (она должна быть запущена). Первое нажатие запускает, второе останавливает. " + ToKeypadSteps,
         HoldWhere.PcNoRepeat => hold
-            ? "Через ПК: клавиатура не повторяет сигнал кнопки при удержании (видно по первому нажатию, подробности в журнале), поэтому «Пока зажата» работает как «До повторного нажатия»: первое нажатие запускает, второе останавливает. " + ToKeypadSteps
+            ? "Через ПК: по удержанию может работать только одна кнопка (свободный код для неё один — «Меню»), и он уже отдан другой кнопке. Здесь «Пока зажата» работает как «До повторного нажатия»: первое нажатие запускает, второе останавливает. " + ToKeypadSteps
             : "Через ПК: включены «Кнопки по профилю», макрос выполняет программа на ПК (она должна быть запущена). Первое нажатие запускает, второе останавливает. " + ToKeypadSteps,
         HoldWhere.Keypad => "В клавиатуре (проверяется): режим записан в клавиатуру так же, как его записывает родная программа, но работа без программы ещё не подтверждена.",
         _ => "В клавиатуре (проверяется): режим записывается в клавиатуру так же, как в родной программе, но работа без программы ещё не подтверждена. " +
@@ -62,7 +63,7 @@ public partial class MainWindow
     };
 
     private HoldWhere PcWhere(int col) =>
-        !HoldColsWritten().Contains(col) ? HoldWhere.Pc : _holdVerdict.TryGetValue(col, out bool r) && !r ? HoldWhere.PcNoRepeat : HoldWhere.PcHold;
+        HoldColsWritten().ContainsKey(col) ? HoldWhere.PcHold : HoldCols().Contains(col) && !HoldColsPlanned().ContainsKey(col) ? HoldWhere.PcNoRepeat : HoldWhere.Pc;
 
     /// <summary>Macro slot <paramref name="slot"/>: played by the PC («через ПК» on) or by the keypad (written or not yet).</summary>
     internal HoldWhere MacroWhere(int slot)

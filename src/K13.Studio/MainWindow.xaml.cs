@@ -69,7 +69,6 @@ public partial class MainWindow : Window
             _tray = new TrayIcon();
             _mapper = new HostMapper(Dispatcher);
             _mapper.Log += Log;
-            _mapper.HoldVerdict += OnHoldVerdict;
             _mapper.HookRouted += () => { if (_hookBlockedBy != null || _missedFg != null) { _hookBlockedBy = null; _missedFg = null; RefreshModeBanner(); } };
             _mapper.UiLog += m => LogText.AppendLine($"{DateTime.Now:HH:mm:ss} {m}");
             _mapper.SwitchProfileRequested += n => ActivateProfile(n, "действие клавиши");
