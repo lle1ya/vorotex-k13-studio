@@ -46,10 +46,69 @@ public static class UpdateCheck
         catch (JsonException) { return null; }
     }
 
+    /// <summary>v5.10.2: non-API fallback — github.com/&lt;repo&gt;/releases/latest answers 302 with
+    /// Location: https://github.com/&lt;repo&gt;/releases/tag/&lt;tag&gt; (no API quota). Relative locations are accepted.</summary>
+    public const string LatestPage = ReleasesPage + "/latest";
+
+    public static Release? ParseLatestRedirect(string? location)
+    {
+        if (string.IsNullOrWhiteSpace(location)) return null;
+        string loc = location.Trim();
+        if (loc.StartsWith('/')) loc = "https://github.com" + loc;
+        const string marker = "/releases/tag/";
+        if (!IsReleaseUrl(loc)) return null;
+        int i = loc.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (i < 0) return null;                                   // e.g. …/releases — no release published yet
+        string tag = Uri.UnescapeDataString(loc[(i + marker.Length)..].Split('?', '#', '/')[0]);
+        var v = ParseTag(tag);
+        return v == null ? null : new Release(tag, v, ReleasesPage + "/tag/" + Uri.EscapeDataString(tag), tag);
+    }
+
+    public enum Source { Api, Redirect, None }
+
+    /// <summary>Result of one check. <see cref="Error"/> is a Russian text when both ways failed.</summary>
+    public sealed record Outcome(Release? Latest, Source From, string? Error, string Log);
+
+    public static bool IsRateLimit(int status) => status is 403 or 429;
+
+    /// <summary>Tries the API first; on rate limit (403/429), any other HTTP error, an unusable answer or an exception it
+    /// asks the release page redirect. Transport is injected (tests); the program never downloads anything.</summary>
+    /// <param name="api">GET <see cref="ApiUrl"/> → (status, body).</param>
+    /// <param name="redirect">HEAD <see cref="LatestPage"/> without following redirects → (status, Location).</param>
+    public static async Task<Outcome> ResolveAsync(Func<Task<(int Status, string? Body)>> api, Func<Task<(int Status, string? Location)>> redirect)
+    {
+        string apiNote;
+        try
+        {
+            var (st, body) = await api();
+            if (st == 200 && body != null && Parse(body) is { } r) return new Outcome(r, Source.Api, null, $"API: {r.Tag}");
+            apiNote = st == 200 ? "API: ответ не разобран" : IsRateLimit(st) ? $"API: лимит запросов GitHub ({st})" : $"API: HTTP {st}";
+        }
+        catch (Exception ex) { apiNote = "API: " + ex.GetType().Name + " " + ex.Message; }
+        try
+        {
+            var (st, loc) = await redirect();
+            if (st is >= 300 and < 400 && ParseLatestRedirect(loc) is { } r)
+                return new Outcome(r, Source.Redirect, null, $"{apiNote}; страница выпусков: {r.Tag}");
+            string why = st is >= 300 and < 400 ? $"перенаправление «{loc}» не на выпуск" : $"HTTP {st}";
+            return new Outcome(null, Source.None, FailText, $"{apiNote}; страница выпусков: {why}");
+        }
+        catch (Exception ex)
+        {
+            return new Outcome(null, Source.None, FailText, $"{apiNote}; страница выпусков: {ex.GetType().Name} {ex.Message}");
+        }
+    }
+
+    public const string FailText = "Не удалось узнать, есть ли новая версия: GitHub не ответил (нет связи или временный лимит запросов). " +
+                                   "Программа попробует позже сама. Посмотреть вручную: " + ReleasesPage;
+
     /// <summary>Only pages of this repository are ever opened.</summary>
     public static bool IsReleaseUrl(string? url) => url != null && url.StartsWith("https://github.com/" + Repo + "/releases", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsNewer(Release r, Version current) => r.Version > Normalize(current);
+
+    /// <summary>Automatic check: only when switched on and the last SUCCESSFUL check is a day old (failures retry on the next timer tick).</summary>
+    public static bool AutoCheckDue(bool enabled, DateTime lastUtc, DateTime nowUtc) => enabled && Due(lastUtc, nowUtc);
 
     public static bool Due(DateTime lastUtc, DateTime nowUtc) => nowUtc - lastUtc >= Interval || lastUtc > nowUtc;
 

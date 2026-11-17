@@ -22,7 +22,7 @@ public partial class MainWindow
         t.Tick += async (_, _) =>
         {
             t.Interval = TimeSpan.FromHours(6);
-            if (_store.Data.CheckUpdates && UpdateCheck.Due(_store.Data.LastUpdateCheck, DateTime.UtcNow)) await CheckUpdatesAsync(manual: false);
+            if (UpdateCheck.AutoCheckDue(_store.Data.CheckUpdates, _store.Data.LastUpdateCheck, DateTime.UtcNow)) await CheckUpdatesAsync(manual: false);
         };
         t.Start();
     }
@@ -30,19 +30,19 @@ public partial class MainWindow
     internal async Task CheckUpdatesAsync(bool manual)
     {
         if (_updateBusy) return;
+        if (!manual && !_store.Data.CheckUpdates) return;              // the setting wins over any timer
         _updateBusy = true;
         try
         {
-            string json;
-            using (var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) })
+            var o = await UpdateCheck.ResolveAsync(ApiLatestAsync, RedirectLatestAsync);
+            Log("Обновления: " + o.Log);
+            if (o.Latest is not { } r)
             {
-                http.DefaultRequestHeaders.UserAgent.ParseAdd("VorotexK13Studio/" + CurrentVersion);
-                http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
-                json = await http.GetStringAsync(UpdateCheck.ApiUrl);
+                // nothing saved → the 6-hour timer tries again; no window for the automatic check
+                if (manual) MessageBox.Show(this, o.Error ?? UpdateCheck.FailText, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
             }
             _store.Data.LastUpdateCheck = DateTime.UtcNow; SaveStore();
-            var r = UpdateCheck.Parse(json);
-            if (r == null) { Log("Обновления: ответ GitHub не разобран."); if (manual) MessageBox.Show(this, "Не удалось понять ответ GitHub. Откройте страницу выпусков вручную:\n" + UpdateCheck.ReleasesPage, Title); return; }
             if (!UpdateCheck.IsNewer(r, CurrentVersion))
             {
                 _newer = null;
@@ -58,9 +58,39 @@ public partial class MainWindow
         catch (Exception ex)
         {
             Log("Обновления: " + ex.Message);
-            if (manual) MessageBox.Show(this, "Не удалось проверить обновления — нет связи с GitHub. Попробуйте позже или откройте страницу выпусков вручную:\n" + UpdateCheck.ReleasesPage, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+            if (manual) MessageBox.Show(this, UpdateCheck.FailText, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally { _updateBusy = false; }
+    }
+
+    private static HttpClient NewHttp(bool redirects)
+    {
+        var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = redirects }) { Timeout = TimeSpan.FromSeconds(15) };
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("VorotexK13Studio/" + CurrentVersion);
+        return http;
+    }
+
+    /// <summary>GitHub API (60 requests an hour per address — a shared office network can hit 403).</summary>
+    private static async Task<(int, string?)> ApiLatestAsync()
+    {
+        using var http = NewHttp(redirects: true);
+        http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+        using var resp = await http.GetAsync(UpdateCheck.ApiUrl);
+        return ((int)resp.StatusCode, resp.IsSuccessStatusCode ? await resp.Content.ReadAsStringAsync() : null);
+    }
+
+    /// <summary>v5.10.2 fallback without the API: HEAD …/releases/latest, redirect not followed, tag from Location.</summary>
+    private static async Task<(int, string?)> RedirectLatestAsync()
+    {
+        using var http = NewHttp(redirects: false);
+        using var head = await http.SendAsync(new HttpRequestMessage(HttpMethod.Head, UpdateCheck.LatestPage));
+        if ((int)head.StatusCode is >= 300 and < 400) return ((int)head.StatusCode, head.Headers.Location?.ToString());
+        if ((int)head.StatusCode is 405 or 501)                       // HEAD not allowed → GET, still without following
+        {
+            using var get = await http.GetAsync(UpdateCheck.LatestPage, HttpCompletionOption.ResponseHeadersRead);
+            return ((int)get.StatusCode, get.Headers.Location?.ToString());
+        }
+        return ((int)head.StatusCode, head.Headers.Location?.ToString());
     }
 
     private void OfferUpdate(UpdateCheck.Release r)
