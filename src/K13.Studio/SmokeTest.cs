@@ -248,28 +248,28 @@ public static class SmokeTest
                 if (act < 0 || set != act + 2 || items[act + 1] is not Separator) throw new InvalidOperationException($"пункты Game не разделены чертой ({act}, {set})");
             });
             // v5.9: experimental «remember mode» — menu item next to the Game items, dialog with explanation, nothing written
-            Step($"{th}: меню ⋯ — «Запоминать режим (эксперимент)» и окно", () =>
+            Step($"{th}: меню ⋯ — «Запоминать режим» и окно", () =>
             {
                 var items = w.MainMenu().Items.Cast<object>().ToList();
                 int set = items.FindIndex(i => i is MenuItem mi && AllText(mi).Contains("Автоматически включать Game"));
-                if (set < 0 || items.Count <= set + 1 || items[set + 1] is not MenuItem rm || !AllText(rm).Contains("Запоминать режим (эксперимент)"))
-                    throw new InvalidOperationException("нет пункта «Запоминать режим (эксперимент)» после настройки Game");
-                if (!AllText(rm).Contains("Запоминать режим (эксперимент):")) throw new InvalidOperationException("в пункте меню нет состояния");
+                if (set < 0 || items.Count <= set + 1 || items[set + 1] is not MenuItem rm || !AllText(rm).Contains("Запоминать режим:") || AllText(rm).Contains("эксперимент"))
+                    throw new InvalidOperationException("нет пункта «Запоминать режим» после настройки Game");
+                if (!AllText(rm).Contains("Запоминать режим:")) throw new InvalidOperationException("в пункте меню нет состояния");
                 // v5.9.2: OFF → «Включить» is the default; ON → «Готово» is the default, disabling is a separate left button
                 Button? Default(Window d) => Find<Button>(d).FirstOrDefault(b => b.IsDefault);
                 var offDlg = w.RememberDialog(0x91, true, out var offAns);
                 var t0 = AllText(offDlg);
-                foreach (var must in new[] { "Сейчас: ВЫКЛЮЧЕНО", "ЭКСПЕРИМЕНТ", "0x000F", "синий индикатор", "Автоматически включать Game при подключении", "0x0000–0x0007", "Включить (эксперимент)", "Восстановить из копии…", "Закрыть" })
+                foreach (var must in new[] { "Сейчас: ВЫКЛЮЧЕНО", "и Normal, и Game", "0x000F", "синий индикатор", "Автоматически включать Game при подключении", "0x0000–0x0007", "Включить запоминание", "Восстановить из копии…", "Закрыть" })
                     if (!t0.Contains(must)) throw new InvalidOperationException($"в окне (выкл) нет «{must}»");
                 if (t0.Contains("Выключить запоминание")) throw new InvalidOperationException("в выключенном состоянии не должно быть «Выключить»");
-                if (Default(offDlg)?.Content as string != "Включить (эксперимент)") throw new InvalidOperationException("в выключенном состоянии по умолчанию должно быть «Включить»");
+                if (Default(offDlg)?.Content as string != "Включить запоминание") throw new InvalidOperationException("в выключенном состоянии по умолчанию должно быть «Включить»");
                 if (offAns() != MainWindow.RememberChoice.Close) throw new InvalidOperationException("без нажатия окно должно ничего не делать");
                 Dialog(offDlg); offDlg.Close();
                 var onDlg = w.RememberDialog(0x93, true, out var onAns);
                 var t1 = AllText(onDlg);
                 foreach (var must in new[] { "Сейчас: ВКЛЮЧЕНО", "Готово", "Выключить запоминание…", "Ничего нажимать не нужно" })
                     if (!t1.Contains(must)) throw new InvalidOperationException($"в окне (вкл) нет «{must}»");
-                if (t1.Contains("Включить (эксперимент)")) throw new InvalidOperationException("во включённом состоянии не должно быть «Включить»");
+                if (t1.Contains("Включить запоминание")) throw new InvalidOperationException("во включённом состоянии не должно быть «Включить»");
                 var defOn = Default(onDlg);
                 if (defOn?.Content as string != "Готово" || !defOn.IsCancel) throw new InvalidOperationException("во включённом состоянии по умолчанию должно быть «Готово»");
                 if (Find<Button>(onDlg).First(b => b.Content as string == "Выключить запоминание…").IsDefault) throw new InvalidOperationException("«Выключить» не должна быть кнопкой по умолчанию");
@@ -277,12 +277,13 @@ public static class SmokeTest
                 var conf = MainWindow.DisableConfirm(null, 0x93, out var confAns);
                 if (!AllText(conf).Contains("Клавиатура снова будет стартовать в Normal") || confAns() != MessageBoxResult.No) throw new InvalidOperationException("подтверждение выключения должно по умолчанию отвечать «нет»");
                 conf.Close();
+                if (t0.Contains("ЭКСПЕРИМЕНТ") || t0.Contains("эксперимент")) throw new InvalidOperationException("в окне осталось «эксперимент»");
                 if (!MainWindow.RememberEnabledNext.Contains("Это окно больше открывать не нужно")) throw new InvalidOperationException("нет подсказки после включения");
                 var off = w.RememberDialog(null, false, out _);
-                if (AllText(off).Contains("Включить (эксперимент)") || !AllText(off).Contains("НЕИЗВЕСТНО")) throw new InvalidOperationException("без клавиатуры не должно быть кнопки записи");
+                if (AllText(off).Contains("Включить запоминание") || !AllText(off).Contains("НЕИЗВЕСТНО")) throw new InvalidOperationException("без клавиатуры не должно быть кнопки записи");
                 off.Close();
                 var odd = w.RememberDialog(0x55, true, out _);
-                if (!AllText(odd).Contains("НЕЗНАКОМОЕ") || AllText(odd).Contains("Включить (эксперимент)") || AllText(odd).Contains("Выключить запоминание")) throw new InvalidOperationException("незнакомое значение должно блокировать запись");
+                if (!AllText(odd).Contains("НЕЗНАКОМОЕ") || AllText(odd).Contains("Включить запоминание") || AllText(odd).Contains("Выключить запоминание")) throw new InvalidOperationException("незнакомое значение должно блокировать запись");
                 odd.Close();
                 if (!w.DeviceInfo().Contains("EEPROM 0x000F")) throw new InvalidOperationException("нет 0x000F в сведениях об устройстве");
             });

@@ -1,7 +1,8 @@
 namespace Vorotex.K13;
 
-/// <summary>v5.9, EXPERIMENTAL: factory flag FN_M_MODE_SV_EN («remember mode») = EEPROM 0x000F bit 1 (docs/ANALYSIS-burn-tool.md §2.2,
-/// PROTOCOL §31). Both known K13 hold 0x91 (bit 1 = 0). Setting it (0x93) should keep the last mode (Game) across power-up (≈60–65 %).
+/// <summary>v5.9 (regular setting since v5.9.3): factory flag FN_M_MODE_SV_EN («remember mode») = EEPROM 0x000F bit 1 (docs/ANALYSIS-burn-tool.md §2.2,
+/// PROTOCOL §31). Factory value 0x91 (bit 1 = 0). With 0x93 the K13 keeps the last mode chosen with the stick (Normal or Game) across replugs
+/// without the app — confirmed by VOROTEX on their unit 17.11.2026.
 /// Only bit 1 of 0x000F is ever changed; 0x0000–0x0007 are refused by the protocol layer.</summary>
 public static class K13RememberMode
 {

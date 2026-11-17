@@ -339,7 +339,7 @@ public partial class MainWindow : Window
             .ToolTip = "Настройка: при каждом подключении клавиатуры программа сама переключает её в Game. Галочка — включено.";
         // v5.9: experimental factory flag «remember mode» (EEPROM 0x000F bit 1)
         Item("\uE7BA", RememberMenuText(), (_, _) => ShowRememberDialog())
-            .ToolTip = "Эксперимент: заводской флаг клавиатуры, чтобы она помнила режим Game после переподключения. Откроется окно с объяснением; запись — только после подтверждения.";
+            .ToolTip = "Заводской флаг клавиатуры: помнить последний режим (Normal или Game) после переподключения USB, даже без программы. Откроется окно с объяснением; запись — только после подтверждения.";
         m.Items.Add(new Separator());
         Item("\uE9CE", "Тест: какая команда включает Game…", (_, _) => RunBisect(), _connected && !_busy && !_offline);
         Item("\uE9D9", "План записи (пробный прогон)", PlanBtn_Click);

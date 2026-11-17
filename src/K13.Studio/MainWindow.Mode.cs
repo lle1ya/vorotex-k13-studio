@@ -20,12 +20,15 @@ public partial class MainWindow
         bool replug = ++_connectsSeen > 1;
         var (v, fresh) = RememberState;
         string flag = $"0x000F: {K13RememberMode.Describe(v)}{(v != null && !fresh ? ", по последнему известному образу" : "")}";
+        bool remember = v is byte rb && K13RememberMode.IsOn(rb);
         _selfGame = _hwMode == HwMode.Game && replug;
         if (_hwMode == HwMode.Game)
-            Log(replug ? $"[mode] клавиатура сама стартовала в Game — программа ничего не отправляла ({flag})."
-                       : $"[mode] при запуске программы клавиатура уже в Game — программа ничего не отправляла; Game могли включить раньше ({flag}).");
+            Log(!replug ? $"[mode] при запуске программы клавиатура уже в Game — программа ничего не отправляла; Game могли включить раньше ({flag})."
+                : remember ? $"[mode] клавиатура сама стартовала в Game — запомнила последний режим (запоминание включено; {flag})."
+                : $"[mode] клавиатура сама стартовала в Game — программа ничего не отправляла ({flag}).");
         else if (_hwMode == HwMode.Normal)
-            Log($"[mode] клавиатура стартовала в Normal ({flag}).");
+            Log(remember ? $"[mode] клавиатура стартовала в Normal — это последний выбранный стиком режим (запоминание включено; {flag})."
+                         : $"[mode] клавиатура стартовала в Normal ({flag}).");
         UpdateConn();
     }
 
@@ -69,7 +72,7 @@ public partial class MainWindow
 
     private string ModeSuffix() => !_connected ? "" : _hwMode switch
     {
-        HwMode.Game => _selfGame ? " · режим Game (ваши назначения, включился сам при подключении)" : " · режим Game (ваши назначения)",
+        HwMode.Game => _selfGame ? " · режим Game (ваши назначения, запомнен клавиатурой)" : " · режим Game (ваши назначения)",
         HwMode.Normal => " · режим Normal (заводские клавиши)",
         _ => "",
     };

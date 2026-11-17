@@ -21,7 +21,7 @@ public partial class MainWindow
     {
         var (v, fresh) = RememberState;
         string st = v is not byte b ? "?" : (K13RememberMode.IsOn(b) ? "вкл" : "выкл") + (fresh ? "" : " (по последнему чтению)");
-        return $"Запоминать режим (эксперимент): {st}…";
+        return $"Запоминать режим: {st}…";
     }
 
     private int BaseAddr => _status?.Base is int b and > 0 ? b : K13Layout.DefaultBase;
@@ -35,17 +35,13 @@ public partial class MainWindow
     }
 
     internal const string RememberExplain =
-        "ЭКСПЕРИМЕНТ. В заводском блоке памяти K13 есть флаг «запоминать режим» (ячейка 0x000F, бит 1). Сейчас он выключен (0x91) — поэтому после подключения клавиатура всегда начинает в режиме Normal.\n\n" +
-        "Если его включить (0x93), клавиатура, вероятно, будет помнить последний режим: включили Game — после переподключения снова Game, даже без программы. " +
-        "Уверенность ≈ 60–65 %: вывод сделан по программе прошивки производителя, на клавиатуре ещё не проверялся. Возможно, флаг ничего не изменит.\n\n" +
-        "Что делает программа: сохраняет полную резервную копию памяти, читает ячейку, меняет в ней только бит 1 (один байт, те же команды записи, что и обычно), читает обратно и сверяет. " +
-        "Байты 0x0000–0x0007 (тип памяти, VID/PID) программа не записывает никогда. Выключить можно здесь же или восстановить ячейку из резервной копии.\n\n" +
-        "Как проверить:\n" +
-        "1. Снимите галочку ⋯ → «Автоматически включать Game при подключении», чтобы она не подменяла результат.\n" +
-        "2. Включите Game (стиком — загорится синий индикатор между Tab и 9), закройте программу полностью (и в трее).\n" +
-        "3. Выньте и вставьте USB. Горит синий индикатор и кнопки делают ваши назначения — флаг работает.\n" +
-        "4. Переключите стиком в Normal (индикатор погаснет) и снова переподключите. Если осталась Normal — клавиатура помнит именно последний режим.\n" +
-        "5. Сообщите результат; при желании выключите флаг здесь же.";
+        "В заводском блоке памяти K13 есть флаг «запоминать режим» (ячейка 0x000F, бит 1). Без него (0x91) клавиатура после каждого подключения начинает в режиме Normal.\n\n" +
+        "С включённым флагом (0x93) клавиатура помнит последний режим, выбранный стиком, — и Normal, и Game — после переподключения USB, даже без программы. " +
+        "В режиме Game горит синий индикатор между Tab и 9. Проверено производителем VOROTEX 17.11.2026.\n\n" +
+        "Если включена настройка ⋯ → «Автоматически включать Game при подключении», программа при каждом подключении всё равно переключает клавиатуру в Game. " +
+        "Чтобы сохранялся и Normal, снимите эту галочку.\n\n" +
+        "Как программа меняет флаг: сохраняет полную резервную копию памяти, меняет в ячейке только бит 1 (один байт, обычные команды записи), читает обратно и сверяет. " +
+        "Байты 0x0000–0x0007 (тип памяти, VID/PID) программа не записывает никогда. Выключить можно здесь же или восстановить ячейку из резервной копии.";
 
     internal enum RememberChoice { Close, Enable, Disable, Restore }
 
@@ -55,7 +51,7 @@ public partial class MainWindow
     {
         var choice = RememberChoice.Close;
         answer = () => choice;
-        var win = Ui.MakeWindow(IsLoaded ? this : null, "Запоминать режим (эксперимент)", 620, 200);
+        var win = Ui.MakeWindow(IsLoaded ? this : null, "Запоминать режим", 620, 200);
         win.ResizeMode = ResizeMode.NoResize; win.SizeToContent = SizeToContent.Height;
         bool known = cur is byte k && K13RememberMode.IsKnownPattern(k);
         bool on = cur is byte c1 && K13RememberMode.IsOn(c1);
@@ -71,7 +67,7 @@ public partial class MainWindow
         {
             Text = cur is null ? "Клавиатура не прочитана." + (canWrite ? "" : " Подключите клавиатуру, чтобы изменить настройку.")
                  : !known ? "Программа такое значение менять не будет."
-                 : on ? $"Клавиатура должна помнить режим после переподключения (0x000F = {cur:X2}). Ничего нажимать не нужно — закройте программу и переподключите USB."
+                 : on ? $"Клавиатура помнит последний выбранный режим после переподключения (0x000F = {cur:X2}). Ничего нажимать не нужно."
                       : $"Клавиатура после подключения начинает в Normal (0x000F = {cur:X2}).",
             TextWrapping = TextWrapping.Wrap, FontSize = 14, Margin = new Thickness(0, 0, 0, 10),
         };
@@ -96,7 +92,7 @@ public partial class MainWindow
         // right group (added right-to-left): the default action is always the rightmost
         if (canWrite && known && !on)
         {
-            bar.Children.Add(B("Включить (эксперимент)", RememberChoice.Enable, primary: true));
+            bar.Children.Add(B("Включить запоминание", RememberChoice.Enable, primary: true));
             bar.Children.Add(B("Закрыть", RememberChoice.Close, cancel: true));
         }
         else bar.Children.Add(B("Готово", RememberChoice.Close, primary: true, cancel: true));
@@ -154,7 +150,7 @@ public partial class MainWindow
         }
     }
 
-    internal const string RememberEnabledNext = "Теперь закройте программу (и в трее) и переподключите USB. Это окно больше открывать не нужно.";
+    internal const string RememberEnabledNext = "Теперь клавиатура помнит последний режим, выбранный стиком (Normal или Game), и после переподключения USB — даже без программы. Это окно больше открывать не нужно.";
 
     private async Task RunRemember(Func<byte, (byte? Target, string? Error)> decide, string what, byte cur, bool confirmed)
     {
@@ -165,7 +161,7 @@ public partial class MainWindow
                 $"Записать в клавиатуру: {what}?\n\n" +
                 $"• Ячейка 0x000F: 0x{cur:X2} → 0x{target:X2} (меняется только бит 1, один байт).\n" +
                 "• Сначала программа прочитает и сохранит полную резервную копию памяти, после записи — прочитает ячейку и сверит.\n" +
-                "• Это эксперимент: эффект на клавиатуре ещё не проверялся. Клавиатуру во время записи не отключайте.",
+                "• Клавиатуру во время записи не отключайте.",
                 Title, MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No, "Записать", "Отмена") != MessageBoxResult.Yes)
         { Log("[remember] запись отменена пользователем."); return; }
         _busy = true; UpdateConn();
@@ -185,7 +181,7 @@ public partial class MainWindow
             StatusText.Text = r.Message;
             bool enabledNow = r.Ok && r.Written && K13RememberMode.IsOn(r.After);
             MessageBox.Show(this, (enabledNow ? "Запоминание режима ВКЛЮЧЕНО и проверено.\n\n" + RememberEnabledNext +
-                    "\n\n(Для чистой проверки галочка «Автоматически включать Game при подключении» должна быть снята. После переподключения: горит синий индикатор между Tab и 9 — работает.)"
+                    (_store.Data.ActivateOnConnect ? "\n\nСейчас включена настройка «Автоматически включать Game при подключении»: пока программа запущена, она всё равно включает Game. Чтобы сохранялся и Normal, снимите эту галочку в меню ⋯." : "")
                     : r.Message) + $"\n\nРезервная копия до изменения:\n{r.BackupPath}",
                 Title, MessageBoxButton.OK, r.Ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
         }
