@@ -190,6 +190,12 @@ public static class K13Writer
     /// ok=false only when two consecutive passes agree on a mismatch.</summary>
     static (bool Ok, List<byte[]> Data, int Passes) ReadBack(K13Device dev, List<(int Addr, int Len)> blocks, byte[] expect)
     {
+        // v5.9.1: the first read right after a write may echo the last written byte (PROTOCOL §31.4) — settle and discard it
+        if (blocks.Count > 0)
+        {
+            K13Device.PreciseDelay(dev.SettleAfterWriteMs);
+            try { dev.ReadBlocks(new[] { blocks[0] }); } catch (IOException) { }
+        }
         List<byte[]>? prev = null;
         for (int pass = 0; pass < 4; pass++)
         {

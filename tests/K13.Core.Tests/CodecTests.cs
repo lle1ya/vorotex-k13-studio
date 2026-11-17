@@ -190,11 +190,18 @@ sealed class FakeK13(byte[] mem) : IHidFeatureTransport
     public bool Writable { get; set; }
     public bool CorruptNextCommit { get; set; }
     public byte[] Memory => mem;
+    /// <summary>v5.9.1: simulate the K13 read artefact — after a commit the next N block loads return the last written data byte at index 0.</summary>
+    public int EchoLoadsAfterCommit { get; set; }
+    int _echoLeft; byte _echo;
 
     public bool SetFeature(byte[] r)
     {
         Frames.Add((byte[])r.Clone());
-        if (r[1] == 0x18 && r[2] == 0x00) { int a = r[4] | r[5] << 8; for (int i = 0; i < 8; i++) _buf[i] = a + i < mem.Length ? mem[a + i] : (byte)0xFF; }
+        if (r[1] == 0x18 && r[2] == 0x00)
+        {
+            int a = r[4] | r[5] << 8; for (int i = 0; i < 8; i++) _buf[i] = a + i < mem.Length ? mem[a + i] : (byte)0xFF;
+            if (_echoLeft > 0) { _buf[0] = _echo; _echoLeft--; }
+        }
         else if (r[1] == 0x18 && r[2] == 0x05) _resp = _buf[r[3] & 7];
         else if (Writable && r[1] == 0x18 && r[2] == 0x03) _stage[r[3] & 7] = r[6];
         else if (Writable && r[1] == 0x18 && r[2] == 0x09)
@@ -202,6 +209,7 @@ sealed class FakeK13(byte[] mem) : IHidFeatureTransport
             int a = r[4] | r[5] << 8, n = r[7] + 1;
             for (int i = 0; i < n; i++) mem[a + i] = _stage[i];
             if (CorruptNextCommit) { mem[a] ^= 0x5A; CorruptNextCommit = false; }
+            _echo = _stage[n - 1]; _echoLeft = EchoLoadsAfterCommit;
         }
         return true;
     }
@@ -310,7 +318,7 @@ public class SafetyTests
             var r = K13Writer.WriteProfile(dev, cfg, _ => { }, null, false, tmp, cache);
             Assert.True(r.Ok, r.Message);
             int loads = fake.Frames.Count(f => f[1] == 0x18 && f[2] == 0x00 && f[7] == 0);
-            Assert.InRange(loads, 3, 6);   // check 0xD0 + 0xF8, readback 0xF8, finish frame
+            Assert.InRange(loads, 3, 8);   // check 0xD0 + 0xF8, v5.9.1 settle read (discarded), readback 0xF8, finish frame
             Assert.Equal(cfg.Led.Brightness, K13MemoryCodec.Decode(fake.Memory).Led.Brightness);
             // device changed behind our back → fast check fails → full read
             fake.Memory[0x00F8] ^= 0x01;

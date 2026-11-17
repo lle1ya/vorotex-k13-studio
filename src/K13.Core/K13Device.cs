@@ -240,6 +240,29 @@ public sealed class K13Device : IDisposable
         }
     }
 
+    /// <summary>v5.9.1: right after a write the first read of a block can return the last written data byte at index 0
+    /// (17.11.2026: 0x0008 read as 93 after writing 93 to 0x000F; a later full read showed 80). Waits, discards one read,
+    /// then reads until two consecutive passes agree (PROTOCOL §31.4).</summary>
+    public List<byte[]> ReadBlocksAfterWrite(IReadOnlyList<(int Addr, int Len)> blocks, int maxPasses = 6)
+    {
+        PreciseDelay(SettleAfterWriteMs);
+        ReadBlocks(blocks);                       // discarded: may carry the write echo
+        List<byte[]>? prev = null;
+        for (int pass = 0; pass < maxPasses; pass++)
+        {
+            if (pass > 0) PreciseDelay(10 * pass);
+            List<byte[]> cur;
+            try { cur = ReadBlocks(blocks); }
+            catch (IOException) when (pass < maxPasses - 1) { continue; }
+            if (prev != null && prev.Count == cur.Count && prev.Zip(cur).All(x => x.First.AsSpan().SequenceEqual(x.Second))) return cur;
+            prev = cur;
+        }
+        throw new IOException("После записи два чтения подряд не совпали — результат проверить не удалось. Прочитайте память ещё раз.");
+    }
+
+    /// <summary>Pause after a write before the verifying read (EEPROM write cycle is up to ~5 ms per byte).</summary>
+    public double SettleAfterWriteMs { get; set; } = 30;
+
     /// <summary>Dummy load + read of one byte, answer discarded, then a short settle pause (v5.6.4).</summary>
     private void WarmUp(int a)
     {

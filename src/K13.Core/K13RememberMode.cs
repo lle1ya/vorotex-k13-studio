@@ -63,15 +63,37 @@ public static class K13RememberMode
         if ((t ^ cur) != Bit) return new(false, false, cur, cur, baseFlags, backup, "Внутренняя проверка: меняться может только бит 1. Ничего не записано.");
         log($"[remember] запись 0x000F: {cur:X2} → {t:X2} (один байт, 07 18 03 / 09 / 01, затем 07 18 11, 07 18 00)");
         dev.Apply(new[] { Plan(t) });
-        var after = dev.ReadBlocks(new[] { (BlockAddress, 8) })[0];
+        // v5.9.1: the first read after a write may echo the written byte into index 0 (0x0008 read as 93) — stable read, discard first
+        var after = dev.ReadBlocksAfterWrite(new[] { (BlockAddress, 8) })[0];
+        var diffs = Differences(block, after, t);
+        if (diffs.Count > 0)
+        {
+            log("[remember] после записи расхождение: " + string.Join("; ", diffs) + " — перечитываю ещё раз.");
+            K13Device.PreciseDelay(150);
+            after = dev.ReadBlocksAfterWrite(new[] { (BlockAddress, 8) })[0];
+            diffs = Differences(block, after, t);
+        }
         byte got = after[Address - BlockAddress];
-        bool othersSame = after.AsSpan(0, 7).SequenceEqual(block.AsSpan(0, 7));
         byte? baseAfter = null;
-        try { baseAfter = dev.ReadBlocks(new[] { (baseAddr, 1) })[0][0]; } catch (IOException) { }
+        try { baseAfter = dev.ReadBlocksAfterWrite(new[] { (baseAddr, 1) })[0][0]; } catch (IOException) { }
         log($"[remember] после записи: 0x0008–0x000F = {Convert.ToHexString(after)}; BASE+0 = {(baseAfter is byte ba ? ba.ToString("X2") : "—")}");
-        if (got != t || !othersSame)
-            return new(false, true, cur, got, baseAfter, backup, $"Проверка не прошла: 0x000F = 0x{got:X2} (ожидалось 0x{t:X2})" + (othersSame ? "" : ", соседние байты 0x0008–0x000E изменились") +
-                $". Резервная копия: {backup}. Сохраните диагностику и пришлите нам.");
+        if (diffs.Count > 0)
+            return new(false, true, cur, got, baseAfter, backup, "Проверка после записи не прошла: " + string.Join("; ", diffs) +
+                $". Сделайте «Прочитать с клавиатуры», чтобы проверить ещё раз. Резервная копия: {backup}. Сохраните диагностику и пришлите нам.");
         return new(true, true, cur, got, baseAfter, backup, $"Записано и проверено: 0x000F = 0x{got:X2} — «запоминать режим» {(IsOn(got) ? "включено" : "выключено")}.");
+    }
+
+    /// <summary>Exact byte differences after the write: 0x000F vs the target, 0x0008–0x000E vs the bytes read before.</summary>
+    public static List<string> Differences(byte[] before, byte[] after, byte target)
+    {
+        var d = new List<string>();
+        for (int i = 0; i < 8; i++)
+        {
+            int a = BlockAddress + i;
+            byte want = a == Address ? target : before[i];
+            if (after[i] != want)
+                d.Add(a == Address ? $"0x{a:X4}: должно быть {want:X2}, прочитано {after[i]:X2}" : $"0x{a:X4}: было {want:X2}, прочитано {after[i]:X2} (этот байт не записывался)");
+        }
+        return d;
     }
 }
