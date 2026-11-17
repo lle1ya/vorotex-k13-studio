@@ -31,28 +31,47 @@ public partial class MainWindow
 
     private static string TimesWord(int n) => RepeatCount.Word(n);
 
-    /// <summary>v5.9.4: where a «пока зажата» / «до повторного нажатия» macro actually runs.</summary>
-    internal enum HoldWhere { Pc, Keypad, KeypadNotWritten }
+    /// <summary>v5.9.4/v5.9.6: where a «пока зажата» / «до повторного нажатия» macro actually runs.
+    /// Pc = through the PC, hold bit not in the keypad yet (toggle until «Записать»); PcHold = through the PC with the hold bit
+    /// written (the keypad should repeat the tap, unconfirmed); PcNoRepeat = written, but the first press showed no repeat.</summary>
+    internal enum HoldWhere { Pc, PcHold, PcNoRepeat, Keypad, KeypadNotWritten }
+
+    internal static bool ViaPc(HoldWhere w) => w is HoldWhere.Pc or HoldWhere.PcHold or HoldWhere.PcNoRepeat;
 
     internal const string ToKeypadSteps = "Чтобы макрос работал в самой клавиатуре: выключите «Кнопки по профилю (через ПК)» и нажмите «Записать».";
+    internal const string NeedsWriteForHold = "Чтобы «Пока зажата» работала по удержанию, нажмите «Записать»: кнопке в клавиатуре запишется повтор её сигнала, пока она зажата.";
 
-    /// <summary>Honest hint: the PC can't see a hold in «через ПК»; on the keypad the mode is written like the vendor app does,
-    /// but running without the program is not confirmed yet.</summary>
+    /// <summary>Honest hint: through the PC a hold is only visible if the keypad repeats the key's tap (hold bit, needs «Записать»);
+    /// on the keypad the mode is written like the vendor app does, but running without the program is not confirmed yet.</summary>
     internal static string HoldHint(bool hold, HoldWhere where) => where switch
     {
         HoldWhere.Pc => hold
-            ? "Через ПК: включены «Кнопки по профилю», макрос выполняет программа на ПК (она должна быть запущена). Удержание кнопки ей не видно — клавиатура присылает только короткий сигнал. " +
-              "Поэтому «Пока зажата» здесь работает как «До повторного нажатия»: первое нажатие запускает, второе останавливает. " + ToKeypadSteps
+            ? "Через ПК: включены «Кнопки по профилю», макрос выполняет программа на ПК (она должна быть запущена). " + NeedsWriteForHold + " " +
+              "До записи удержание программе не видно, и «Пока зажата» работает как «До повторного нажатия»: первое нажатие запускает, второе останавливает."
+            : "Через ПК: включены «Кнопки по профилю», макрос выполняет программа на ПК (она должна быть запущена). Первое нажатие запускает, второе останавливает. " + ToKeypadSteps,
+        HoldWhere.PcHold => hold
+            ? "Через ПК (проверяется): повтор сигнала записан в клавиатуру — пока кнопка зажата, клавиатура должна повторять её сигнал, и программа крутит макрос, пока сигналы идут. " +
+              "Если клавиатура не повторяет, программа заметит это при первом нажатии, напишет в журнал и будет работать как «До повторного нажатия»."
+            : "Через ПК: включены «Кнопки по профилю», макрос выполняет программа на ПК (она должна быть запущена). Первое нажатие запускает, второе останавливает. " + ToKeypadSteps,
+        HoldWhere.PcNoRepeat => hold
+            ? "Через ПК: клавиатура не повторяет сигнал кнопки при удержании (видно по первому нажатию, подробности в журнале), поэтому «Пока зажата» работает как «До повторного нажатия»: первое нажатие запускает, второе останавливает. " + ToKeypadSteps
             : "Через ПК: включены «Кнопки по профилю», макрос выполняет программа на ПК (она должна быть запущена). Первое нажатие запускает, второе останавливает. " + ToKeypadSteps,
         HoldWhere.Keypad => "В клавиатуре (проверяется): режим записан в клавиатуру так же, как его записывает родная программа, но работа без программы ещё не подтверждена.",
         _ => "В клавиатуре (проверяется): режим записывается в клавиатуру так же, как в родной программе, но работа без программы ещё не подтверждена. " +
              "Сейчас этого макроса в клавиатуре нет — нажмите «Записать».",
     };
 
+    private HoldWhere PcWhere(int col) =>
+        !HoldColsWritten().Contains(col) ? HoldWhere.Pc : _holdVerdict.TryGetValue(col, out bool r) && !r ? HoldWhere.PcNoRepeat : HoldWhere.PcHold;
+
     /// <summary>Macro slot <paramref name="slot"/>: played by the PC («через ПК» on) or by the keypad (written or not yet).</summary>
     internal HoldWhere MacroWhere(int slot)
     {
-        if (Layer.Active) return HoldWhere.Pc;
+        if (Layer.Active)
+        {
+            int col = Layer.Keys.Select(k => k.Column).FirstOrDefault(c => KeyCatalog.IsMacro(Cfg.GetKey(c)) && KeyCatalog.MacroSlotOf(Cfg.GetKey(c)) == slot, -1);
+            return col < 0 ? HoldWhere.Pc : PcWhere(col);
+        }
         var kp = KeypadCfg;
         return kp != null && slot >= 0 && slot < kp.Macros.Count && slot < Cfg.Macros.Count && SameStoredMacro(kp.Macros[slot], Cfg.Macros[slot]) ? HoldWhere.Keypad : HoldWhere.KeypadNotWritten;
     }
@@ -60,7 +79,7 @@ public partial class MainWindow
     /// <summary>Key column: «через ПК» only for keys the PC layer owns; otherwise the keypad (written = cell and macro match the keypad).</summary>
     internal HoldWhere KeyWhere(int col)
     {
-        if (Layer.Active && Layer.IsMapped(col)) return HoldWhere.Pc;
+        if (Layer.Active && Layer.IsMapped(col)) return PcWhere(col);
         var kp = KeypadCfg; byte code = Cfg.GetKey(col);
         if (kp == null || kp.GetKey(col) != code) return HoldWhere.KeypadNotWritten;
         if (!KeyCatalog.IsMacro(code)) return HoldWhere.Keypad;
@@ -91,7 +110,8 @@ public partial class MainWindow
         {
             var where = MacroWhere(sel);
             var onDevice = new DockPanel { Margin = new Thickness(4, 6, 0, 0) };
-            var icon = new TextBlock { Text = where == HoldWhere.Pc ? "\uE7BA" : "\uE946", FontFamily = Icons, FontSize = 12, Foreground = R(where == HoldWhere.Pc ? "WarnBrush" : "MutedBrush"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 6, 0) };
+            bool warn = where is HoldWhere.Pc or HoldWhere.PcNoRepeat;
+            var icon = new TextBlock { Text = warn ? "\uE7BA" : "\uE946", FontFamily = Icons, FontSize = 12, Foreground = R(warn ? "WarnBrush" : "MutedBrush"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 6, 0) };
             DockPanel.SetDock(icon, Dock.Left); onDevice.Children.Add(icon);
             onDevice.Children.Add(T(HoldHint(choice == RepeatChoice.Hold, where), 12, muted: true).With(t => t.TextWrapping = TextWrapping.Wrap));
             root.Children.Add(onDevice);

@@ -69,6 +69,7 @@ public partial class MainWindow : Window
             _tray = new TrayIcon();
             _mapper = new HostMapper(Dispatcher);
             _mapper.Log += Log;
+            _mapper.HoldVerdict += OnHoldVerdict;
             _mapper.HookRouted += () => { if (_hookBlockedBy != null || _missedFg != null) { _hookBlockedBy = null; _missedFg = null; RefreshModeBanner(); } };
             _mapper.UiLog += m => LogText.AppendLine($"{DateTime.Now:HH:mm:ss} {m}");
             _mapper.SwitchProfileRequested += n => ActivateProfile(n, "действие клавиши");
@@ -853,6 +854,7 @@ public partial class MainWindow : Window
 
     private void RefreshDirty()
     {
+        if (_mapper != null && Layer.Active) PushMapper(); // v5.9.6: the hold bits in the keypad image may have changed
         string tip; Brush fill; bool dirty = false;
         try
         {

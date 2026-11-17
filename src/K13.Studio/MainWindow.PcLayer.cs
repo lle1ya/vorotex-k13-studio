@@ -16,7 +16,16 @@ public partial class MainWindow
     private PcLayerState Layer => _store.Data.PcLayer;
 
     /// <summary>What the keypad must contain for the active profile in the current mode.</summary>
-    internal K13DeviceConfig DeviceTarget => Layer.Active ? PcLayerPlanner.Apply(Cfg, Layer) : Cfg;
+    internal K13DeviceConfig DeviceTarget => Layer.Active ? PcLayerPlanner.Apply(Cfg, Layer, HoldCols()) : Cfg;
+
+    /// <summary>v5.9.6: keys (through the PC) whose action is a «пока зажата» macro in any profile → their tap macro gets the hold bit.</summary>
+    internal HashSet<int> HoldCols(PcLayerState? state = null) =>
+        PcLayerPlanner.HoldColumns(_store.Data.Profiles.Select(p => p == _profile ? Cfg : p.Device).Append(Cfg), state ?? Layer);
+    /// <summary>v5.9.6: keys whose tap macro in the keypad has the hold bit (last read / written image).</summary>
+    internal HashSet<int> HoldColsWritten() => PcLayerPlanner.HoldColumnsWritten(Layer, KeypadCfg);
+    /// <summary>v5.9.6: hold test result per key since the last write (true = the keypad repeats the tap).</summary>
+    private readonly Dictionary<int, bool> _holdVerdict = new();
+    private string _holdWrittenKey = "";
 
     private byte[]? _kpImageRef;
     private K13DeviceConfig? _kpCfg;
@@ -34,7 +43,10 @@ public partial class MainWindow
     private void PushMapper()
     {
         _mapper?.Update(_profile.Host, _profile.Name);
-        _mapper?.UpdateLayer(Layer, Cfg, _profile.Name);
+        var written = HoldColsWritten();
+        string key = string.Join(",", written.OrderBy(x => x));
+        if (key != _holdWrittenKey) { _holdWrittenKey = key; _holdVerdict.Clear(); }
+        _mapper?.UpdateLayer(Layer, Cfg, _profile.Name, HoldCols(), written);
     }
 
     private static string KeyList(IEnumerable<int> cols) => string.Join(", ", cols.Select(DeviceView.ControlName));
@@ -49,7 +61,7 @@ public partial class MainWindow
         MessageBox.Build(this, PrepareText(state), "Подготовить клавиатуру", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes, out var ans,
             new[] { "Подготовить и записать", "Отмена" }).ShowDialog();
         if (ans() != MessageBoxResult.Yes) { BuildAutoSwitchCard(); return false; }
-        bool ok = await WriteDevice(target: PcLayerPlanner.Apply(Cfg, state));
+        bool ok = await WriteDevice(target: PcLayerPlanner.Apply(Cfg, state, HoldCols(state)));
         if (ok)
         {
             _store.Data.PcLayer = state; SaveStore();
@@ -100,7 +112,8 @@ public partial class MainWindow
     internal void DemoKeypadHolds(string? profile)
     {
         var p = profile == null ? null : _store.Find(profile);
-        _deviceImage = p?.Device == null ? null : K13MemoryCodec.Encode(Layer.Active ? PcLayerPlanner.Apply(p.Device, Layer) : p.Device, DefaultImage);
+        _deviceImage = p?.Device == null ? null : K13MemoryCodec.Encode(Layer.Active ? PcLayerPlanner.Apply(p.Device, Layer, HoldCols()) : p.Device, DefaultImage);
+        PushMapper();
         RefreshDirty(); RefreshLayout();
     }
 
@@ -398,6 +411,25 @@ public partial class MainWindow
     private string? _missedFg;
     /// <summary>Elevated active window (Studio is not) — Windows blocks both the hook and SendInput there.</summary>
     private string? _hookBlockedBy;
+
+    internal void OnHoldVerdict(int col, bool repeats)
+    {
+        _holdVerdict[col] = repeats;
+        StatusText.Text = repeats ? $"{Cap(DeviceView.ControlName(col))}: клавиатура повторяет сигнал при удержании — «пока зажата» работает."
+                                  : $"{Cap(DeviceView.ControlName(col))}: клавиатура не повторяет сигнал при удержании — кнопка работает как «до повторного нажатия» (подробности в журнале).";
+        if (_tile != null) BuildEditor();
+        RefreshMacros();
+    }
+    private static string Cap(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
+    internal int SlotOnKey(int col) => KeyCatalog.IsMacro(Cfg.GetKey(col)) ? KeyCatalog.MacroSlotOf(Cfg.GetKey(col)) : -1;
+    internal byte KeyAt(int col) => Cfg.GetKey(col);
+    internal int DemoMacroOnKey(int col)
+    {
+        int slot = Enumerable.Range(0, KeyCatalog.MacroCodeCount).FirstOrDefault(i => Cfg.Macros[i].IsUsed);
+        DemoSetKey(col, (byte)(KeyCatalog.FirstMacro + slot)); return slot;
+    }
+    internal void DemoSetKey(int col, byte code) { Cfg.SetKey(col, code); RefreshAll(); }
+    internal void DemoHoldVerdict(int col, bool? repeats) { if (repeats is bool r) _holdVerdict[col] = r; else _holdVerdict.Remove(col); }
 
     internal void DemoHookBlocked(string? name) { _hookBlockedBy = name; _missedFg = name; RefreshModeBanner(); }
     internal string ModeBannerText => ModeBanner.Visibility == Visibility.Visible ? SmokeTest.AllText(ModeBanner) : "";

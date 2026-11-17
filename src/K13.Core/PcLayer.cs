@@ -70,10 +70,12 @@ public static class PcLayerPlanner
     public const ushort ChordPrefixVk = 0x91;
     public static readonly byte[] ChordPool = Enumerable.Range(0x3A, 11).Select(i => (byte)i).ToArray(); // F1…F11
 
-    /// <summary>The keypad macro a prepared key runs in the chord scheme.</summary>
-    public static MacroSlot ChordMacro(byte fkey) => new()
+    /// <summary>The keypad macro a prepared key runs in the chord scheme. v5.9.6: <paramref name="hold"/> sets the vendor's
+    /// «пока зажата» bit (table byte 3 bit 7, mode1) — the keypad should then repeat the tap while the key is held.</summary>
+    public static MacroSlot ChordMacro(byte fkey, bool hold = false) => new()
     {
         Repeat = 1,
+        Mode1Bit = hold,
         Events =
         {
             new() { Down = true, Code = ChordPrefix, Delay = 1 }, new() { Down = true, Code = fkey, Delay = 1 },
@@ -146,7 +148,7 @@ public static class PcLayerPlanner
     /// What to write to the keypad in this mode: the profile, with every mapped key replaced by its code. Firmware macros
     /// that only mapped keys used are dropped (they run on the PC now), so switching profiles does not make the keypad «differ».
     /// </summary>
-    public static K13DeviceConfig Apply(K13DeviceConfig profile, PcLayerState state)
+    public static K13DeviceConfig Apply(K13DeviceConfig profile, PcLayerState state, IReadOnlyCollection<int>? holdColumns = null)
     {
         var c = profile.Clone();
         if (!state.Active) return c;
@@ -160,7 +162,7 @@ public static class PcLayerPlanner
             for (int i = 0; i < state.Keys.Count && i < c.Macros.Count; i++)
             {
                 c.SetKey(state.Keys[i].Column, (byte)(KeyCatalog.FirstMacro + i));
-                c.Macros[i] = ChordMacro(state.Keys[i].Code);
+                c.Macros[i] = ChordMacro(state.Keys[i].Code, holdColumns != null && holdColumns.Contains(state.Keys[i].Column));
             }
             return c;
         }
@@ -172,6 +174,36 @@ public static class PcLayerPlanner
         for (int s = 0; s < c.Macros.Count; s++)
             if (!used.Contains(s)) c.Macros[s] = new MacroSlot();
         return c;
+    }
+
+    /// <summary>v5.9.6: mapped keys (chord scheme) whose action is a «пока зажата» macro (incl. mouse «Автоклик») in any profile —
+    /// their keypad tap macro gets the hold bit. One image for all profiles, so switching profiles still needs no write.</summary>
+    public static HashSet<int> HoldColumns(IEnumerable<K13DeviceConfig?> profiles, PcLayerState state)
+    {
+        var set = new HashSet<int>();
+        if (!state.Active || state.Scheme != PcLayerState.ChordScheme) return set;
+        foreach (var p in profiles)
+        {
+            if (p == null) continue;
+            foreach (var k in state.Keys)
+            {
+                var a = Resolve(p, k.Column);
+                if (a.Kind == PcKeyKind.Macro && a.MacroSlot >= 0 && a.MacroSlot < p.Macros.Count && p.Macros[a.MacroSlot].IsUsed &&
+                    p.Macros[a.MacroSlot].RepeatMode == MacroRepeatMode.WhileHeld) set.Add(k.Column);
+            }
+        }
+        return set;
+    }
+
+    /// <summary>v5.9.6: mapped keys whose tap macro in the keypad carries the hold bit (from the last read / written image).</summary>
+    public static HashSet<int> HoldColumnsWritten(PcLayerState state, K13DeviceConfig? keypad)
+    {
+        var set = new HashSet<int>();
+        if (keypad == null || !state.Active || state.Scheme != PcLayerState.ChordScheme) return set;
+        for (int i = 0; i < state.Keys.Count && i < keypad.Macros.Count; i++)
+            if (keypad.GetKey(state.Keys[i].Column) == CellFor(state, state.Keys[i]) && keypad.Macros[i].Mode1Bit &&
+                SameMacro(keypad.Macros[i], ChordMacro(state.Keys[i].Code))) set.Add(state.Keys[i].Column);
+        return set;
     }
 
     /// <summary>What the key in <paramref name="column"/> must do on the PC in this profile.</summary>
@@ -231,8 +263,10 @@ public static class PcLayerPlanner
 }
 
 /// <summary>StartMacroLoop (v5.9.4): «пока зажата» in the chord scheme — the PC cannot see a hold there (the keypad sends a
-/// ~16 ms Scroll Lock+F tap), so the macro loops until the same key is pressed again, like «до повторного нажатия».</summary>
-public enum PcOutKind { KeyDown, KeyUp, HostDown, HostUp, StartMacro, StartMacroHeld, StopMacro, Shell, FirmwareOnly, StartMacroLoop }
+/// ~16 ms Scroll Lock+F tap), so the macro loops until the same key is pressed again, like «до повторного нажатия».
+/// Note (v5.9.6): a log line for studio.log in <see cref="PcOut.Shell"/>; Slot = column; Code = 1 «keypad repeats»,
+/// 0 «keypad does not repeat», 2 = information only.</summary>
+public enum PcOutKind { KeyDown, KeyUp, HostDown, HostUp, StartMacro, StartMacroHeld, StopMacro, Shell, FirmwareOnly, StartMacroLoop, Note }
 
 /// <summary>One thing the hook must do for a keypad event.</summary>
 public readonly record struct PcOut(PcOutKind Kind, ushort Vk = 0, int Slot = -1, string Shell = "", byte Code = 0);
@@ -244,7 +278,7 @@ public readonly record struct PcOut(PcOutKind Kind, ushort Vk = 0, int Slot = -1
 /// </summary>
 public sealed class PcLayerRouter
 {
-    private sealed record Held(PcKeyAction Action, bool ViaHost, MacroRepeatMode Mode) { public long LastMs; }
+    private sealed record Held(PcKeyAction Action, bool ViaHost, MacroRepeatMode Mode) { public long LastMs; public bool WasHold; }
 
     /// <summary>OS auto-repeat sends downs every ≤ 0.5 s (first one after ≤ 1 s). A down that comes later than this
     /// after the previous one is a NEW press whose release was lost (hook skipped by Windows, sleep, UAC desktop…) —
@@ -307,6 +341,64 @@ public sealed class PcLayerRouter
 
     public bool IsChord => _chord;
 
+    // ── v5.9.6: hold through the PC. A key whose tap macro carries the hold bit should make the keypad repeat the
+    // Scroll Lock+F tap while held; the key counts as held while taps keep coming and is released when they stop.
+    public const int DefaultGapMs = 300, MinGapMs = 150, MaxGapMs = 600;
+    private HashSet<int> _holdWant = new(), _holdWritten = new();
+    private readonly HashSet<int> _noRepeat = new(), _repeats = new(), _toldWrite = new();
+    private readonly Dictionary<int, int> _period = new();
+    private sealed class TapStream { public int Col; public long First, Last; public int Taps; public readonly List<int> Gaps = new(); }
+    private readonly Dictionary<ushort, TapStream> _streams = new();
+    public int StreamCount => _streams.Count;
+
+    /// <summary>Gap after the last tap that ends a hold: 4 × the measured tap period, else <see cref="DefaultGapMs"/>.</summary>
+    public int GapFor(int col) => _period.TryGetValue(col, out int p) ? Math.Clamp(p * 4, MinGapMs, MaxGapMs) : DefaultGapMs;
+    public bool KnownNoRepeat(int col) => _noRepeat.Contains(col);
+
+    /// <param name="want">Columns whose action is a «пока зажата» macro (what «Записать» writes with the hold bit).</param>
+    /// <param name="written">Columns whose tap macro in the keypad has the hold bit (last read / written image).</param>
+    public void SetHold(IEnumerable<int> want, IEnumerable<int> written)
+    {
+        var w = new HashSet<int>(want); var wr = new HashSet<int>(written);
+        if (!wr.SetEquals(_holdWritten)) { _noRepeat.Clear(); _repeats.Clear(); _period.Clear(); }
+        if (!w.SetEquals(_holdWant)) _toldWrite.Clear();
+        _holdWant = w; _holdWritten = wr;
+    }
+
+    private bool StreamCol(int col) => _chord && _holdWritten.Contains(col);
+
+    /// <summary>Ends holds whose taps stopped (call every ~50 ms while <see cref="StreamCount"/> &gt; 0).</summary>
+    public List<PcOut> Tick(long nowMs)
+    {
+        var o = new List<PcOut>();
+        foreach (var (vk, s) in _streams.ToList())
+        {
+            int gap = GapFor(s.Col);
+            if (nowMs - s.Last <= gap) continue;
+            _streams.Remove(vk);
+            _held.Remove(vk, out var h);
+            if (s.Taps >= 2)
+            {
+                var sorted = s.Gaps.OrderBy(x => x).ToList();
+                int med = sorted[sorted.Count / 2];
+                _period[s.Col] = med;
+                o.Add(new PcOut(PcOutKind.Note, Slot: s.Col, Code: 2, Shell:
+                    $"[hold] кнопка {s.Col}: отпущена — сигналов {s.Taps} за {s.Last - s.First} мс, интервал ≈ {med} мс (мин {sorted[0]}, макс {sorted[^1]}); конец удержания — пауза больше {gap} мс"));
+                if (h != null) { if (h.WasHold) o.Add(new PcOut(PcOutKind.StopMacro, Slot: h.Action.MacroSlot)); else Release(h, o); }
+            }
+            else if (h != null && h.Action.Kind == PcKeyKind.Macro && h.Mode == MacroRepeatMode.WhileHeld && !_repeats.Contains(s.Col))
+            {
+                // one tap only: the keypad does not repeat the macro → keep it running, the next press stops it (toggle)
+                _noRepeat.Add(s.Col);
+                o.Add(new PcOut(PcOutKind.Note, Slot: s.Col, Code: 0, Shell:
+                    $"[hold] кнопка {s.Col}: за {gap} мс после нажатия пришёл только один сигнал — клавиатура НЕ повторяет макрос с битом «пока зажата». " +
+                    "Кнопка работает как «до повторного нажатия»: макрос продолжается, следующее нажатие остановит."));
+            }
+            else if (h != null) Release(h, o);
+        }
+        return o;
+    }
+
     /// <summary>v5.9.4: «пока зажата» cannot be detected in this layer state (chord scheme) and runs as «до повторного нажатия».</summary>
     public static bool HoldBecomesToggle(PcLayerState state) => state.Active && state.Scheme == PcLayerState.ChordScheme;
 
@@ -315,6 +407,23 @@ public sealed class PcLayerRouter
     {
         var o = new List<PcOut>(2);
         if (!_map.TryGetValue(vk, out int col)) { if (!down) _held.Remove(vk); return o; }
+        bool stream = StreamCol(col) && nowMs is long;
+        if (stream && _streams.TryGetValue(vk, out var ts))
+        {
+            // a repeated tap of a held key (or the release of a tap): the key stays held until the taps stop
+            if (down)
+            {
+                int gap = (int)(nowMs!.Value - ts.Last);
+                ts.Gaps.Add(gap); ts.Last = nowMs.Value; ts.Taps++;
+                if (ts.Taps == 2 && _repeats.Add(col))
+                {
+                    _noRepeat.Remove(col);
+                    o.Add(new PcOut(PcOutKind.Note, Slot: col, Code: 1, Shell: $"[hold] кнопка {col}: клавиатура повторяет сигнал, пока кнопка зажата (первый интервал {gap} мс) — «пока зажата» работает по удержанию"));
+                }
+            }
+            return o;
+        }
+        if (stream && !down) return o;
         if (down)
         {
             bool first = !_held.TryGetValue(vk, out var h);
@@ -329,10 +438,14 @@ public sealed class PcLayerRouter
             {
                 var a = PcLayerPlanner.Resolve(profile, col);
                 var mode = a.Kind == PcKeyKind.Macro && a.MacroSlot >= 0 && a.MacroSlot < profile.Macros.Count ? profile.Macros[a.MacroSlot].RepeatMode : MacroRepeatMode.Count;
-                // v5.9.4: chord scheme = the release comes ~16 ms after the press whatever the finger does → hold works as toggle
-                bool loop = _chord && mode == MacroRepeatMode.WhileHeld;
+                // v5.9.4: chord scheme = the release comes ~16 ms after the press whatever the finger does → hold works as toggle.
+                // v5.9.6: unless the tap macro has the hold bit (keypad repeats the tap) and the keypad was not seen ignoring it.
+                bool loop = _chord && mode == MacroRepeatMode.WhileHeld && (!stream || _noRepeat.Contains(col));
                 if (loop) mode = MacroRepeatMode.Toggle;
-                h = new Held(a, a.Kind == PcKeyKind.Key && isHostTrigger(a.Vk), mode);
+                if (_chord && a.Kind == PcKeyKind.Macro && profile.Macros.ElementAtOrDefault(a.MacroSlot)?.RepeatMode == MacroRepeatMode.WhileHeld && !_holdWritten.Contains(col) && _toldWrite.Add(col))
+                    o.Add(new PcOut(PcOutKind.Note, Slot: col, Code: 2, Shell: $"[hold] кнопка {col}: «пока зажата» — в клавиатуре ещё нет бита повтора для этой кнопки, работает как «до повторного нажатия». Нажмите «Записать»."));
+                if (stream) _streams[vk] = new TapStream { Col = col, First = nowMs!.Value, Last = nowMs.Value, Taps = 1 };
+                h = new Held(a, a.Kind == PcKeyKind.Key && isHostTrigger(a.Vk), mode) { WasHold = a.Kind == PcKeyKind.Macro && profile.Macros.ElementAtOrDefault(a.MacroSlot)?.RepeatMode == MacroRepeatMode.WhileHeld };
                 LastResolved = a;
                 _held[vk] = h;
                 switch (a.Kind)
@@ -368,7 +481,7 @@ public sealed class PcLayerRouter
     /// <summary>Keys still held (e.g. on exit / when the mode is switched off) → their releases.</summary>
     public List<PcOut> ReleaseAll()
     {
-        _prefix = false; _chordDown.Clear();
+        _prefix = false; _chordDown.Clear(); _streams.Clear();
         var o = new List<PcOut>();
         foreach (var h in _held.Values) Release(h, o);
         _held.Clear();

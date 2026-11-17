@@ -19,6 +19,11 @@ public sealed class HostMapper : IDisposable
     private const uint WM_QUIT = 0x12;
     /// <summary>v5.9.5: a K13 key the low-level hook never saw (Raw Input reported it) — routed on the hook thread.</summary>
     private const uint WM_APP_MISSED = 0x8000 + 0x13;
+    /// <summary>v5.9.6: end holds whose taps stopped (router.Tick on the hook thread).</summary>
+    private const uint WM_APP_TICK = 0x8000 + 0x14;
+    private System.Threading.Timer? _holdTimer;
+    /// <summary>v5.9.6: (column, keypad repeats the tap) — the hold test result of the first press after a write. UI thread.</summary>
+    public event Action<int, bool>? HoldVerdict;
 
     private readonly Dispatcher _ui;
     private readonly Native.LowLevelKeyboardProc _proc;
@@ -35,7 +40,7 @@ public sealed class HostMapper : IDisposable
     private readonly HashSet<ushort> _ringKeys = new();
     private long _events;
     // v5.6: keys through the PC (prepared keypad sends F14–F24 → action of the ACTIVE profile)
-    private sealed record LayerSnapshot(PcLayerState State, K13DeviceConfig Cfg, string Profile);
+    private sealed record LayerSnapshot(PcLayerState State, K13DeviceConfig Cfg, string Profile, int[] HoldWant, int[] HoldWritten);
     private volatile LayerSnapshot? _layer;
     private readonly PcLayerRouter _router = new(); // hook thread only; keeps held keys across profile switches
     private LayerSnapshot? _routerFor;
@@ -105,8 +110,14 @@ public sealed class HostMapper : IDisposable
                       $"привязка F13: {DescribeF13(_settings)}");
             ready.Set();
             if (_hook == IntPtr.Zero) return;
+            _holdTimer = new System.Threading.Timer(_ => { if (_router.StreamCount > 0 && _threadId != 0) PostThreadMessage(_threadId, WM_APP_TICK, IntPtr.Zero, IntPtr.Zero); }, null, 50, 50);
             while (GetMessage(out var m, IntPtr.Zero, 0, 0) > 0)
             {
+                if (m.message == WM_APP_TICK)
+                {
+                    try { foreach (var o in _router.Tick((uint)Environment.TickCount)) Do(o, _layer); } catch { }
+                    continue;
+                }
                 if (m.message == WM_APP_MISSED)
                 {
                     _routingMissed = true;
@@ -114,6 +125,7 @@ public sealed class HostMapper : IDisposable
                     finally { _routingMissed = false; }
                 }
             }
+            _holdTimer?.Dispose(); _holdTimer = null;
             Native.UnhookWindowsHookEx(_hook);
             _hook = IntPtr.Zero;
             Diag("снят");
@@ -145,11 +157,15 @@ public sealed class HostMapper : IDisposable
     }
 
     /// <summary>v5.6: keys through the PC. Empty state = the keypad keeps its own keys (nothing is translated).</summary>
-    public void UpdateLayer(PcLayerState state, K13DeviceConfig profileCfg, string profileName)
+    public void UpdateLayer(PcLayerState state, K13DeviceConfig profileCfg, string profileName, IEnumerable<int>? holdWant = null, IEnumerable<int>? holdWritten = null)
     {
         if (!state.Active) { if (_layer != null) App.Log("[hook] кнопки через ПК выключены"); _layer = null; return; }
         bool was = _layer != null;
-        _layer = new LayerSnapshot(state.Clone(), profileCfg.Clone(), profileName);
+        var hw = (holdWant ?? Array.Empty<int>()).OrderBy(x => x).ToArray(); var hr = (holdWritten ?? Array.Empty<int>()).OrderBy(x => x).ToArray();
+        var prev = _layer;
+        if (prev == null || !prev.HoldWant.SequenceEqual(hw) || !prev.HoldWritten.SequenceEqual(hr))
+            App.Log($"[hold] «пока зажата» через ПК: кнопки с удержанием [{string.Join(", ", hw)}], бит повтора записан в клавиатуре [{string.Join(", ", hr)}]");
+        _layer = new LayerSnapshot(state.Clone(), profileCfg.Clone(), profileName, hw, hr);
         if (!was) App.Log($"[hook] кнопки через ПК: {state.Keys.Count} кнопок, профиль «{profileName}»");
     }
 
@@ -187,6 +203,7 @@ public sealed class HostMapper : IDisposable
         if (!ReferenceEquals(l, _routerFor))
         {
             if (_routerFor == null || !SameKeys(_routerFor.State, l.State)) _router.SetLayer(l.State);
+            _router.SetHold(l.HoldWant, l.HoldWritten);
             _routerFor = l;
         }
         var before = _router.LastResolved;
@@ -204,7 +221,9 @@ public sealed class HostMapper : IDisposable
         bool fresh = down && !_routedDown.Contains(vk);
         if (down) _routedDown.Add(vk); else _routedDown.Remove(vk);
         foreach (var o in outs) Do(o, l);
-        if (down && (fresh || !ReferenceEquals(before, _router.LastResolved)) && _pressLogs < 400)
+        bool acted = outs.Any(x => x.Kind != PcOutKind.Note);
+        if (!acted) fresh = false; // v5.9.6: repeated taps of a held key — nothing new happened
+        if (down && acted && (fresh || !ReferenceEquals(before, _router.LastResolved)) && _pressLogs < 400)
         {
             _pressLogs++;
             int col = _router.ColumnOf(vk); var a = _router.LastResolved; string prof = l.Profile;
@@ -232,6 +251,14 @@ public sealed class HostMapper : IDisposable
                 _ui.BeginInvoke(() => { if (held) MacroPlayer.PlayWhileHeld(m); else MacroPlayer.Play(m); });
                 break;
             case PcOutKind.StopMacro: _ui.BeginInvoke(() => MacroPlayer.Stop()); break;
+            case PcOutKind.Note:
+                {
+                    string text = o.Shell; int col = o.Slot; int code = o.Code;
+                    Post(() => App.Log(text));
+                    var ul = UiLog; if (ul != null) _ui.BeginInvoke(() => ul(text));
+                    if (code is 0 or 1 && HoldVerdict is { } hv) _ui.BeginInvoke(() => hv(col, code == 1));
+                    break;
+                }
             case PcOutKind.Shell: var sh = o.Shell; _ui.BeginInvoke(() => RunShell(sh)); break;
             case PcOutKind.FirmwareOnly: Diag($"«{KeyCatalog.Name(o.Code)}» умеет только сама клавиатура — в режиме «через ПК» не выполняется"); break;
         }

@@ -35,12 +35,12 @@ public class V594Tests
     {
         var (r, main, vk, st) = Chord(MacroRepeatMode.WhileHeld);
         Assert.True(PcLayerRouter.HoldBecomesToggle(st));
-        var o = Tap(r, vk, main, 1000);
+        var o = Tap(r, vk, main, 1000).Where(x => x.Kind != PcOutKind.Note).ToList(); // v5.9.6: + «нажмите Записать» note
         var start = Assert.Single(o);                       // no StopMacro from the 16 ms release
         Assert.Equal(PcOutKind.StartMacroLoop, start.Kind);
         Assert.Equal(1, start.Slot);
         Assert.Equal(0, r.HeldCount);
-        Assert.Equal(PcOutKind.StartMacroLoop, Assert.Single(Tap(r, vk, main, 3000)).Kind); // 2nd press → host toggles it off
+        Assert.Equal(PcOutKind.StartMacroLoop, Assert.Single(Tap(r, vk, main, 3000), x => x.Kind != PcOutKind.Note).Kind); // 2nd press → host toggles it off
     }
 
     [Fact]
