@@ -239,11 +239,12 @@ public static class SmokeTest
                 w.SelectControl(-1);
             });
             // v5.7.4: activation setting + bisect test in the main ⋯ menu
-            Step($"{th}: меню ⋯ — включение Game и тест команды", () =>
+            Step($"{th}: меню ⋯ — нет попыток включить Game, есть тест команды", () =>
             {
                 var main = AllText(w.MainMenu());
                 if (main.Contains(K13ModeHints.RemovedManualAction)) throw new InvalidOperationException("в меню остался пункт «Включить Game сейчас»");
-                foreach (var t in new[] { K13ModeHints.ConnectSetting, "Восстановить из резервной копии" })
+                if (main.Contains(K13ModeHints.RemovedConnectSetting)) throw new InvalidOperationException("в меню осталась убранная в 1.0.5 настройка включения Game при подключении");
+                foreach (var t in new[] { "Восстановить из резервной копии" })
                     if (!main.Contains(t)) throw new InvalidOperationException("нет пункта " + t);
                 // v5.10: diagnostic tools only with «технические подробности»
                 bool tech = w.ShowTech;
@@ -252,24 +253,24 @@ public static class SmokeTest
                 w.SetShowTech(true);
                 if (!AllText(w.MainMenu()).Contains("Тест: какая команда включает Game")) throw new InvalidOperationException("нет теста команды в технических подробностях");
                 w.SetShowTech(tech);
-                // the Game setting starts its own group (after a separator)
+                // «Запоминать режим» starts its own group (after a separator)
                 var items = w.MainMenu().Items.Cast<object>().ToList();
-                int set = items.FindIndex(i => i is MenuItem mi && AllText(mi).Contains(K13ModeHints.ConnectSetting));
-                if (set < 1 || items[set - 1] is not Separator) throw new InvalidOperationException($"настройка Game не отделена чертой ({set})");
+                int set = items.FindIndex(i => i is MenuItem mi && AllText(mi).Contains("Запоминать режим:"));
+                if (set < 1 || items[set - 1] is not Separator) throw new InvalidOperationException($"«Запоминать режим» не отделён чертой ({set})");
             });
             // v5.9: experimental «remember mode» — menu item next to the Game items, dialog with explanation, nothing written
             Step($"{th}: меню ⋯ — «Запоминать режим» и окно", () =>
             {
                 var items = w.MainMenu().Items.Cast<object>().ToList();
-                int set = items.FindIndex(i => i is MenuItem mi && AllText(mi).Contains(K13ModeHints.ConnectSetting));
-                if (set < 0 || items.Count <= set + 1 || items[set + 1] is not MenuItem rm || !AllText(rm).Contains("Запоминать режим:") || AllText(rm).Contains("эксперимент"))
-                    throw new InvalidOperationException("нет пункта «Запоминать режим» после настройки Game");
+                int set = items.FindIndex(i => i is MenuItem mi && AllText(mi).Contains("Запоминать режим:"));
+                if (set < 0 || items[set] is not MenuItem rm || AllText(rm).Contains("эксперимент"))
+                    throw new InvalidOperationException("нет пункта «Запоминать режим»");
                 if (!AllText(rm).Contains("Запоминать режим:")) throw new InvalidOperationException("в пункте меню нет состояния");
                 // v5.9.2: OFF → «Включить» is the default; ON → «Готово» is the default, disabling is a separate left button
                 Button? Default(Window d) => Find<Button>(d).FirstOrDefault(b => b.IsDefault);
                 var offDlg = w.RememberDialog(0x91, true, out var offAns);
                 var t0 = AllText(offDlg);
-                foreach (var must in new[] { "Сейчас: ВЫКЛЮЧЕНО", "и Normal, и Game", "0x000F", "синий индикатор", K13ModeHints.ConnectSetting, "0x0000–0x0007", "Включить запоминание", "Восстановить из копии…", "Закрыть" })
+                foreach (var must in new[] { "Сейчас: ВЫКЛЮЧЕНО", "и Normal, и Game", "0x000F", "синий индикатор", "0x0000–0x0007", "Включить запоминание", "Восстановить из копии…", "Закрыть" })
                     if (!t0.Contains(must)) throw new InvalidOperationException($"в окне (выкл) нет «{must}»");
                 if (t0.Contains("Выключить запоминание")) throw new InvalidOperationException("в выключенном состоянии не должно быть «Выключить»");
                 if (Default(offDlg)?.Content as string != "Включить запоминание") throw new InvalidOperationException("в выключенном состоянии по умолчанию должно быть «Включить»");
@@ -287,6 +288,7 @@ public static class SmokeTest
                 var conf = MainWindow.DisableConfirm(null, 0x93, out var confAns);
                 if (!AllText(conf).Contains("Клавиатура снова будет стартовать в Normal") || confAns() != MessageBoxResult.No) throw new InvalidOperationException("подтверждение выключения должно по умолчанию отвечать «нет»");
                 conf.Close();
+                if (t0.Contains(K13ModeHints.RemovedConnectSetting)) throw new InvalidOperationException("в окне «Запоминать режим» осталась убранная настройка");
                 if (t0.Contains("ЭКСПЕРИМЕНТ") || t0.Contains("эксперимент")) throw new InvalidOperationException("в окне осталось «эксперимент»");
                 if (!MainWindow.RememberEnabledNext.Contains("Это окно больше открывать не нужно")) throw new InvalidOperationException("нет подсказки после включения");
                 var off = w.RememberDialog(null, false, out _);

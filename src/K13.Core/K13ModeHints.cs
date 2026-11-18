@@ -12,26 +12,19 @@ public static class K13ModeHints
     public const string RememberAction = "Запоминать режим…";
     /// <summary>The removed manual action. Kept only so tests can check it never comes back.</summary>
     public const string RemovedManualAction = "Включить Game сейчас";
-    public const string ConnectSetting = "Пробовать включать Game при подключении";
+    /// <summary>1.0.5: the removed connect-time setting. Kept only so tests can check it never comes back.</summary>
+    public const string RemovedConnectSetting = "Пробовать включать Game при подключении";
 
     /// <summary>Should the Normal banner offer «Запоминать режим…»? Only when the flag is known off or unknown.</summary>
     public static bool OfferRemember(byte? rememberByte) => rememberByte is not byte b || !K13RememberMode.IsOn(b);
 
-    /// <summary>Banner text in Normal. <paramref name="failedAfterTry"/>: the connect-time attempt ran and the keypad stayed Normal.</summary>
-    public static string NormalBanner(string what, bool failedAfterTry, byte? rememberByte)
+    /// <summary>Banner text in Normal.</summary>
+    public static string NormalBanner(string what, byte? rememberByte)
     {
-        string s = what + (failedAfterTry ? "Программа не смогла включить Game — " : "Ваши назначения работают в режиме Game: ") + PressStick + ".";
+        string s = what + "Ваши назначения работают в режиме Game: " + PressStick + ".";
         if (OfferRemember(rememberByte)) s += " Чтобы клавиатура сама оставалась в Game после переподключения, включите «Запоминать режим».";
         return s;
     }
-
-    /// <summary>Status line after the connect-time attempt.</summary>
-    public static string AfterConnectTry(HwMode after) => after switch
-    {
-        HwMode.Game => "Включён режим Game — работают ваши назначения (только чтение, без записи).",
-        HwMode.Normal => "Клавиатура осталась в режиме Normal — " + PressStick + ".",
-        _ => "Режим клавиатуры определить не удалось. Если кнопки делают заводское (Num 1…), " + PressStick + ".",
-    };
 
     public const string StatusForeignKey = "Клавиатура прислала «{0}» — она в режиме Normal. Чтобы включить Game, " + PressStick + ".";
 }

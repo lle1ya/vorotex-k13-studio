@@ -13,72 +13,15 @@ public partial class MainWindow
 {
     private bool _bisecting;
     private List<ushort>? _bisectKeys;
-    private DateTime _activatedAt = DateTime.MinValue;
-    /// <summary>A key not from memory arrived after an activation — the short exchange was not enough.</summary>
-    private bool _activationFailed;
 
-    private async void OnConnectedAsync()
+    /// <summary>1.0.5: the connect-time «Пробовать включать Game» exchange is gone. The makers' diagnostics (18.11.2026 09:10–09:18)
+    /// showed it never moved the keypad Normal → Game: the three «successes» were all replugs of a keypad that was already in Game
+    /// (the first status at connect always reads Normal, then the keypad reports its restored mode), and all six replugs from Normal
+    /// stayed Normal. Nothing is sent to the keypad on connect now; the stick and «Запоминать режим» are the way (PROTOCOL §39).</summary>
+    private void OnConnectedAsync()
     {
         if (_bisecting) { Log("[bisect] клавиатура подключена — ничего не отправляю (идёт тест)."); return; }
-        if (_store.Data.ActivateOnConnect && !_offline)
-        {
-            if (_hwMode == HwMode.Game) Log("[activate] клавиатура уже в режиме Game — ничего не отправляю.");
-            else await ActivateKeypad(auto: true);
-        }
         AskReplugCheck();
-    }
-
-    /// <summary>Short read of the header block + session end (07 18 00 / 05 / 01, 07 18 11, 07 18 00, 07 20). Never writes.</summary>
-    internal async Task<bool> ActivateKeypad(bool auto)
-    {
-        if (_busy || _offline || !_connected) return false;
-        _busy = true; UpdateConn();
-        try
-        {
-            var (head, frames) = await Task.Run(() =>
-            {
-                using var dev = K13Device.OpenFirst() ?? throw new IOException("Клавиатура не найдена.");
-                var h = K13Activation.Activate(dev);
-                return (h, dev.SentTimes.ToList());
-            });
-            if (frames.Any(f => !K13Protocol.IsReadOnlyFrame(f.Frame) && !K13Protocol.IsSessionEndFrame(f.Frame)))
-                throw new InvalidOperationException("в активации оказалась нечитающая команда");
-            _activatedAt = DateTime.Now; _kpForeignVk = 0; _activationFailed = false;
-            var before = _hwMode;
-            Log($"[activate] {(auto ? "при подключении" : "вручную")}: {frames.Count} кадров чтения/завершения, без записи; заголовок {Convert.ToHexString(head)}. " +
-                string.Join(" · ", frames.Select(f => $"{f.Ms}мс {Convert.ToHexString(f.Frame)}")));
-            _busy = false;
-            var after = await RefreshHwMode("после включения Game");
-            Log($"[activate] режим до: {K13Mode.Name(before)}, после: {K13Mode.Name(after)}.");
-            StatusText.Text = K13ModeHints.AfterConnectTry(after);
-            if (after == HwMode.Normal) { _activationFailed = true; Log("[activate] Game не включился — подсказка: нажать центр стика."); }
-            RefreshModeBanner();
-            if (auto && !_store.Data.StartWithWindows && !_store.Data.ActivateAutostartHintSeen && IsLoaded)
-                await Dispatcher.InvokeAsync(SuggestAutostart, DispatcherPriority.Background);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Log("[activate] не удалось: " + ex.Message);
-            return false;
-        }
-        finally { _busy = false; UpdateConn(); ExitIfPending(); }
-    }
-
-    private void SuggestAutostart()
-    {
-        _store.Data.ActivateAutostartHintSeen = true; SaveStore();
-        MessageBox.Build(this,
-            "После подключения K13 начинает в режиме Normal (заводские клавиши), а ваши назначения — это режим Game. Его включает нажатие центра стика. Программа с настройкой ⋯ → «Пробовать включать Game при подключении» пробует сделать это сама (только чтение, без записи), но не на всех K13 это срабатывает. Надёжнее включить ⋯ → «Запоминать режим»: тогда клавиатура сама остаётся в последнем выбранном стиком режиме.\n\n" +
-            "Чтобы это работало и после перезагрузки компьютера, включите запуск вместе с Windows: программа будет тихо работать в трее.",
-            Title, MessageBoxButton.YesNo, MessageBoxImage.Information, MessageBoxResult.Yes, out var a, new[] { "Включить автозапуск", "Не сейчас" }).ShowDialog();
-        if (a() == MessageBoxResult.Yes) AutostartBox.IsChecked = true;
-    }
-
-    internal void SetActivateOnConnect(bool on)
-    {
-        _store.Data.ActivateOnConnect = on; SaveStore();
-        Log(on ? "Настройка «Пробовать включать Game при подключении» включена." : "Настройка «Пробовать включать Game при подключении» выключена.");
     }
 
     // ───────────── bisect: which single frame switches the layout on

@@ -429,8 +429,7 @@ public partial class MainWindow : Window
         Item("\uE72C", "Кнопки не печатают? Вернуть обычный режим", Unstick_Click, _connected && !_busy && !_offline);
         // 1.0.1: the one-shot «Включить Game сейчас» is removed (did not switch on the makers' K13); the stick does it
         m.Items.Add(new Separator());
-        Item(_store.Data.ActivateOnConnect ? "\uE73E" : "", K13ModeHints.ConnectSetting, (_, _) => SetActivateOnConnect(!_store.Data.ActivateOnConnect))
-            .ToolTip = "Настройка: сразу после подключения программа пробует включить Game (только чтение, без записи). Срабатывает не на всех K13 — если осталась Normal, нажмите центр стика. Галочка — включено.";
+        // 1.0.5: «Пробовать включать Game при подключении» is removed — it never switched Normal → Game (makers' diagnostics 18.11.2026)
         // v5.9: experimental factory flag «remember mode» (EEPROM 0x000F bit 1)
         Item("\uE7BA", RememberMenuText(), (_, _) => ShowRememberDialog())
             .ToolTip = "Заводской флаг клавиатуры: помнить последний режим (Normal или Game) после переподключения USB, даже без программы. Откроется окно с объяснением; запись — только после подтверждения.";

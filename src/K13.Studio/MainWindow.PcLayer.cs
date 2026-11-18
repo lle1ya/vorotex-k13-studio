@@ -272,15 +272,15 @@ public partial class MainWindow
             // 1.0.1: no «Включить Game сейчас» — the read exchange did not switch modes on the makers' K13 (K13ModeHints)
             var rb = RememberState.Value;
             bool offer = K13ModeHints.OfferRemember(rb);
-            return Banner(_kpForeignVk != 0 || _activationFailed, K13ModeHints.NormalBanner(what, _activationFailed, rb),
+            return Banner(_kpForeignVk != 0, K13ModeHints.NormalBanner(what, rb),
                           offer ? K13ModeHints.RememberAction : null, offer ? () => { ShowRememberDialog(); return Task.CompletedTask; } : null);
     }
 
     /// <summary>v5.10.1: the keypad state became OK (Game, verified write, replug check matched, routed key) — drop stale «прислала …» warnings.</summary>
     internal void ClearKeypadWarnings(string why)
     {
-        if (_kpForeignVk == 0 && _kpUnexpectedVk == 0 && !_activationFailed) return;
-        _kpForeignVk = 0; _kpUnexpectedVk = 0; _activationFailed = false;
+        if (_kpForeignVk == 0 && _kpUnexpectedVk == 0) return;
+        _kpForeignVk = 0; _kpUnexpectedVk = 0;
         Log($"[k13] предупреждения о клавишах сняты ({why}).");
         RefreshModeBanner();
         if (_selCol >= 0) BuildEditor();
@@ -387,7 +387,6 @@ public partial class MainWindow
             case KeyVerdict.NormalMode:
                 if (_kpForeignVk != 0) return;
                 _kpForeignVk = vk;
-                if (mode == HwMode.Normal && _activatedAt > DateTime.MinValue && (DateTime.Now - _activatedAt).TotalMinutes < 10) _activationFailed = true;
                 Log($"[k13] клавиатура прислала заводскую «{VkName(vk)}» (VK 0x{vk:X2}) — она в режиме Normal (по статусу: {K13Mode.Name(mode)}).");
                 StatusText.Text = string.Format(K13ModeHints.StatusForeignKey, VkName(vk));
                 RefreshModeBanner();

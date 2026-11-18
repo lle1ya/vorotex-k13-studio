@@ -237,8 +237,8 @@ public sealed class ProfileStoreData
     /// <summary>v5.7.3: after a successful write — check the keypad memory once more when it is reconnected (replug test).
     /// Null = nothing pending. Old profiles.json files have no such field and load unchanged.</summary>
     public PendingReplugCheck? ReplugCheck { get; set; }
-    /// <summary>v5.7.4: on (re)connect send the short read-only exchange that makes the makers' K13 apply its saved layout
-    /// (PROTOCOL.md §28). Default on; old profiles.json files get it on.</summary>
+    /// <summary>v5.7.4: on (re)connect send the short read-only exchange (PROTOCOL.md §28). 1.0.5: IGNORED — the exchange never
+    /// switched Normal → Game (§39) and is gone; the field stays only so old profiles.json files round-trip unchanged.</summary>
     public bool ActivateOnConnect { get; set; } = true;
     /// <summary>v5.7.4: the «turn on autostart so it works after boot» hint was shown.</summary>
     public bool ActivateAutostartHintSeen { get; set; }

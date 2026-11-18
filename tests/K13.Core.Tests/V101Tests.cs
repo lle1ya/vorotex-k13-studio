@@ -15,7 +15,7 @@ public class V101Tests
         return Path.Combine(d!.FullName, "src", "K13.Studio");
     }
 
-    static IEnumerable<(string File, int Line, string Text)> CodeLines()
+    internal static IEnumerable<(string File, int Line, string Text)> CodeLines()
     {
         foreach (var f in Directory.EnumerateFiles(StudioSrc(), "*.*", SearchOption.AllDirectories)
                      .Where(f => (f.EndsWith(".cs") || f.EndsWith(".xaml")) && !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")))
@@ -54,16 +54,14 @@ public class V101Tests
         Assert.True(bad.Count == 0, "ручной вызов ActivateKeypad: " + string.Join(", ", bad));
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Normal_banner_points_to_the_stick(bool failed)
+    [Fact]
+    public void Normal_banner_points_to_the_stick()
     {
-        var s = K13ModeHints.NormalBanner("Клавиатура в режиме Normal (заводские клавиши). ", failed, 0x91);
+        var s = K13ModeHints.NormalBanner("Клавиатура в режиме Normal (заводские клавиши). ", 0x91);
         Assert.Contains("нажмите центр стика", s);
         Assert.Contains("синий индикатор", s);
         Assert.DoesNotContain(K13ModeHints.RemovedManualAction, s);
-        Assert.Equal(failed, s.Contains("не смогла включить Game"));
+        Assert.DoesNotContain("не смогла включить Game", s);
     }
 
     [Theory]
@@ -73,15 +71,12 @@ public class V101Tests
     public void Remember_is_offered_only_when_off_or_unknown(byte? flag, bool offer)
     {
         Assert.Equal(offer, K13ModeHints.OfferRemember(flag));
-        Assert.Equal(offer, K13ModeHints.NormalBanner("", false, flag).Contains("Запоминать режим"));
+        Assert.Equal(offer, K13ModeHints.NormalBanner("", flag).Contains("Запоминать режим"));
     }
 
     [Fact]
-    public void Connect_attempt_status_is_honest()
+    public void Foreign_key_status_is_honest()
     {
-        Assert.Contains("Game", K13ModeHints.AfterConnectTry(HwMode.Game));
-        Assert.Contains("нажмите центр стика", K13ModeHints.AfterConnectTry(HwMode.Normal));
-        Assert.Contains("нажмите центр стика", K13ModeHints.AfterConnectTry(HwMode.Unknown));
         Assert.Contains("нажмите центр стика", string.Format(K13ModeHints.StatusForeignKey, "Num 2"));
         Assert.Contains("«Num 2»", string.Format(K13ModeHints.StatusForeignKey, "Num 2"));
     }
