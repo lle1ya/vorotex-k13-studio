@@ -500,6 +500,27 @@ public static class SmokeTest
                 if (w.DemoStatus.Contains("Подсветка")) throw new InvalidOperationException("подсказка про подсветку без причины: «" + w.DemoStatus + "»");
                 w.DemoActivate(prev); w.DemoRemoveProfile("Свет-смоук"); w.DemoPcLayer(wasLayer); w.DemoKeypadHolds("Основной");
             });
+            // 1.1.1: lighting follows a switch even when the profiles also differ in the wheel (user log 18.11.2026 13:13–13:15)
+            Step($"{th}: 1.1.1 подсветка при смене профиля с другим колесом", () =>
+            {
+                string prev = w.DemoActiveProfile; bool wasLayer = w.LayerState.Active;
+                foreach (bool layer in new[] { true, false })
+                {
+                    w.DemoPcLayer(layer);
+                    w.DemoLightingCopy("Основной", "Колесо-смоук");
+                    w.DemoWheelDiffers("Колесо-смоук");
+                    w.DemoSwitchByUser("Основной");
+                    w.DemoKeypadHolds("Основной");
+                    w.DemoSwitchByUser("Колесо-смоук");
+                    var (ready, only, left) = w.DemoLightingPart();
+                    if (!ready) throw new InvalidOperationException($"подсветку нельзя применить отдельно (через ПК: {layer})");
+                    if (!only) throw new InvalidOperationException($"быстрая запись задела не только подсветку (через ПК: {layer})");
+                    if (!left) throw new InvalidOperationException($"после подсветки не осталось колеса для «Записать» (через ПК: {layer})");
+                    w.DemoSwitchByUser("Основной");
+                    w.DemoRemoveProfile("Колесо-смоук");
+                }
+                w.DemoActivate(prev); w.DemoPcLayer(wasLayer); w.DemoKeypadHolds("Основной");
+            });
             // 1.0.3: lighting on auto-switch — setting in the profiles ⋯ menu (on by default), auto switch offline gives an honest note
             Step($"{th}: 1.0.3 подсветка при автопереключении", () =>
             {

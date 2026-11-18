@@ -23,6 +23,9 @@ DefaultDirName={localappdata}\Programs\VorotexK13Studio
 DefaultGroupName=VOROTEX K13 Studio
 DisableProgramGroupPage=yes
 DisableDirPage=auto
+; 1.1.1: an update (also the silent in-app one) goes to the folder chosen at first install (e.g. D:\Programms) and keeps the desktop-icon choice
+UsePreviousAppDir=yes
+UsePreviousTasks=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible

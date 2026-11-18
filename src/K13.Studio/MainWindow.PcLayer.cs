@@ -510,6 +510,21 @@ public partial class MainWindow
         _store.Data.Profiles.Add(new AppProfile { Name = name, Device = d });
         RefreshAll();
     }
+    /// <summary>1.1.1 smoke: the copy also differs in the wheel (as in the user's log 18.11.2026).</summary>
+    internal void DemoWheelDiffers(string name)
+    {
+        if (_store.Find(name)?.Device is { } d) { d.WheelFirst = (d.WheelFirst + 1) % 4; RefreshAll(); }
+    }
+    /// <summary>1.1.1 smoke: what the live path would write now — lighting area only (null = nothing).</summary>
+    internal (bool Ready, bool OnlyLighting, bool OthersLeft) DemoLightingPart()
+    {
+        var t = LightingTarget();
+        if (t == null || _deviceImage == null) return (false, false, false);
+        int bs = K13MemoryCodec.ReadBase(_deviceImage);
+        bool only = PcLayerHealth.PendingWrite(t, _deviceImage).All(b => b.Address >= bs && b.Address + b.Data.Length <= bs + ProfileSwitchLighting.LightingSpan);
+        bool left = !ProfileSwitchLighting.LightingDiffers(DeviceTarget, K13MemoryCodec.Encode(t, _deviceImage)) && PcLayerHealth.PendingWrite(DeviceTarget, K13MemoryCodec.Encode(t, _deviceImage)).Count > 0;
+        return (true, only, left);
+    }
     internal void DemoRemoveProfile(string name) { _store.Data.Profiles.RemoveAll(p => p.Name == name); RefreshAll(); }
 
     internal void DemoHookBlocked(string? name) { _hookBlockedBy = name; _missedFg = name; RefreshModeBanner(); }

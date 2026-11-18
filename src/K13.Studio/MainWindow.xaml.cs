@@ -215,16 +215,18 @@ public partial class MainWindow : Window
             // 1.0.2: lighting follows a switch made by the user (same live LED-only path as editing the lighting)
             bool userSwitch = reason is "вручную" or "трей" or "действие клавиши" && ProfileSwitchLighting.AppliesLive(source);
             bool ledOnly = LightingOnlyPending(), ledDiff = ledOnly || ProfileSwitchLighting.LightingDiffers(DeviceTarget, _deviceImage);
+            bool ledPart = LightingPending();                                  // 1.1.1: lighting can be applied alone even if other blocks differ
             if (changed) _autoLed.Cancel();                                   // any newer switch replaces a pending auto write
-            bool apply = changed && userSwitch && ledOnly && ScheduleLiveLighting();
+            bool apply = changed && userSwitch && ledPart && ScheduleLiveLighting();
             // 1.0.3: auto-switch too — debounced and rate-limited (AutoLightingGate)
             bool autoOn = auto && _store.Data.AutoSwitchLighting;
             if (changed) { _lastSwitchAuto = auto; _lastSwitchAt = DateTime.Now; }
             // 1.0.4: during a write the cached image is about to change — queue anyway, the timer re-checks after the write
-            if (changed && autoOn && (ledOnly || _busy)) apply = ScheduleAutoLighting(p.Name);
-            if (apply) Log(auto ? $"[led] профиль «{p.Name}» (авто): {(ledOnly ? "подсветка отличается" : "идёт запись")} — применю через {(_autoLed.DueAt(DateTime.Now) is DateTime du ? Math.Max(0, (du - DateTime.Now).TotalSeconds) : 0):0.#} с, если профиль не сменится."
-                                : $"[led] профиль «{p.Name}»: подсветка отличается от клавиатуры — применяю (только подсветка).");
-            else if (ledDiff && _deviceImage != null) Log($"[led] профиль «{p.Name}»: подсветка в клавиатуре прежняя ({(ledOnly ? "" : "отличаются и другие блоки; ")}{(!_store.Data.WriteConfirmed ? "запись ещё не подтверждена" : auto && !autoOn ? "смена подсветки при автопереключении выключена" : auto && _connected && !_offline ? $"лимит {AutoLightingGate.MaxPerHour} автосмен за час" : "нужно «Записать»")}).");
+            if (changed && autoOn && (ledPart || _busy)) apply = ScheduleAutoLighting(p.Name);
+            string others = ledOnly ? "" : $"; другие блоки тоже отличаются ({OtherPendingNames()}) — их пишет только «Записать»";
+            if (apply) Log(auto ? $"[led] профиль «{p.Name}» (авто): {(ledPart ? "подсветка отличается" : "идёт запись")} — применю через {(_autoLed.DueAt(DateTime.Now) is DateTime du ? Math.Max(0, (du - DateTime.Now).TotalSeconds) : 0):0.#} с, если профиль не сменится (только подсветка{others})."
+                                : $"[led] профиль «{p.Name}»: подсветка отличается от клавиатуры — применяю (только подсветка{others}).");
+            else if (ledDiff && _deviceImage != null) Log($"[led] профиль «{p.Name}»: подсветка в клавиатуре прежняя ({(ledOnly ? "" : $"отличаются и другие блоки: {OtherPendingNames()}; ")}{(!_store.Data.WriteConfirmed ? "запись ещё не подтверждена" : !ledPart ? "подсветку отдельно не выделить — нужно «Записать»" : !_connected || _offline ? "клавиатура не подключена" : auto && !autoOn ? "смена подсветки при автопереключении выключена" : auto ? $"лимит {AutoLightingGate.MaxPerHour} автосмен за час" : "нужно «Записать»")}).");
             bool capHit = auto && apply && _autoLed.CapReached(DateTime.Now);
             string note = ProfileSwitchLighting.Note(ledOnly, ledDiff, apply, _store.Data.WriteConfirmed, source, Layer.Active, !autoOn ? AutoLed.Off : capHit ? AutoLed.Cap : AutoLed.On);
             StatusText.Text = (auto ? $"Профиль «{p.Name}» — {_activeWhy}." : $"Профиль «{p.Name}» ({reason}).") + (note.Length > 0 ? " " + note : "");
@@ -252,11 +254,27 @@ public partial class MainWindow : Window
     private System.Windows.Threading.DispatcherTimer? _ledTimer;
 
     private bool LightingOnlyPending() => ProfileSwitchLighting.LightingOnlyPending(DeviceTarget, _deviceImage);
+    /// <summary>1.1.1: the keypad image with only the profile's lighting (null = nothing to apply live).</summary>
+    private K13DeviceConfig? LightingTarget() => ProfileSwitchLighting.LightingDiffers(DeviceTarget, _deviceImage) ? ProfileSwitchLighting.LightingPart(DeviceTarget, _deviceImage) : null;
+    private bool LightingPending() => LightingTarget() != null;
+
+    private string OtherPendingNames()
+    {
+        if (_deviceImage == null) return "";
+        try
+        {
+            int bs = K13MemoryCodec.ReadBase(_deviceImage);
+            return string.Join(", ", PcLayerHealth.PendingWrite(DeviceTarget, _deviceImage)
+                .Where(b => !(b.Address >= bs && b.Address + b.Data.Length <= bs + ProfileSwitchLighting.LightingSpan))
+                .Select(b => b.Purpose));
+        }
+        catch { return ""; }
+    }
 
     /// <summary>Starts the debounced LED-only write; false when it will not run (not confirmed yet, offline, other blocks differ).</summary>
     private bool ScheduleLiveLighting()
     {
-        if (_offline || !_connected || !_store.Data.WriteConfirmed || !LightingOnlyPending()) return false;
+        if (_offline || !_connected || !_store.Data.WriteConfirmed || !LightingPending()) return false;
         _ledTimer ??= new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
         _ledTimer.Tick -= LedTimer_Tick; _ledTimer.Tick += LedTimer_Tick;
         _ledTimer.Stop(); _ledTimer.Start();
@@ -294,7 +312,7 @@ public partial class MainWindow : Window
         if (_busy) { StartAutoLedTimer(TimeSpan.FromMilliseconds(700)); return; }   // the cached image changes with the running write
         var now = DateTime.Now;
         string? target = _autoLed.PendingProfile;
-        switch (_autoLed.Decide(now, _profile.Name, LightingOnlyPending()))
+        switch (_autoLed.Decide(now, _profile.Name, LightingPending()))
         {
             case AutoLightingGate.Verdict.Wait:
                 if (_autoLed.DueAt(now) is DateTime due)
@@ -317,7 +335,7 @@ public partial class MainWindow : Window
             case AutoLightingGate.Verdict.Write:
                 _autoLed.Wrote(now); _capLogged = false;
                 Log($"[led] авто: профиль «{target}» — пишу подсветку (только блок подсветки; {_autoLed.WritesLastHour(now)}-я автосмена за час).");
-                await WriteDevice(quiet: true);
+                await WriteLightingOnly();
                 return;
         }
     }
@@ -329,7 +347,7 @@ public partial class MainWindow : Window
     /// write ran), queue the matching write — through the gate for an auto-switch, the live path otherwise.</summary>
     private void ReconcileLighting()
     {
-        if (_offline || !_connected || _busy || !_store.Data.WriteConfirmed || !LightingOnlyPending()) return;
+        if (_offline || !_connected || _busy || !_store.Data.WriteConfirmed || !LightingPending()) return;
         var now = DateTime.Now;
         if (_lastSwitchAuto)
         {
@@ -354,9 +372,16 @@ public partial class MainWindow : Window
         if (Mouse.LeftButton == MouseButtonState.Pressed) return;     // still dragging a slider – wait
         _ledTimer!.Stop();
         if (_busy) { _ledTimer.Start(); return; }
-        if (!LightingOnlyPending()) return;
+        if (!LightingPending()) return;
         App.Log("[led] подсветка изменена — применяю сразу");
-        await WriteDevice(quiet: true);
+        await WriteLightingOnly();
+    }
+
+    /// <summary>1.1.1: the live path writes the lighting area only — even when other blocks of the profile differ (they wait for «Записать»).</summary>
+    private async Task<bool> WriteLightingOnly()
+    {
+        if (LightingTarget() is not { } t) return false;
+        return await WriteDevice(quiet: true, target: t);
     }
 
     private void BuildStaticUi()

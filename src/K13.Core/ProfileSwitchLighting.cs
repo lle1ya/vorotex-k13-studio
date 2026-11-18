@@ -11,6 +11,9 @@ public enum AutoLed { Off, On, Cap }
 public static class ProfileSwitchLighting
 {
     /// <summary>1.0.4: the hourly cap defers the write, it does not drop it.</summary>
+    /// <summary>1.1.1: lighting follows the switch, other settings that are stored in the keypad (e.g. the wheel) still differ.</summary>
+    public const string OtherBlocksText = "Остальные настройки, которые хранятся в клавиатуре (например, колесо), у профилей разные — их применит «Записать».";
+
     public static readonly string CapText = $"Подсветка применится позже: за час она уже менялась автоматически {AutoLightingGate.MaxPerHour} раз (бережём память клавиатуры).";
 
     /// <summary>Lighting area: BASE … BASE+0x1F (flags, colours, effect/brightness/speed).</summary>
@@ -26,6 +29,26 @@ public static class ProfileSwitchLighting
         if (keypadImage == null) return false;
         try { return IsLightingOnly(PcLayerHealth.PendingWrite(target, keypadImage), K13MemoryCodec.ReadBase(keypadImage)); }
         catch { return false; }
+    }
+
+    /// <summary>1.1.1: the keypad image with ONLY the lighting area taken from <paramref name="target"/> — what a profile switch writes.
+    /// Before, a switch applied the lighting only when nothing else differed; once two profiles also differed in another block (the wheel,
+    /// 18.11.2026 13:02) the lighting stopped following the switch and «Записать» was needed. Null when the image is unknown or the result
+    /// would touch anything outside the lighting area (then nothing is written live).</summary>
+    public static K13DeviceConfig? LightingPart(K13DeviceConfig target, byte[]? keypadImage)
+    {
+        if (keypadImage == null) return null;
+        try
+        {
+            int bs = K13MemoryCodec.ReadBase(keypadImage);
+            var full = K13MemoryCodec.Encode(target, keypadImage);
+            var mix = (byte[])keypadImage.Clone();
+            Array.Copy(full, bs, mix, bs, LightingSpan);
+            var cfg = K13MemoryCodec.Decode(mix);
+            var diff = PcLayerHealth.PendingWrite(cfg, keypadImage);
+            return IsLightingOnly(diff, bs) ? cfg : null;
+        }
+        catch { return null; }
     }
 
     /// <summary>Does the lighting area differ at all (maybe together with other blocks)?</summary>
@@ -47,8 +70,12 @@ public static class ProfileSwitchLighting
     public static string Note(bool lightingOnly, bool lightingDiffers, bool willApply, bool writeConfirmed, SwitchSource source, bool layerActive, AutoLed autoLed = AutoLed.Off)
     {
         if (!lightingDiffers && !lightingOnly) return "";
-        if (willApply) return source != SwitchSource.Auto ? "Подсветка профиля применяется к клавиатуре."
-                            : autoLed == AutoLed.Cap ? CapText : "Подсветка профиля применится к клавиатуре через пару секунд.";
+        if (willApply)
+        {
+            string s = source != SwitchSource.Auto ? "Подсветка профиля применяется к клавиатуре."
+                     : autoLed == AutoLed.Cap ? CapText : "Подсветка профиля применится к клавиатуре через пару секунд.";
+            return lightingOnly ? s : s + " " + OtherBlocksText;
+        }
         if (!lightingOnly)
             return layerActive ? "Кнопки уже переключены (через ПК); подсветка в клавиатуре прежняя — нажмите «Записать»."
                                : "Кнопки и подсветка в клавиатуре прежние — нажмите «Записать».";
