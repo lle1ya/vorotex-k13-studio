@@ -269,11 +269,11 @@ public partial class MainWindow
     {
         if (!(_kpForeignVk != 0 && _hwMode != HwMode.Game || _hwMode == HwMode.Normal && _connected && !_offline)) return null;
             string what = _kpForeignVk != 0 ? $"Клавиатура прислала «{VkName(_kpForeignVk)}» — она в режиме Normal (заводские клавиши). " : "Клавиатура в режиме Normal (заводские клавиши). ";
-            return _activationFailed
-                ? Banner(true, what + "Включить Game не удалось — нажмите стик (загорится синий индикатор между Tab и 9) или ⋯ → «Сохранить диагностику».",
-                         "Прочитать память", async () => { if (await ReadDevice(auto: false) != null) { _kpForeignVk = 0; _activationFailed = false; await RefreshHwMode("после чтения"); RefreshModeBanner(); } })
-                : Banner(_kpForeignVk != 0, what + "Ваши назначения работают в режиме Game: нажмите стик или «Включить Game сейчас» (без записи).",
-                         "Включить Game сейчас", async () => await ActivateKeypad(auto: false));
+            // 1.0.1: no «Включить Game сейчас» — the read exchange did not switch modes on the makers' K13 (K13ModeHints)
+            var rb = RememberState.Value;
+            bool offer = K13ModeHints.OfferRemember(rb);
+            return Banner(_kpForeignVk != 0 || _activationFailed, K13ModeHints.NormalBanner(what, _activationFailed, rb),
+                          offer ? K13ModeHints.RememberAction : null, offer ? () => { ShowRememberDialog(); return Task.CompletedTask; } : null);
     }
 
     /// <summary>v5.10.1: the keypad state became OK (Game, verified write, replug check matched, routed key) — drop stale «прислала …» warnings.</summary>
@@ -389,7 +389,7 @@ public partial class MainWindow
                 _kpForeignVk = vk;
                 if (mode == HwMode.Normal && _activatedAt > DateTime.MinValue && (DateTime.Now - _activatedAt).TotalMinutes < 10) _activationFailed = true;
                 Log($"[k13] клавиатура прислала заводскую «{VkName(vk)}» (VK 0x{vk:X2}) — она в режиме Normal (по статусу: {K13Mode.Name(mode)}).");
-                StatusText.Text = $"Клавиатура прислала «{VkName(vk)}» — она в режиме Normal. Нажмите стик или «Включить Game сейчас».";
+                StatusText.Text = string.Format(K13ModeHints.StatusForeignKey, VkName(vk));
                 RefreshModeBanner();
                 return;
             case KeyVerdict.NotInMemory:

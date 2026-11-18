@@ -335,12 +335,10 @@ public partial class MainWindow : Window
         Item("\uE777", "Восстановить из резервной копии…", ImportBin_Click)
             .ToolTip = "Открыть сохранённую копию памяти как профиль. В клавиатуру она попадёт только после «Записать» и подтверждения.";
         Item("\uE72C", "Кнопки не печатают? Вернуть обычный режим", Unstick_Click, _connected && !_busy && !_offline);
-        // v5.8.2: one-shot action and the setting are visually apart (makers ticked the setting instead of the action)
-        Item("\uE768", "Включить Game сейчас", async (_, _) => await ActivateKeypad(auto: false), _connected && !_busy && !_offline)
-            .ToolTip = "Разово переключить клавиатуру в режим Game (ваши назначения). Только чтение, без записи.";
+        // 1.0.1: the one-shot «Включить Game сейчас» is removed (did not switch on the makers' K13); the stick does it
         m.Items.Add(new Separator());
-        Item(_store.Data.ActivateOnConnect ? "\uE73E" : "", "Автоматически включать Game при подключении", (_, _) => SetActivateOnConnect(!_store.Data.ActivateOnConnect))
-            .ToolTip = "Настройка: при каждом подключении клавиатуры программа сама переключает её в Game. Галочка — включено.";
+        Item(_store.Data.ActivateOnConnect ? "\uE73E" : "", K13ModeHints.ConnectSetting, (_, _) => SetActivateOnConnect(!_store.Data.ActivateOnConnect))
+            .ToolTip = "Настройка: сразу после подключения программа пробует включить Game (только чтение, без записи). Срабатывает не на всех K13 — если осталась Normal, нажмите центр стика. Галочка — включено.";
         // v5.9: experimental factory flag «remember mode» (EEPROM 0x000F bit 1)
         Item("\uE7BA", RememberMenuText(), (_, _) => ShowRememberDialog())
             .ToolTip = "Заводской флаг клавиатуры: помнить последний режим (Normal или Game) после переподключения USB, даже без программы. Откроется окно с объяснением; запись — только после подтверждения.";

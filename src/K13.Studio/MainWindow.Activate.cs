@@ -6,8 +6,9 @@ using Vorotex.K13;
 namespace Vorotex.Studio;
 
 /// <summary>v5.8 (corrects v5.7.4): the K13 boots in hardware mode Normal (factory table); the written keymap is the Game layer.
-/// The stick (0xF4) toggles the modes; a host read exchange also brings Game (16.11.2026 15:07). «Включить Game сейчас» sends that
-/// exchange — read-type frames only — and checks the mode via the status block (PROTOCOL §30).</summary>
+/// The stick (0xF4) toggles the modes; a host read exchange sometimes brings Game right after connect (16.11.2026 15:07).
+/// 1.0.1: only the connect-time attempt is left (read-type frames only, mode checked via status, PROTOCOL §30, §35); the manual
+/// «Включить Game сейчас» was removed — on the makers' K13 it never switched (17.11.2026).</summary>
 public partial class MainWindow
 {
     private bool _bisecting;
@@ -49,9 +50,8 @@ public partial class MainWindow
             _busy = false;
             var after = await RefreshHwMode("после включения Game");
             Log($"[activate] режим до: {K13Mode.Name(before)}, после: {K13Mode.Name(after)}.");
-            StatusText.Text = after == HwMode.Game ? "Включён режим Game — работают ваши назначения (только чтение, без записи)."
-                : after == HwMode.Normal ? "Клавиатура осталась в режиме Normal. Нажмите стик или проверьте, что назначения записаны."
-                : "Отправлен обмен чтения, режим определить не удалось. Проверьте кнопки.";
+            StatusText.Text = K13ModeHints.AfterConnectTry(after);
+            if (after == HwMode.Normal) { _activationFailed = true; Log("[activate] Game не включился — подсказка: нажать центр стика."); }
             RefreshModeBanner();
             if (auto && !_store.Data.StartWithWindows && !_store.Data.ActivateAutostartHintSeen && IsLoaded)
                 await Dispatcher.InvokeAsync(SuggestAutostart, DispatcherPriority.Background);
@@ -69,7 +69,7 @@ public partial class MainWindow
     {
         _store.Data.ActivateAutostartHintSeen = true; SaveStore();
         MessageBox.Build(this,
-            "После подключения K13 начинает в режиме Normal (заводские клавиши), а ваши назначения — это режим Game. Его включает нажатие стика или программа: с настройкой ⋯ → «Автоматически включать Game при подключении» она делает это сама (только чтение, без записи).\n\n" +
+            "После подключения K13 начинает в режиме Normal (заводские клавиши), а ваши назначения — это режим Game. Его включает нажатие центра стика. Программа с настройкой ⋯ → «Пробовать включать Game при подключении» пробует сделать это сама (только чтение, без записи), но не на всех K13 это срабатывает. Надёжнее включить ⋯ → «Запоминать режим»: тогда клавиатура сама остаётся в последнем выбранном стиком режиме.\n\n" +
             "Чтобы это работало и после перезагрузки компьютера, включите запуск вместе с Windows: программа будет тихо работать в трее.",
             Title, MessageBoxButton.YesNo, MessageBoxImage.Information, MessageBoxResult.Yes, out var a, new[] { "Включить автозапуск", "Не сейчас" }).ShowDialog();
         if (a() == MessageBoxResult.Yes) AutostartBox.IsChecked = true;
@@ -78,7 +78,7 @@ public partial class MainWindow
     internal void SetActivateOnConnect(bool on)
     {
         _store.Data.ActivateOnConnect = on; SaveStore();
-        Log(on ? "Настройка «Автоматически включать Game при подключении» включена." : "Настройка «Автоматически включать Game при подключении» выключена.");
+        Log(on ? "Настройка «Пробовать включать Game при подключении» включена." : "Настройка «Пробовать включать Game при подключении» выключена.");
     }
 
     // ───────────── bisect: which single frame switches the layout on

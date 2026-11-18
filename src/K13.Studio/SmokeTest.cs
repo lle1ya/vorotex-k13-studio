@@ -223,7 +223,10 @@ public static class SmokeTest
                 {
                     Render(w, 0);
                     if (!AllText(w).Contains("в режиме Normal")) throw new InvalidOperationException("нет предупреждения о режиме Normal");
-                    if (!AllText(w).Contains("Включить Game сейчас")) throw new InvalidOperationException("нет кнопки «Включить Game сейчас» в предупреждении");
+                    // 1.0.1: no manual switch button; the banner says to press the stick and offers «Запоминать режим…» while it is off
+                    if (AllText(w).Contains(K13ModeHints.RemovedManualAction)) throw new InvalidOperationException("в предупреждении осталась кнопка «Включить Game сейчас»");
+                    if (!AllText(w).Contains("нажмите центр стика")) throw new InvalidOperationException("в предупреждении нет подсказки «нажмите центр стика»");
+                    if (K13ModeHints.OfferRemember(w.RememberState.Value) != AllText(w).Contains(K13ModeHints.RememberAction)) throw new InvalidOperationException("кнопка «Запоминать режим…» в предупреждении не соответствует флагу");
                 }
                 finally { w.SimulateForeignKey(0); }
             });
@@ -239,7 +242,8 @@ public static class SmokeTest
             Step($"{th}: меню ⋯ — включение Game и тест команды", () =>
             {
                 var main = AllText(w.MainMenu());
-                foreach (var t in new[] { "Включить Game сейчас", "Автоматически включать Game при подключении", "Восстановить из резервной копии" })
+                if (main.Contains(K13ModeHints.RemovedManualAction)) throw new InvalidOperationException("в меню остался пункт «Включить Game сейчас»");
+                foreach (var t in new[] { K13ModeHints.ConnectSetting, "Восстановить из резервной копии" })
                     if (!main.Contains(t)) throw new InvalidOperationException("нет пункта " + t);
                 // v5.10: diagnostic tools only with «технические подробности»
                 bool tech = w.ShowTech;
@@ -248,17 +252,16 @@ public static class SmokeTest
                 w.SetShowTech(true);
                 if (!AllText(w.MainMenu()).Contains("Тест: какая команда включает Game")) throw new InvalidOperationException("нет теста команды в технических подробностях");
                 w.SetShowTech(tech);
-                // v5.8.2: action first, then a separator, then the setting
+                // the Game setting starts its own group (after a separator)
                 var items = w.MainMenu().Items.Cast<object>().ToList();
-                int Idx(string t) => items.FindIndex(i => i is MenuItem mi && AllText(mi).Contains(t));
-                int act = Idx("Включить Game сейчас"), set = Idx("Автоматически включать Game");
-                if (act < 0 || set != act + 2 || items[act + 1] is not Separator) throw new InvalidOperationException($"пункты Game не разделены чертой ({act}, {set})");
+                int set = items.FindIndex(i => i is MenuItem mi && AllText(mi).Contains(K13ModeHints.ConnectSetting));
+                if (set < 1 || items[set - 1] is not Separator) throw new InvalidOperationException($"настройка Game не отделена чертой ({set})");
             });
             // v5.9: experimental «remember mode» — menu item next to the Game items, dialog with explanation, nothing written
             Step($"{th}: меню ⋯ — «Запоминать режим» и окно", () =>
             {
                 var items = w.MainMenu().Items.Cast<object>().ToList();
-                int set = items.FindIndex(i => i is MenuItem mi && AllText(mi).Contains("Автоматически включать Game"));
+                int set = items.FindIndex(i => i is MenuItem mi && AllText(mi).Contains(K13ModeHints.ConnectSetting));
                 if (set < 0 || items.Count <= set + 1 || items[set + 1] is not MenuItem rm || !AllText(rm).Contains("Запоминать режим:") || AllText(rm).Contains("эксперимент"))
                     throw new InvalidOperationException("нет пункта «Запоминать режим» после настройки Game");
                 if (!AllText(rm).Contains("Запоминать режим:")) throw new InvalidOperationException("в пункте меню нет состояния");
@@ -266,7 +269,7 @@ public static class SmokeTest
                 Button? Default(Window d) => Find<Button>(d).FirstOrDefault(b => b.IsDefault);
                 var offDlg = w.RememberDialog(0x91, true, out var offAns);
                 var t0 = AllText(offDlg);
-                foreach (var must in new[] { "Сейчас: ВЫКЛЮЧЕНО", "и Normal, и Game", "0x000F", "синий индикатор", "Автоматически включать Game при подключении", "0x0000–0x0007", "Включить запоминание", "Восстановить из копии…", "Закрыть" })
+                foreach (var must in new[] { "Сейчас: ВЫКЛЮЧЕНО", "и Normal, и Game", "0x000F", "синий индикатор", K13ModeHints.ConnectSetting, "0x0000–0x0007", "Включить запоминание", "Восстановить из копии…", "Закрыть" })
                     if (!t0.Contains(must)) throw new InvalidOperationException($"в окне (выкл) нет «{must}»");
                 if (t0.Contains("Выключить запоминание")) throw new InvalidOperationException("в выключенном состоянии не должно быть «Выключить»");
                 if (Default(offDlg)?.Content as string != "Включить запоминание") throw new InvalidOperationException("в выключенном состоянии по умолчанию должно быть «Включить»");
