@@ -218,11 +218,13 @@ public partial class MainWindow : Window
             bool apply = changed && userSwitch && ledOnly && ScheduleLiveLighting();
             // 1.0.3: auto-switch too — debounced and rate-limited (AutoLightingGate)
             bool autoOn = auto && _store.Data.AutoSwitchLighting;
-            if (changed && autoOn && ledOnly) apply = ScheduleAutoLighting(p.Name);
-            if (apply) Log(auto ? $"[led] профиль «{p.Name}» (авто): подсветка отличается — применю через {AutoLightingGate.Stable.TotalSeconds:0.#} с, если профиль не сменится."
+            if (changed) { _lastSwitchAuto = auto; _lastSwitchAt = DateTime.Now; }
+            // 1.0.4: during a write the cached image is about to change — queue anyway, the timer re-checks after the write
+            if (changed && autoOn && (ledOnly || _busy)) apply = ScheduleAutoLighting(p.Name);
+            if (apply) Log(auto ? $"[led] профиль «{p.Name}» (авто): {(ledOnly ? "подсветка отличается" : "идёт запись")} — применю через {(_autoLed.DueAt(DateTime.Now) is DateTime du ? Math.Max(0, (du - DateTime.Now).TotalSeconds) : 0):0.#} с, если профиль не сменится."
                                 : $"[led] профиль «{p.Name}»: подсветка отличается от клавиатуры — применяю (только подсветка).");
             else if (ledDiff && _deviceImage != null) Log($"[led] профиль «{p.Name}»: подсветка в клавиатуре прежняя ({(ledOnly ? "" : "отличаются и другие блоки; ")}{(!_store.Data.WriteConfirmed ? "запись ещё не подтверждена" : auto && !autoOn ? "смена подсветки при автопереключении выключена" : auto && _connected && !_offline ? $"лимит {AutoLightingGate.MaxPerHour} автосмен за час" : "нужно «Записать»")}).");
-            bool capHit = auto && autoOn && changed && ledOnly && !apply && _connected && !_offline && _store.Data.WriteConfirmed;
+            bool capHit = auto && apply && _autoLed.CapReached(DateTime.Now);
             string note = ProfileSwitchLighting.Note(ledOnly, ledDiff, apply, _store.Data.WriteConfirmed, source, Layer.Active, !autoOn ? AutoLed.Off : capHit ? AutoLed.Cap : AutoLed.On);
             StatusText.Text = (auto ? $"Профиль «{p.Name}» — {_activeWhy}." : $"Профиль «{p.Name}» ({reason}).") + (note.Length > 0 ? " " + note : "");
             bool toasted = MaybeToast(p, source, changed);
@@ -288,12 +290,22 @@ public partial class MainWindow : Window
     {
         _autoLedTimer!.Stop();
         if (_offline || !_connected || !_store.Data.AutoSwitchLighting || !_store.Data.WriteConfirmed) { _autoLed.Cancel(); return; }
+        if (_busy) { StartAutoLedTimer(TimeSpan.FromMilliseconds(700)); return; }   // the cached image changes with the running write
         var now = DateTime.Now;
         string? target = _autoLed.PendingProfile;
         switch (_autoLed.Decide(now, _profile.Name, LightingOnlyPending()))
         {
             case AutoLightingGate.Verdict.Wait:
-                if (_autoLed.DueAt(now) is DateTime due) StartAutoLedTimer(due - now);
+                if (_autoLed.DueAt(now) is DateTime due)
+                {
+                    if (_autoLed.CapReached(now) && !_capLogged)
+                    {
+                        _capLogged = true;
+                        Log($"[led] авто: уже {AutoLightingGate.MaxPerHour} автосмен подсветки за час — «{target}» применю в {due:HH:mm:ss} (бережём память клавиатуры).");
+                        StatusText.Text = ProfileSwitchLighting.Note(true, true, false, true, SwitchSource.Auto, Layer.Active, AutoLed.Cap);
+                    }
+                    StartAutoLedTimer(due - now);
+                }
                 return;
             case AutoLightingGate.Verdict.SameLighting:
                 Log($"[led] авто: «{target}» — подсветка в клавиатуре уже такая (или отличаются и кнопки), не пишу.");
@@ -301,17 +313,32 @@ public partial class MainWindow : Window
             case AutoLightingGate.Verdict.NotActiveAnymore:
                 Log($"[led] авто: профиль «{target}» уже сменился — не пишу.");
                 return;
-            case AutoLightingGate.Verdict.HourlyCap:
-                Log($"[led] авто: «{target}» — уже {AutoLightingGate.MaxPerHour} автосмен подсветки за час, не пишу (бережём память клавиатуры).");
-                StatusText.Text = ProfileSwitchLighting.Note(true, true, false, true, SwitchSource.Auto, Layer.Active, AutoLed.Cap);
-                return;
             case AutoLightingGate.Verdict.Write:
-                if (_busy) { StartAutoLedTimer(TimeSpan.FromMilliseconds(700)); return; }
-                _autoLed.Wrote(now);
+                _autoLed.Wrote(now); _capLogged = false;
                 Log($"[led] авто: профиль «{target}» — пишу подсветку (только блок подсветки; {_autoLed.WritesLastHour(now)}-я автосмена за час).");
                 await WriteDevice(quiet: true);
                 return;
         }
+    }
+
+    private bool _lastWriteOk, _lastSwitchAuto, _capLogged;
+    private DateTime _lastSwitchAt = DateTime.MinValue;
+
+    /// <summary>1.0.4: after a successful write: if the keypad lighting differs from the active profile (it was switched while the
+    /// write ran), queue the matching write — through the gate for an auto-switch, the live path otherwise.</summary>
+    private void ReconcileLighting()
+    {
+        if (_offline || !_connected || _busy || !_store.Data.WriteConfirmed || !LightingOnlyPending()) return;
+        var now = DateTime.Now;
+        if (_lastSwitchAuto)
+        {
+            if (!_store.Data.AutoSwitchLighting) return;
+            _autoLed.Recheck(_profile.Name, _lastSwitchAt);
+            if (_autoLed.DueAt(now) is not DateTime due) return;
+            Log($"[led] авто: после записи подсветка в клавиатуре не совпадает с профилем «{_profile.Name}» — применю через {Math.Max(0, (due - now).TotalSeconds):0.#} с.");
+            StartAutoLedTimer(due - now);
+        }
+        else if (ScheduleLiveLighting()) Log($"[led] после записи подсветка в клавиатуре не совпадает с профилем «{_profile.Name}» — применяю.");
     }
 
     internal void SetAutoSwitchLighting(bool on)
@@ -905,6 +932,7 @@ public partial class MainWindow : Window
                 else if (!quiet) StatusText.Text = $"Готово за {secs:0.0} с — подсветка уже обновлена на клавиатуре.";
             }
             else if (!r.Ok) MessageBox.Show(this, r.Message, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+            _lastWriteOk = r.Ok;
             return r.Ok;
         }
         catch (Exception ex)
@@ -918,6 +946,8 @@ public partial class MainWindow : Window
         finally
         {
             _busy = false; Progress.Visibility = Visibility.Collapsed; UpdateConn(); RefreshDirty(); ExitIfPending();
+            // 1.0.4: the profile may have changed while this write ran — make the keypad lighting follow the active profile
+            if (_lastWriteOk) { _lastWriteOk = false; Dispatcher.BeginInvoke(ReconcileLighting, System.Windows.Threading.DispatcherPriority.Background); }
         }
     }
 

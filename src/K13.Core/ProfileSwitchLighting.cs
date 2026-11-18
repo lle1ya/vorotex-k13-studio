@@ -10,6 +10,9 @@ public enum AutoLed { Off, On, Cap }
 
 public static class ProfileSwitchLighting
 {
+    /// <summary>1.0.4: the hourly cap defers the write, it does not drop it.</summary>
+    public static readonly string CapText = $"Подсветка применится позже: за час она уже менялась автоматически {AutoLightingGate.MaxPerHour} раз (бережём память клавиатуры).";
+
     /// <summary>Lighting area: BASE … BASE+0x1F (flags, colours, effect/brightness/speed).</summary>
     public const int LightingSpan = 0x20;
 
@@ -44,13 +47,14 @@ public static class ProfileSwitchLighting
     public static string Note(bool lightingOnly, bool lightingDiffers, bool willApply, bool writeConfirmed, SwitchSource source, bool layerActive, AutoLed autoLed = AutoLed.Off)
     {
         if (!lightingDiffers && !lightingOnly) return "";
-        if (willApply) return source == SwitchSource.Auto ? "Подсветка профиля применится к клавиатуре через пару секунд." : "Подсветка профиля применяется к клавиатуре.";
+        if (willApply) return source != SwitchSource.Auto ? "Подсветка профиля применяется к клавиатуре."
+                            : autoLed == AutoLed.Cap ? CapText : "Подсветка профиля применится к клавиатуре через пару секунд.";
         if (!lightingOnly)
             return layerActive ? "Кнопки уже переключены (через ПК); подсветка в клавиатуре прежняя — нажмите «Записать»."
                                : "Кнопки и подсветка в клавиатуре прежние — нажмите «Записать».";
         if (!writeConfirmed) return "Подсветка в клавиатуре прежняя — нажмите «Записать» (после первого подтверждения подсветка будет меняться вместе с профилем).";
         if (source == SwitchSource.Auto && autoLed != AutoLed.On)
-            return autoLed == AutoLed.Cap ? $"Подсветка в клавиатуре прежняя: за час подсветка менялась автоматически {AutoLightingGate.MaxPerHour} раз (бережём память клавиатуры) — нажмите «Записать»."
+            return autoLed == AutoLed.Cap ? CapText
                                   : "Подсветка в клавиатуре прежняя: смена подсветки при автопереключении выключена (⋯ у профилей) — нажмите «Записать».";
         return "Подсветка в клавиатуре прежняя — нажмите «Записать».";
     }

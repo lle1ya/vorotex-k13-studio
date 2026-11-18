@@ -63,14 +63,15 @@ public class V103Tests
     {
         var g = new AutoLightingGate();
         g.Switched("A", At(0)); Assert.Equal(W, g.Decide(At(3), "A", true)); g.Wrote(At(3));
-        g.Switched("B", At(4));
-        Assert.Equal(At(3) + AutoLightingGate.MinInterval, g.DueAt(At(4)));   // 13 s, not 6.5 s
-        Assert.Equal(Wait, g.Decide(At(7), "B", true));
-        Assert.Equal(W, g.Decide(At(13), "B", true));
+        g.Switched("B", At(3.5));
+        Assert.Equal(At(3) + AutoLightingGate.MinInterval, g.DueAt(At(3.5)));   // 7 s, not 6 s
+        Assert.Equal(Wait, g.Decide(At(6.5), "B", true));
+        Assert.Equal(W, g.Decide(At(7), "B", true));
     }
 
+    /// <summary>1.0.4: the hourly cap defers the write (never drops it); it runs when the oldest write leaves the window.</summary>
     [Fact]
-    public void Hourly_cap_then_recovers()
+    public void Hourly_cap_defers_not_drops()
     {
         var g = new AutoLightingGate();
         double t = 0;
@@ -80,22 +81,23 @@ public class V103Tests
             var due = g.DueAt(At(t))!.Value;
             Assert.Equal(W, g.Decide(due, "P" + i, true));
             g.Wrote(due);
+            if (i == 0) Assert.Equal(At(2.5), due);
             t = (due - T0).TotalSeconds + 1;
         }
-        Assert.Equal(AutoLightingGate.MaxPerHour, g.WritesLastHour(At(t)));
+        Assert.True(g.CapReached(At(t)));
         g.Switched("X", At(t));
-        Assert.Null(g.DueAt(At(t)));
-        Assert.Equal(AutoLightingGate.Verdict.HourlyCap, g.Decide(At(t + 20), "X", true));
-        g.Switched("Y", At(3700));                                           // an hour after the first write
-        Assert.NotNull(g.DueAt(At(3700)));
-        Assert.Equal(W, g.Decide(At(3710), "Y", true));
+        var deferred = g.DueAt(At(t));
+        Assert.Equal(At(2.5) + TimeSpan.FromHours(1), deferred);               // first write + 1 h
+        Assert.Equal(Wait, g.Decide(At(t + 20), "X", true));
+        Assert.Equal("X", g.PendingProfile);                                   // still pending
+        Assert.Equal(W, g.Decide(deferred!.Value, "X", true));
     }
 
     [Fact]
     public void Limits_are_sane()
     {
         Assert.InRange(AutoLightingGate.Stable.TotalSeconds, 2, 3);
-        Assert.True(AutoLightingGate.MinInterval >= TimeSpan.FromSeconds(5));
+        Assert.InRange(AutoLightingGate.MinInterval.TotalSeconds, 3, 5);
         Assert.InRange(AutoLightingGate.MaxPerHour, 10, 60);
     }
 
@@ -114,6 +116,7 @@ public class V103Tests
         Assert.Contains("через пару секунд", ProfileSwitchLighting.Note(true, true, true, true, SwitchSource.Auto, true, AutoLed.On));
         Assert.Contains("выключена", ProfileSwitchLighting.Note(true, true, false, true, SwitchSource.Auto, true, AutoLed.Off));
         Assert.Contains("за час", ProfileSwitchLighting.Note(true, true, false, true, SwitchSource.Auto, true, AutoLed.Cap));
+        Assert.Contains("применится позже", ProfileSwitchLighting.Note(true, true, true, true, SwitchSource.Auto, true, AutoLed.Cap));
         Assert.Equal("Подсветка в клавиатуре прежняя — нажмите «Записать».", ProfileSwitchLighting.Note(true, true, false, true, SwitchSource.Auto, true, AutoLed.On));
         Assert.Contains("первого подтверждения", ProfileSwitchLighting.Note(true, true, false, false, SwitchSource.Auto, true, AutoLed.On));
         Assert.Equal("", ProfileSwitchLighting.Note(false, false, false, true, SwitchSource.Auto, true, AutoLed.On));
