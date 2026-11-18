@@ -226,6 +226,8 @@ public partial class MainWindow
     private FrameworkElement? BuildModeBanner()
     {
         var kp = KeypadCfg;
+        if (_connected && _modelNoted is KeypadModel.K12Likely or KeypadModel.Unknown)   // 1.2.0
+            return Banner(true, K13Model.Banner(_modelNoted), "Проверка кнопок", () => { ShowTester(); return Task.CompletedTask; });
         if (Layer.Active)
         {
             if (Layer.Legacy)
@@ -438,6 +440,7 @@ public partial class MainWindow
 
     internal void OnLayerRouted(int col, ushort vk, string profile, PcKeyAction? a)
     {
+        TesterRouted(col);
         if (!_k13RoutedSeen) { _k13RoutedSeen = true; RefreshModeBanner(); }
         if (_kpUnexpectedVk != 0 || _kpForeignVk != 0) ClearKeypadWarnings("кнопка K13 сработала через ПК");
         if (_exiting) return;
@@ -457,6 +460,7 @@ public partial class MainWindow
     /// <summary>v5.9.5: Raw Input saw a K13 key the hook never got (Windows did not call the hook) → route it anyway.</summary>
     internal void OnKeypadRaw(ushort vk, ushort scan, bool down)
     {
+        TesterKey(vk, down);   // 1.2.0 key tester (read-only)
         var routed = RoutedState;
         bool missed = routed.Active && !routed.Legacy && (vk == PcLayerPlanner.ChordPrefixVk || routed.Keys.Any(k => KeyCatalog.ToVirtualKey(k.Code) == vk) ||
                       HoldColsWritten().Values.Any(c => KeyCatalog.ToVirtualKey(c) == vk));   // v5.9.8: plain hold key

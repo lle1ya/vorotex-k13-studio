@@ -9,13 +9,36 @@ namespace Vorotex.Studio;
 /// Keys swallowed by the low-level hook (routed F14–F24) produce no Raw Input — those are reported by the hook.</summary>
 public sealed class K13KeyMonitor : IDisposable
 {
-    private const int WM_INPUT = 0x00FF, RID_INPUT = 0x10000003, RIM_TYPEKEYBOARD = 1, RIDEV_INPUTSINK = 0x100, RIDI_DEVICENAME = 0x20000007;
+    private const int WM_INPUT = 0x00FF, RID_INPUT = 0x10000003, RIM_TYPEMOUSE = 0, RIM_TYPEKEYBOARD = 1, RIM_TYPEHID = 2, RIDEV_INPUTSINK = 0x100, RIDEV_REMOVE = 0x1,
+        RIDI_DEVICENAME = 0x20000007;
+    private const ushort RI_MOUSE_WHEEL = 0x0400;
     private const ushort RI_KEY_BREAK = 1;
     private HwndSource? _src;
     private readonly Dictionary<IntPtr, bool> _isK13 = new();
 
     /// <summary>(vk, scan, down) — keypad events only, on the UI thread.</summary>
     public event Action<ushort, ushort, bool>? KeypadKey;
+    /// <summary>1.2.0 (key tester only): consumer-control usage from the keypad (0 = released).</summary>
+    public event Action<ushort>? KeypadConsumer;
+    /// <summary>1.2.0 (key tester only): mouse event from the keypad: wheel delta (0 = none), raw button flags.</summary>
+    public event Action<int, ushort>? KeypadMouse;
+
+    private bool _extra;
+    /// <summary>1.2.0: while the key tester is open, also listen to the consumer-control (page 0x0C) and mouse collections —
+    /// the wheel's volume / scroll and mouse-button macros. Off otherwise (the real mouse would wake us for every move).</summary>
+    public bool ListenExtra(bool on)
+    {
+        if (_src == null || on == _extra) return on == _extra;
+        var dev = new RAWINPUTDEVICE[]
+        {
+            new() { usUsagePage = 0x0C, usUsage = 1, dwFlags = on ? (uint)RIDEV_INPUTSINK : RIDEV_REMOVE, hwndTarget = on ? _src.Handle : IntPtr.Zero },
+            new() { usUsagePage = 1, usUsage = 2, dwFlags = on ? (uint)RIDEV_INPUTSINK : RIDEV_REMOVE, hwndTarget = on ? _src.Handle : IntPtr.Zero },
+        };
+        bool ok = RegisterRawInputDevices(dev, (uint)dev.Length, (uint)Marshal.SizeOf<RAWINPUTDEVICE>());
+        if (ok) _extra = on;
+        else App.Log($"[tester] Raw Input (медиа/мышь) {(on ? "не включился" : "не выключился")}: ошибка {Marshal.GetLastWin32Error()}");
+        return ok;
+    }
 
     public bool Start()
     {
@@ -42,7 +65,27 @@ public sealed class K13KeyMonitor : IDisposable
             {
                 if (GetRawInputData(lParam, RID_INPUT, buf, ref size, hdr) != size) return IntPtr.Zero;
                 var h = Marshal.PtrToStructure<RAWINPUTHEADER>(buf);
-                if (h.dwType != RIM_TYPEKEYBOARD || !IsK13(h.hDevice)) return IntPtr.Zero;
+                if (h.dwType is not (RIM_TYPEKEYBOARD or RIM_TYPEHID or RIM_TYPEMOUSE) || !IsK13(h.hDevice)) return IntPtr.Zero;
+                if (h.dwType == RIM_TYPEHID)
+                {   // RAWHID: dwSizeHid, dwCount, then dwCount reports
+                    int sz = Marshal.ReadInt32(buf + (int)hdr), cnt = Marshal.ReadInt32(buf + (int)hdr + 4);
+                    if (sz <= 0 || cnt <= 0 || sz > 64) return IntPtr.Zero;
+                    var rep = new byte[sz];
+                    for (int i = 0; i < cnt; i++)
+                    {
+                        Marshal.Copy(buf + (int)hdr + 8 + i * sz, rep, 0, sz);
+                        KeypadConsumer?.Invoke(Vorotex.K13.KeyTester.ConsumerUsage(rep));
+                    }
+                    return IntPtr.Zero;
+                }
+                if (h.dwType == RIM_TYPEMOUSE)
+                {
+                    var m = Marshal.PtrToStructure<RAWMOUSE>(buf + (int)hdr);
+                    int delta = (m.usButtonFlags & RI_MOUSE_WHEEL) != 0 ? (short)m.usButtonData : 0;
+                    ushort btn = (ushort)(m.usButtonFlags & ~RI_MOUSE_WHEEL & 0x03FF);
+                    if (delta != 0 || btn != 0) KeypadMouse?.Invoke(delta, btn);
+                    return IntPtr.Zero;
+                }
                 var k = Marshal.PtrToStructure<RAWKEYBOARD>(buf + (int)hdr);
                 if (k.VKey is 0 or 0xFF) return IntPtr.Zero;
                 KeypadKey?.Invoke(k.VKey, k.MakeCode, (k.Flags & RI_KEY_BREAK) == 0);
@@ -76,6 +119,7 @@ public sealed class K13KeyMonitor : IDisposable
 
     [StructLayout(LayoutKind.Sequential)] private struct RAWINPUTDEVICE { public ushort usUsagePage, usUsage; public uint dwFlags; public IntPtr hwndTarget; }
     [StructLayout(LayoutKind.Sequential)] private struct RAWINPUTHEADER { public uint dwType, dwSize; public IntPtr hDevice, wParam; }
+    [StructLayout(LayoutKind.Sequential)] private struct RAWMOUSE { public ushort usFlags, pad; public ushort usButtonFlags, usButtonData; public uint ulRawButtons; public int lLastX, lLastY; public uint ulExtraInformation; }
     [StructLayout(LayoutKind.Sequential)] private struct RAWKEYBOARD { public ushort MakeCode, Flags, Reserved, VKey; public uint Message, ExtraInformation; }
     [DllImport("user32.dll", SetLastError = true)] private static extern bool RegisterRawInputDevices(RAWINPUTDEVICE[] devs, uint n, uint size);
     [DllImport("user32.dll")] private static extern uint GetRawInputData(IntPtr hRaw, uint cmd, IntPtr data, ref uint size, uint hdrSize);

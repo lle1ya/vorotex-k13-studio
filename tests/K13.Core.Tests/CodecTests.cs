@@ -318,7 +318,7 @@ public class SafetyTests
             var r = K13Writer.WriteProfile(dev, cfg, _ => { }, null, false, tmp, cache);
             Assert.True(r.Ok, r.Message);
             int loads = fake.Frames.Count(f => f[1] == 0x18 && f[2] == 0x00 && f[7] == 0);
-            Assert.InRange(loads, 3, 8);   // check 0xD0 + 0xF8, v5.9.1 settle read (discarded), readback 0xF8, finish frame
+            Assert.InRange(loads, 3, 11);   // 1.2.0: + 3 model blocks; check 0xD0 + 0xF8, v5.9.1 settle read (discarded), readback 0xF8, finish frame
             Assert.Equal(cfg.Led.Brightness, K13MemoryCodec.Decode(fake.Memory).Led.Brightness);
             // device changed behind our back → fast check fails → full read
             fake.Memory[0x00F8] ^= 0x01;

@@ -521,6 +521,100 @@ public static class SmokeTest
                 }
                 w.DemoActivate(prev); w.DemoPcLayer(wasLayer); w.DemoKeypadHolds("Основной");
             });
+            // 1.2.0: «Проверка кнопок» — Raw Input key / consumer / chord / hook events light the right control, release clears it
+            Step($"{th}: 1.2.0 проверка кнопок", () =>
+            {
+                var mt = AllText(w.MainMenu());
+                foreach (var must in new[] { "Проверка кнопок", "Вернуть заводские назначения" })
+                    if (!mt.Contains(must)) throw new InvalidOperationException($"в меню нет «{must}»");
+                bool wasLayer = w.LayerState.Active;
+                w.DemoPcLayer(false); w.DemoKeypadHolds(w.DemoActiveProfile);   // the keypad holds the active profile
+                var tw = w.BuildTesterWindow();
+                w.DemoTester(true);
+                int col = Enumerable.Range(0, 12).First(c => w.KeyAt(c) != KeyCatalog.Disabled && !KeyCatalog.IsMacro(w.KeyAt(c)) && KeyCatalog.ToVirtualKey(w.KeyAt(c)) != 0);
+                ushort vk = KeyCatalog.ToVirtualKey(w.TesterHwMode == HwMode.Normal ? K13Layout.FactoryColumnCodes[col] : w.KeyAt(col));   // Normal: factory codes
+                w.OnKeypadRaw(vk, 0, true);
+                if (!w.DemoTesterState.Lit.Contains(col)) throw new InvalidOperationException($"нажатая {DeviceView.ControlName(col)} не подсветилась ({string.Join(",", w.DemoTesterState.Lit)}; VK 0x{vk:X2}, режим {w.TesterHwMode}, журнал: {w.DemoTesterLast})");
+                if (w.DemoTesterLast?.Contains("нажата") != true || !w.DemoTesterLast.Contains(DeviceView.ControlName(col))) throw new InvalidOperationException("в журнале нет нажатия: " + w.DemoTesterLast);
+                w.OnKeypadRaw(vk, 0, true);   // auto-repeat: no new line
+                w.OnKeypadRaw(vk, 0, false);
+                if (w.DemoTesterState.Lit.Count != 0 || w.DemoTesterLast?.Contains("отпущена") != true) throw new InvalidOperationException("отпускание не снято / не записано: " + w.DemoTesterLast);
+                w.TesterConsumer(0xE9);
+                bool volUp = w.DemoTesterState.Lit.Contains(DeviceView.RollUp) || w.DemoTesterState.Lit.Any(c => c < 18);
+                w.TesterConsumer(0);
+                if (!volUp && w.DemoTesterLast?.Contains("не найдена") != true) throw new InvalidOperationException("громкость + не показана: " + w.DemoTesterLast);
+                if (w.DemoTesterState.Lit.Count != 0) throw new InvalidOperationException("громкость не отпустилась");
+                w.TesterMouse(120, 0);
+                if (w.DemoTesterLast?.Contains("прокрутка вверх") != true) throw new InvalidOperationException("нет прокрутки: " + w.DemoTesterLast);
+                w.DemoPcLayer(true);
+                var k = w.LayerState.Keys[0];
+                w.OnKeypadRaw(PcLayerPlanner.ChordPrefixVk, 0, true);
+                w.OnKeypadRaw(KeyCatalog.ToVirtualKey(k.Code), 0, true);
+                if (!w.DemoTesterState.Lit.Contains(k.Column) || w.DemoTesterLast?.Contains("через ПК") != true) throw new InvalidOperationException("сигнал «через ПК» не узнан: " + w.DemoTesterLast);
+                w.OnKeypadRaw(KeyCatalog.ToVirtualKey(k.Code), 0, false); w.OnKeypadRaw(PcLayerPlanner.ChordPrefixVk, 0, false);
+                w.TesterRouted(k.Column);
+                if (w.DemoTesterLast?.Contains("перехват") != true) throw new InvalidOperationException("перехваченная кнопка не показана");
+                w.DemoPcLayer(false);
+                w.OnKeypadRaw(vk, 0, true);   // README screenshot: one key held
+                ShotWindow(tw, Path.Combine(folder, $"tester-{th}.png"));
+                w.OnKeypadRaw(vk, 0, false);
+                w.DemoTester(false); w.DemoPcLayer(wasLayer); w.DemoKeypadHolds("Основной");
+            });
+            // 1.2.0: «Удерживать до отпускания» in the key window — macro + «пока зажата» + the one hold code in one step
+            Step($"{th}: 1.2.0 удерживать до отпускания", () =>
+            {
+                bool wasLayer = w.LayerState.Active;
+                w.DemoPcLayer(false);
+                int col = 4; byte was = w.KeyAt(col);
+                w.ShowPage(0); w.SelectControl(col); w.OpenTile("hold"); Render(w, 0);
+                var t = AllText(w);
+                if (!t.Contains("Удерживать до отпускания") || !t.Contains("Кнопки по профилю")) throw new InvalidOperationException("окно удержания без объяснения режима");
+                if (w.ApplyHold("Alt") == null) throw new InvalidOperationException("удержание назначилось без «через ПК»");
+                w.OpenTile(null);
+                w.DemoPcLayer(true);
+                int prevHold = w.LayerState.HoldColumn;
+                var mapped = w.LayerState.Keys.Select(x => x.Column).Where(c => c < 12).ToList();
+                col = mapped.Contains(4) ? 4 : mapped[0]; was = w.KeyAt(col);
+                int other = mapped.First(c => c != col); byte wasOther = w.KeyAt(other);
+                w.SelectControl(col);
+                var err = w.ApplyHold("Alt");
+                if (err != null) throw new InvalidOperationException("удержание не назначилось: " + err);
+                int slot = KeyCatalog.MacroSlotOf(w.KeyAt(col));
+                if (slot < 0 || w.HoldOwner() != col || w.LayerState.HoldColumn != col) throw new InvalidOperationException($"удержание не у кнопки ({w.HoldOwner()}, {w.LayerState.HoldColumn})");
+                w.OpenTile(null); Render(w, 0);
+                if (!AllText(w).Contains("Удерживать до отпускания")) throw new InvalidOperationException("в списке действий нет «Удерживать до отпускания»");
+                w.SelectControl(other); w.OpenTile("hold"); Render(w, 0);
+                if (!w.HoldStatusText().Contains("Сейчас удержание у кнопки «" + DeviceView.ControlName(col))) throw new InvalidOperationException("не сказано, у какой кнопки удержание: " + w.HoldStatusText());
+                if (w.ApplyHold("Ctrl") != null || w.HoldOwner() != other) throw new InvalidOperationException("удержание не перешло к другой кнопке");
+                int slot2 = KeyCatalog.MacroSlotOf(w.KeyAt(other));
+                w.OpenTile(null); w.SelectControl(-1);
+                w.DemoSetKey(col, was); w.DemoSetKey(other, wasOther);
+                w.DemoClearMacro(slot, prevHold); w.DemoClearMacro(slot2, prevHold);
+                w.DemoPcLayer(wasLayer);
+            });
+            // 1.2.0: «Вернуть заводские назначения…» — honest dialog, a new profile after the write; K12 (same VID/PID) is refused
+            Step($"{th}: 1.2.0 заводские назначения и K12", () =>
+            {
+                var plan = K13FactoryAssignments.Build(K13MemoryCodec.Decode(MainWindow.DefaultImage), MainWindow.DefaultImage);
+                var txt = w.FactoryDialogText(plan);
+                foreach (var must in new[] { "сброс до заводских", "Не меняется", "Подсветка", "резервную копию", "проверкой чтением", "Заводские назначения" })
+                    if (!txt.Contains(must)) throw new InvalidOperationException($"в окне заводских назначений нет «{must}»");
+                var d = w.BuildFactoryDialog(out var ans);
+                if (ans() == MessageBoxResult.Yes) throw new InvalidOperationException("без нажатия окно не должно ничего записывать");
+                Dialog(d);
+                string prev = w.DemoActiveProfile;
+                string name = w.AddFactoryProfile(plan.Target);
+                if (w.DemoActiveProfile != name || w.KeyAt(0) != 0x59 || w.KeyAt(16) != 0xF4) throw new InvalidOperationException("профиль «Заводские назначения» не такой");
+                w.DemoActivate(prev); w.DemoRemoveProfile(name);
+                var k12 = (byte[])MainWindow.DefaultImage.Clone();
+                for (int c = 0; c < 18; c++) k12[0x20 + c * 8] = c < K13Model.K12FactoryRow.Length ? K13Model.K12FactoryRow[c] : (byte)0xFF;
+                w.DemoModel(k12, connected: true);
+                Render(w, 0);
+                if (w.DemoModelNoted != KeypadModel.K12Likely || !w.ModeBannerText.Contains("K12")) throw new InvalidOperationException("K12 не распознана / нет предупреждения: " + w.ModeBannerText);
+                w.DemoModel(MainWindow.DefaultImage, connected: true);
+                if (w.DemoModelNoted != KeypadModel.K13 || w.ModeBannerText.Contains("K12")) throw new InvalidOperationException("K13 не распознана");
+                w.DemoModel(null, connected: false);
+            });
             // 1.0.3: lighting on auto-switch — setting in the profiles ⋯ menu (on by default), auto switch offline gives an honest note
             Step($"{th}: 1.0.3 подсветка при автопереключении", () =>
             {
@@ -689,6 +783,22 @@ public static class SmokeTest
                 if (d is T t) yield return t;
                 foreach (var x in Find<T>(d)) yield return x;
             }
+    }
+
+    /// <summary>1.2.0: shows a window off-screen, saves it as PNG (×1.5, like the README screenshots), closes it.</summary>
+    private static void ShotWindow(Window d, string path)
+    {
+        d.Owner = null; d.Left = -32000; d.Top = -32000; d.ShowActivated = false; d.WindowStartupLocation = WindowStartupLocation.Manual;
+        d.Show(); Pump(); d.UpdateLayout(); Pump();
+        var root = (FrameworkElement)VisualTreeHelper.GetChild(d, 0);
+        if (root.ActualWidth < 50 || root.ActualHeight < 50) throw new InvalidOperationException($"окно слишком маленькое: {root.ActualWidth}×{root.ActualHeight}");
+        const double sc = 1.5;
+        var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(root.ActualWidth * sc), (int)Math.Ceiling(root.ActualHeight * sc), 96 * sc, 96 * sc, PixelFormats.Pbgra32);
+        rtb.Render(root);
+        var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+        using (var fs = File.Create(path)) enc.Save(fs);
+        d.Close();
     }
 
     private static void Dialog(Window d)

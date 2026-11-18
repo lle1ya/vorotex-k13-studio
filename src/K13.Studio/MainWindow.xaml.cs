@@ -78,6 +78,8 @@ public partial class MainWindow : Window
             _mapper.LayerRouted += OnLayerRouted;
             _k13Keys = new K13KeyMonitor();
             _k13Keys.KeypadKey += OnKeypadRaw;
+            _k13Keys.KeypadConsumer += TesterConsumer;
+            _k13Keys.KeypadMouse += TesterMouse;
             if (_k13Keys.Start()) Log("[k13] слежу за кнопками самой K13 (Raw Input, только VID_30FA&PID_2350).");
         }
 
@@ -443,6 +445,8 @@ public partial class MainWindow : Window
             return mi;
         }
         Item("\uE7C3", "Скрытые кнопки 16 и 17…", (_, _) => { ShowPage(0); SelectControl(16); });
+        Item("\uE765", "Проверка кнопок…", (_, _) => ShowTester())
+            .ToolTip = "Нажимайте кнопки K13 — на схеме подсветится нажатая, внизу — журнал нажатий и отпусканий. Ничего не записывает.";
         Item(_store.Data.DarkTheme ? "\uE706" : "\uE708", _store.Data.DarkTheme ? "Светлая тема" : "Тёмная тема", (_, _) => { DarkBox.IsChecked = !_store.Data.DarkTheme; });
         // v5.7.2: moved here from the «Настройки» card on the Profiles page
         Item(_store.Data.MinimizeToTray ? "\uE73E" : "", "Сворачивать в трей при закрытии", (_, _) => { TrayBox.IsChecked = !_store.Data.MinimizeToTray; });
@@ -453,6 +457,8 @@ public partial class MainWindow : Window
         Item("\uE777", "Восстановить из резервной копии…", ImportBin_Click)
             .ToolTip = "Открыть сохранённую копию памяти как профиль. В клавиатуру она попадёт только после «Записать» и подтверждения.";
         Item("\uE72C", "Кнопки не печатают? Вернуть обычный режим", Unstick_Click, _connected && !_busy && !_offline);
+        Item("\uE7A7", "Вернуть заводские назначения…", async (_, _) => await ResetToFactory(), _connected && !_busy && !_offline)
+            .ToolTip = "Кнопки, колесо и макросы клавиатуры — как с завода. Сначала резервная копия, затем запись с проверкой. Подсветка и профили на ПК не меняются.";
         // 1.0.1: the one-shot «Включить Game сейчас» is removed (did not switch on the makers' K13); the stick does it
         m.Items.Add(new Separator());
         // 1.0.5: «Пробовать включать Game при подключении» is removed — it never switched Normal → Game (makers' diagnostics 18.11.2026)
@@ -678,6 +684,7 @@ public partial class MainWindow : Window
         else if (!present && _connected)
         {
             _connected = false; _devicePath = null; _imageFresh = false; _hwMode = HwMode.Unknown; _selfGame = false;
+            _modelNoted = KeypadModel.NotRead;
             Log("Клавиатура отключена.");
             _autoLed.Cancel(); _autoLedTimer?.Stop();
             try { _mapper?.KeypadGone(); } catch (Exception ex) { Log("Сброс удержаний: " + ex.Message); }
@@ -823,6 +830,7 @@ public partial class MainWindow : Window
             });
             if (sent.Any(f => !K13Protocol.IsReadOnlyFrame(f) && !K13Protocol.IsSessionEndFrame(f))) throw new InvalidOperationException("Обнаружена не-читающая команда — прервано.");
             _deviceImage = img; _status = st; _imageFresh = true;
+            NoteModel(img);   // 1.2.0: K13 or K12 (same VID/PID)
             var path = BackupStore.Save(img, null, prefix ?? (auto ? "k13-auto" : "k13-read"), st);
             Log($"Прочитано 0x{img.Length:X} байт ({sent.Count} кадров, только 00/05/01). Резервная копия: {path}");
             if (_freshStore && auto && TryDecode(img) is { } decoded)
@@ -885,6 +893,11 @@ public partial class MainWindow : Window
     {
         if (_busy || _offline || !_connected) return false;
         if (quiet && !_store.Data.WriteConfirmed) return false;
+        if (_modelNoted is KeypadModel.K12Likely or KeypadModel.Unknown)
+        {   // 1.2.0: never write a keypad that is not a K13 (the writer checks it on the keypad too)
+            if (!quiet) MessageBox.Show(this, K13Model.Refusal(_modelNoted), Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
         var what = target ?? DeviceTarget; // v5.6: in «через ПК» mode the mapped keys are written as their F14–F24 codes
         try { K13MemoryCodec.Validate(what); }
         catch (Exception ex) { MessageBox.Show(this, "Профиль содержит ошибку: " + FriendlyError.Text(ex), Title); return false; }
@@ -948,6 +961,7 @@ public partial class MainWindow : Window
             double secs = swTotal.Elapsed.TotalSeconds;
             Log($"Запись: {r.Message} Время {secs:0.0} с [{r.Timing}]" + (r.BackupAfter != null ? " Проверка: " + r.BackupAfter : ""));
             if (r.After != null) { _deviceImage = r.After; _imageFresh = r.Ok; } else _imageFresh = false;
+            if (r.Model != null) { _imageFresh = true; NoteModel(r.After); }   // 1.2.0: refused — not a K13
             StatusText.Text = r.Message + $" ({secs:0.0} с)";
             if (r.Ok && !r.NothingToDo)
             {

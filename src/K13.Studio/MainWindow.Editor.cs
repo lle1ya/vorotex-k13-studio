@@ -292,6 +292,7 @@ public partial class MainWindow
         if (KeyCatalog.IsMacro(code))
         {
             var m = cfg.Macros[KeyCatalog.MacroSlotOf(code)];
+            if (HoldKeyAssign.HeldKeys(m) != null) return "hold";   // 1.2.0
             if (Labels.MouseOf(m) != null) return "mouse";
             return Labels.ComboOf(m) != null ? "combo" : "macro";
         }
@@ -309,6 +310,7 @@ public partial class MainWindow
     {
         ("key",   "\uE765", "Нажать клавишу",               "Работает как обычная клавиша: буква, F5, Delete…"),
         ("combo", "\uE8C8", "Сочетание клавиш",             "Например Ctrl+C или Alt+Tab"),
+        ("hold",  "\uE7C9", "Удерживать до отпускания",     "Держит клавишу, пока зажата кнопка: Alt для переключения окон, Shift, Ctrl"),
         ("media", "\uE8D6", "Мультимедиа",                  "Громкость, пауза, следующий трек"),
         ("app",   "\uE8A7", "Запустить программу или сайт", "Открыть программу, сайт или вставить текст"),
         ("ring",  "\uE71D", "Кольцо действий",              "Круговое меню у курсора: копировать, скриншот, плеер…"),
@@ -416,6 +418,7 @@ public partial class MainWindow
         {
             case "key": done = KeyEditor(code); break;
             case "combo": done = ComboEditor(code); break;
+            case "hold": done = HoldEditor(code); break;
             case "media": done = PickGrid(code, k => k.Category is KeyCategory.Media or KeyCategory.Special && k.Code != K13Mode.KbdModeCode, "Выберите действие:"); break;
             case "light": done = PickGrid(code, k => k.Category == KeyCategory.Lighting, "Что делать с подсветкой при нажатии:"); break;
             case "app": done = AppEditor(code); break;
@@ -513,6 +516,63 @@ public partial class MainWindow
         EditorHost.Children.Add(search);
         EditorHost.Children.Add(list);
         return () => { if (_pendingCode is byte c) SetCode(c); };
+    }
+
+    /// <summary>1.2.0 «Удерживать до отпускания»: one step for macro «Зажать …» → «Пока зажата» → «Отдать удержание этой кнопке».</summary>
+    private Action HoldEditor(byte code)
+    {
+        var held = KeyCatalog.IsMacro(code) ? HoldKeyAssign.HeldKeys(Cfg.Macros[KeyCatalog.MacroSlotOf(code)]) : null;
+        string? cur = held == null ? null : string.Join("+", held.Select(Labels.KeyText));
+        EditorHost.Children.Add(T(HoldStatusText(), 12.5).With(t => { t.TextWrapping = TextWrapping.Wrap; t.Margin = new Thickness(0, 0, 0, 10);
+            t.Foreground = R(Layer.Active && Layer.IsMapped(_selCol) ? "TextBrush" : "WarnBrush"); }));
+        if (!Layer.Active)
+        {
+            var on = new Button { Content = "Включить «Кнопки по профилю (через ПК)»…", Style = (Style)FindResource("GhostButton"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 12) };
+            on.Click += async (_, _) => { await PrepareKeypad(); if (_tile == "hold") BuildEditor(); };
+            EditorHost.Children.Add(on);
+        }
+        EditorHost.Children.Add(CaptureBox("Нажмите клавишу, которую держать\n(например Alt)", cur));
+        _captureCombo = true;
+        EditorHost.Children.Add(T("Часто используемые:", 13, muted: true).With(t => t.Margin = new Thickness(0, 16, 0, 6)));
+        var wp = new WrapPanel();
+        foreach (var (c, d) in new[] { ("Alt", "Alt+Tab: окна"), ("Ctrl", "выделение, клик"), ("Shift", "выделение"), ("Win", "Win+стрелки"), ("Ctrl+Shift", ""), ("Alt+Shift", "") })
+        {
+            string combo = c;
+            wp.Children.Add(Chip("", c, combo == cur, () => { _pendingCombo = combo; SetCaptured(combo); }, d.Length > 0 ? d : null));
+        }
+        EditorHost.Children.Add(wp);
+        EditorHost.Children.Add(T("Например: держите кнопку — Alt зажат, нажимайте Tab на обычной клавиатуре, отпустите кнопку — откроется выбранное окно. " +
+                                  "Программа создаст макрос «Зажать …» с режимом «Пока зажата» и отдаст удержание этой кнопке; затем нажмите «Записать».", 12, muted: true)
+            .With(t => { t.Margin = new Thickness(0, 10, 0, 0); t.TextWrapping = TextWrapping.Wrap; }));
+        return () => { if (_pendingCombo != null) _lastError = ApplyHold(_pendingCombo); else if (cur == null) _lastError = "Выберите клавишу, которую держать."; };
+    }
+
+    internal string HoldStatusText() =>
+        HoldKeyAssign.Status(DeviceView.ControlName(_selCol), Layer.Active, Layer.Active && Layer.IsMapped(_selCol), HoldOwner(), _selCol, DeviceView.ControlName);
+
+    /// <summary>Smoke test / tile «Готово»: hold <paramref name="combo"/> on the selected key.</summary>
+    internal string? ApplyHold(string combo)
+    {
+        // a «press only» macro written into the keypad itself (mode off) could leave Alt pressed — so only through the PC
+        if (!Layer.Active) return "Сначала включите «Кнопки по профилю (через ПК)» (кнопка выше): без этого режима клавиатура не умеет держать клавишу до отпускания.";
+        if (!Layer.IsMapped(_selCol)) return $"{DeviceView.ControlName(_selCol)} не проходит через ПК — подготовьте клавиатуру заново («Профили → Кнопки по профилю»).";
+        var codes = new List<byte>();
+        try
+        {
+            foreach (var vk in KeyCombo.Parse(combo))
+            {
+                if (!KeyCatalog.TryFromVirtualKey(vk, out var cd)) return $"Клавишу {KeyCombo.VkName(vk)} держать нельзя.";
+                codes.Add(cd);
+            }
+        }
+        catch (Exception ex) { return FriendlyError.Text(ex); }
+        var (slot, err) = HoldKeyAssign.Assign(Cfg, _selCol, codes, FreeMacroSlot());
+        if (err != null) return err;
+        _profile.MacroNames[slot] = "Зажать " + combo;
+        Log($"{DeviceView.ControlName(_selCol)}: удерживать {combo} до отпускания → макрос {slot + 1} «пока зажата».");
+        Changed(); RefreshMacros();
+        ChooseHoldKey(_selCol);
+        return null;
     }
 
     private Action ComboEditor(byte code)
@@ -660,7 +720,10 @@ public partial class MainWindow
         }
         var combo = Ui.ComboFromKeyEvent(e);
         if (k is Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift or Key.LeftAlt or Key.RightAlt or Key.LWin or Key.RWin)
-        { SetCaptured(combo.Length > 0 ? combo + "+…" : "…"); return; }
+        {
+            if (_tile == "hold" && combo.Length > 0) { _pendingCombo = combo; SetCaptured(combo); return; }   // 1.2.0: hold Alt / Ctrl / Shift alone
+            SetCaptured(combo.Length > 0 ? combo + "+…" : "…"); return;
+        }
         _pendingCombo = combo;
         SetCaptured(combo);
     }

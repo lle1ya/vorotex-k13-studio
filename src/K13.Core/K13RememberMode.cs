@@ -54,6 +54,12 @@ public static class K13RememberMode
         int baseAddr = st.Base > 0 ? st.Base : K13Layout.DefaultBase;
         byte? baseFlags = baseAddr < img.Length ? img[baseAddr] : null;
         log($"[remember] резервная копия перед изменением: {backup}; 0x0008–0x000F = {Convert.ToHexString(img, BlockAddress, 8)}; BASE+0 = {(baseFlags is byte bf ? bf.ToString("X2") : "—")}");
+        var model = K13Model.Detect(img);
+        if (!K13Model.WriteAllowed(model))
+        {
+            log($"[model] {K13Model.Name(model)}: заводская таблица 0x0020 = {K13Model.FactoryRowHex(img)} — «Запоминать режим» не записывается.");
+            return new(false, false, img[Address], img[Address], baseFlags, backup, K13Model.Refusal(model));
+        }
         var block = dev.ReadBlocks(new[] { (BlockAddress, 8) })[0];
         byte cur = block[Address - BlockAddress];
         if (cur != img[Address])

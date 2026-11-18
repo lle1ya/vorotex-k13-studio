@@ -476,6 +476,18 @@ public sealed class DeviceView : Viewbox
         }
     }
 
+    /// <summary>1.2.0 key tester: lights a control while it is held (no pulsing; lift like a real key).</summary>
+    public void SetPressed(int id, bool on)
+    {
+        if (!_parts.TryGetValue(id, out var p)) return;
+        p.Sel.BeginAnimation(OpacityProperty, null);
+        p.Sel.Opacity = 1;
+        p.Sel.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        if (p.Lift != null) { p.Lift.BeginAnimation(TranslateTransform.YProperty, null); p.Lift.Y = on ? 2 : 0; }
+    }
+
+    public void ClearPressed() { foreach (var id in _parts.Keys.ToList()) SetPressed(id, false); }
+
     private static string Short(string s) => s.Length <= 14 ? s : s[..13] + "…";
 
     private static void SetSelected(Part p, bool sel)

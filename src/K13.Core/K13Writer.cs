@@ -11,6 +11,8 @@ public sealed record K13WriteResult(bool Ok, bool NothingToDo, bool Restored, in
     public K13HeaderInfo? Header { get; init; }
     /// <summary>v5.7.3: the blocks that were written (for the replug check).</summary>
     public IReadOnlyList<WriteBlock>? Written { get; init; }
+    /// <summary>1.2.0: set when the write was refused because the keypad is not a K13 (After = its image as read).</summary>
+    public KeypadModel? Model { get; init; }
 }
 
 /// <summary>
@@ -60,6 +62,8 @@ public static class K13Writer
             int len0 = Math.Max(t0.Length, cachedImage.Length);
             var check = Cover(diff0, len0);
             if (!check.Any(c => c.Addr == 0xD0)) check.Insert(0, (0xD0, 8));
+            // 1.2.0: the built-in factory table tells a K13 from a K12 (same VID/PID) — always checked on the keypad itself
+            check.InsertRange(0, K13Model.SignatureBlocks);
             List<byte[]>? got = null;
             try { got = dev.ReadBlocks(check); } catch (IOException ex) { log("Быстрая проверка не удалась: " + ex.Message); }
             var ext = new byte[len0];
@@ -97,6 +101,12 @@ public static class K13Writer
             return Fail("Не удалось определить, где в памяти клавиатуры лежат настройки: " + string.Join(" ", header.Problems) + " Запись отменена, клавиатура не изменялась.") with { Header = header };
         var bfile = BackupStore.Save(before, backupFolder, "k13-prewrite", st);
         log($"Резервная копия перед записью ({source}): {bfile}");
+        var model = K13Model.Detect(before);
+        if (!K13Model.WriteAllowed(model))
+        {   // 1.2.0: a K12 (same VID/PID, other key table) got the K13 layout on 17.11.2026 — never again
+            log($"[model] {K13Model.Name(model)}: заводская таблица 0x0020 = {K13Model.FactoryRowHex(before)}, блок 0x0008 = {Convert.ToHexString(before, 8, 8)}. Запись не выполняется.");
+            return Fail(K13Model.Refusal(model)) with { Header = header, BackupBefore = bfile, Model = model, After = before };
+        }
         if (header.Verdict == HeaderVerdict.Uncertain && header.RawHex != acceptedHeader)
             return new K13WriteResult(false, false, false, 0, bfile, null, false, false, before,
                 "Раскладка памяти этой клавиатуры не совпала с проверенной — нужно подтверждение. Ничего не записано.", string.Join(", ", times))
