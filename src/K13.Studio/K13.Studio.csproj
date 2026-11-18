@@ -10,7 +10,7 @@
     <RootNamespace>Vorotex.Studio</RootNamespace>
     <AssemblyName>VorotexK13Studio</AssemblyName>
     <Product>VOROTEX K13 Studio</Product>
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

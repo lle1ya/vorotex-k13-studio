@@ -487,6 +487,25 @@ public static class SmokeTest
                 if (w.DemoStatus.Contains("Подсветка")) throw new InvalidOperationException("подсказка про подсветку без причины: «" + w.DemoStatus + "»");
                 w.DemoActivate(prev); w.DemoRemoveProfile("Свет-смоук"); w.DemoPcLayer(wasLayer); w.DemoKeypadHolds("Основной");
             });
+            // 1.0.3: lighting on auto-switch — setting in the profiles ⋯ menu (on by default), auto switch offline gives an honest note
+            Step($"{th}: 1.0.3 подсветка при автопереключении", () =>
+            {
+                var menu = w.ProfilesMenu(w);
+                var item = menu.Items.OfType<MenuItem>().FirstOrDefault(i => i.Tag as string == "autoled");
+                if (item == null || !AllText(item).Contains("Менять подсветку при автопереключении")) throw new InvalidOperationException("нет пункта «Менять подсветку при автопереключении»");
+                if (w.DemoAutoSwitchLighting != AllText(item).Contains("\uE73E")) throw new InvalidOperationException("галочка не соответствует настройке");
+                bool was = w.DemoAutoSwitchLighting;
+                w.SetAutoSwitchLighting(!was); if (w.DemoAutoSwitchLighting == was) throw new InvalidOperationException("настройка не переключилась");
+                w.SetAutoSwitchLighting(was);
+                string prev = w.DemoActiveProfile; bool wasLayer = w.LayerState.Active;
+                w.DemoPcLayer(true);
+                w.DemoLightingCopy("Основной", "Свет-авто");
+                w.DemoSwitchByUser("Основной");
+                w.DemoKeypadHolds("Основной");
+                w.DemoSwitchAuto("Свет-авто");
+                if (!w.DemoStatus.Contains("Подсветка в клавиатуре прежняя")) throw new InvalidOperationException("после автопереключения (без клавиатуры) нет подсказки: «" + w.DemoStatus + "»");
+                w.DemoActivate(prev); w.DemoRemoveProfile("Свет-авто"); w.DemoPcLayer(wasLayer); w.DemoKeypadHolds("Основной");
+            });
             // v5.10: restore from a backup = a new profile, the keypad changes only via «Записать»
             Step($"{th}: v5.10 восстановление из резервной копии", () =>
             {

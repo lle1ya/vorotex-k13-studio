@@ -498,6 +498,8 @@ public partial class MainWindow
     /// <summary>1.0.2 smoke: a switch the user makes (profile card) and the status line after it.</summary>
     internal void DemoSwitchByUser(string name) => ActivateProfile(name, "вручную");
     internal string DemoStatus => StatusText.Text;
+    internal void DemoSwitchAuto(string name) => ActivateProfile(name, "авто", "по программе smoke.exe", auto: true);
+    internal bool DemoAutoSwitchLighting => _store.Data.AutoSwitchLighting;
     /// <summary>1.0.2 smoke: a copy of a profile that differs only in lighting.</summary>
     internal void DemoLightingCopy(string from, string name)
     {

@@ -214,10 +214,16 @@ public partial class MainWindow : Window
             // 1.0.2: lighting follows a switch made by the user (same live LED-only path as editing the lighting)
             bool userSwitch = reason is "вручную" or "трей" or "действие клавиши" && ProfileSwitchLighting.AppliesLive(source);
             bool ledOnly = LightingOnlyPending(), ledDiff = ledOnly || ProfileSwitchLighting.LightingDiffers(DeviceTarget, _deviceImage);
+            if (changed) _autoLed.Cancel();                                   // any newer switch replaces a pending auto write
             bool apply = changed && userSwitch && ledOnly && ScheduleLiveLighting();
-            if (apply) Log($"[led] профиль «{p.Name}»: подсветка отличается от клавиатуры — применяю (только подсветка).");
-            else if (ledDiff && _deviceImage != null) Log($"[led] профиль «{p.Name}»: подсветка в клавиатуре прежняя ({(ledOnly ? "" : "отличаются и другие блоки; ")}{(auto ? "автопереключение не пишет" : !_store.Data.WriteConfirmed ? "запись ещё не подтверждена" : "нужно «Записать»")}).");
-            string note = ProfileSwitchLighting.Note(ledOnly, ledDiff, apply, _store.Data.WriteConfirmed, source, Layer.Active);
+            // 1.0.3: auto-switch too — debounced and rate-limited (AutoLightingGate)
+            bool autoOn = auto && _store.Data.AutoSwitchLighting;
+            if (changed && autoOn && ledOnly) apply = ScheduleAutoLighting(p.Name);
+            if (apply) Log(auto ? $"[led] профиль «{p.Name}» (авто): подсветка отличается — применю через {AutoLightingGate.Stable.TotalSeconds:0.#} с, если профиль не сменится."
+                                : $"[led] профиль «{p.Name}»: подсветка отличается от клавиатуры — применяю (только подсветка).");
+            else if (ledDiff && _deviceImage != null) Log($"[led] профиль «{p.Name}»: подсветка в клавиатуре прежняя ({(ledOnly ? "" : "отличаются и другие блоки; ")}{(!_store.Data.WriteConfirmed ? "запись ещё не подтверждена" : auto && !autoOn ? "смена подсветки при автопереключении выключена" : auto && _connected && !_offline ? $"лимит {AutoLightingGate.MaxPerHour} автосмен за час" : "нужно «Записать»")}).");
+            bool capHit = auto && autoOn && changed && ledOnly && !apply && _connected && !_offline && _store.Data.WriteConfirmed;
+            string note = ProfileSwitchLighting.Note(ledOnly, ledDiff, apply, _store.Data.WriteConfirmed, source, Layer.Active, !autoOn ? AutoLed.Off : capHit ? AutoLed.Cap : AutoLed.On);
             StatusText.Text = (auto ? $"Профиль «{p.Name}» — {_activeWhy}." : $"Профиль «{p.Name}» ({reason}).") + (note.Length > 0 ? " " + note : "");
             bool toasted = MaybeToast(p, source, changed);
             if (!IsVisible && !auto && !toasted) _tray?.Balloon("Профиль: " + p.Name, "Действия на ПК переключены.");
@@ -252,6 +258,67 @@ public partial class MainWindow : Window
         _ledTimer.Tick -= LedTimer_Tick; _ledTimer.Tick += LedTimer_Tick;
         _ledTimer.Stop(); _ledTimer.Start();
         return true;
+    }
+
+    // ───────────────────────────── 1.0.3: lighting after an auto-switch (wear-protected)
+    private readonly AutoLightingGate _autoLed = new();
+    private System.Windows.Threading.DispatcherTimer? _autoLedTimer;
+
+    /// <summary>Queues the LED-only write for an auto-switch; false when it will not run (not confirmed, offline, hourly cap).</summary>
+    private bool ScheduleAutoLighting(string profile)
+    {
+        if (_offline || !_connected || !_store.Data.WriteConfirmed) return false;
+        var now = DateTime.Now;
+        _autoLed.Switched(profile, now);
+        if (_autoLed.DueAt(now) is not DateTime due) { _autoLed.Cancel(); return false; }
+        StartAutoLedTimer(due - now);
+        return true;
+    }
+
+    private void StartAutoLedTimer(TimeSpan wait)
+    {
+        _autoLedTimer ??= new System.Windows.Threading.DispatcherTimer();
+        _autoLedTimer.Tick -= AutoLedTimer_Tick; _autoLedTimer.Tick += AutoLedTimer_Tick;
+        _autoLedTimer.Stop();
+        _autoLedTimer.Interval = wait < TimeSpan.FromMilliseconds(50) ? TimeSpan.FromMilliseconds(50) : wait;
+        _autoLedTimer.Start();
+    }
+
+    private async void AutoLedTimer_Tick(object? sender, EventArgs e)
+    {
+        _autoLedTimer!.Stop();
+        if (_offline || !_connected || !_store.Data.AutoSwitchLighting || !_store.Data.WriteConfirmed) { _autoLed.Cancel(); return; }
+        var now = DateTime.Now;
+        string? target = _autoLed.PendingProfile;
+        switch (_autoLed.Decide(now, _profile.Name, LightingOnlyPending()))
+        {
+            case AutoLightingGate.Verdict.Wait:
+                if (_autoLed.DueAt(now) is DateTime due) StartAutoLedTimer(due - now);
+                return;
+            case AutoLightingGate.Verdict.SameLighting:
+                Log($"[led] авто: «{target}» — подсветка в клавиатуре уже такая (или отличаются и кнопки), не пишу.");
+                return;
+            case AutoLightingGate.Verdict.NotActiveAnymore:
+                Log($"[led] авто: профиль «{target}» уже сменился — не пишу.");
+                return;
+            case AutoLightingGate.Verdict.HourlyCap:
+                Log($"[led] авто: «{target}» — уже {AutoLightingGate.MaxPerHour} автосмен подсветки за час, не пишу (бережём память клавиатуры).");
+                StatusText.Text = ProfileSwitchLighting.Note(true, true, false, true, SwitchSource.Auto, Layer.Active, AutoLed.Cap);
+                return;
+            case AutoLightingGate.Verdict.Write:
+                if (_busy) { StartAutoLedTimer(TimeSpan.FromMilliseconds(700)); return; }
+                _autoLed.Wrote(now);
+                Log($"[led] авто: профиль «{target}» — пишу подсветку (только блок подсветки; {_autoLed.WritesLastHour(now)}-я автосмена за час).");
+                await WriteDevice(quiet: true);
+                return;
+        }
+    }
+
+    internal void SetAutoSwitchLighting(bool on)
+    {
+        _store.Data.AutoSwitchLighting = on; SaveStore();
+        if (!on) { _autoLed.Cancel(); _autoLedTimer?.Stop(); }
+        Log(on ? "Смена подсветки при автопереключении включена." : "Смена подсветки при автопереключении выключена.");
     }
 
     private async void LedTimer_Tick(object? sender, EventArgs e)
@@ -560,6 +627,7 @@ public partial class MainWindow : Window
         {
             _connected = false; _devicePath = null; _imageFresh = false; _hwMode = HwMode.Unknown; _selfGame = false;
             Log("Клавиатура отключена.");
+            _autoLed.Cancel(); _autoLedTimer?.Stop();
             try { _mapper?.KeypadGone(); } catch (Exception ex) { Log("Сброс удержаний: " + ex.Message); }
             UpdateConn();
         }
@@ -986,7 +1054,7 @@ public partial class MainWindow : Window
         }
         if (_recording) ToggleRecording();
         _exiting = true;
-        _poll.Stop(); _anim.Stop(); _ledTimer?.Stop();
+        _poll.Stop(); _anim.Stop(); _ledTimer?.Stop(); _autoLedTimer?.Stop();
         MacroPlayer.StopAll();                 // v5.3: release keys a playing macro is holding
         try { _ringOverlay?.Close(); } catch (InvalidOperationException) { }
         try { _toast?.Close(); } catch (InvalidOperationException) { }

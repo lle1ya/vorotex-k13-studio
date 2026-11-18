@@ -5,6 +5,9 @@ namespace Vorotex.K13;
 /// to a profile with other lighting did not — the app showed the new colours, the keypad kept the old ones; «Записать» was the only
 /// way and nothing said so for a manual switch. Now a switch the user makes (profile card / list, tray, keypad key) uses the same
 /// live LED-only path; a switch by the active window (auto) never writes (EEPROM wear) and says «Записать».</summary>
+/// <summary>1.0.3: lighting on auto-switch — setting off, on, or on but the hourly cap is reached.</summary>
+public enum AutoLed { Off, On, Cap }
+
 public static class ProfileSwitchLighting
 {
     /// <summary>Lighting area: BASE … BASE+0x1F (flags, colours, effect/brightness/speed).</summary>
@@ -34,19 +37,21 @@ public static class ProfileSwitchLighting
         catch { return false; }
     }
 
-    /// <summary>Switches made by the user apply the lighting live; auto-switch by window never writes.</summary>
+    /// <summary>Switches made by the user apply the lighting live (0.6 s); auto-switch goes through <see cref="AutoLightingGate"/> (1.0.3).</summary>
     public static bool AppliesLive(SwitchSource source) => source is SwitchSource.Manual or SwitchSource.Tray or SwitchSource.KeypadKey;
 
     /// <summary>Status note after a switch. <paramref name="willApply"/>: the live LED write was scheduled.</summary>
-    public static string Note(bool lightingOnly, bool lightingDiffers, bool willApply, bool writeConfirmed, SwitchSource source, bool layerActive)
+    public static string Note(bool lightingOnly, bool lightingDiffers, bool willApply, bool writeConfirmed, SwitchSource source, bool layerActive, AutoLed autoLed = AutoLed.Off)
     {
         if (!lightingDiffers && !lightingOnly) return "";
-        if (willApply) return "Подсветка профиля применяется к клавиатуре.";
+        if (willApply) return source == SwitchSource.Auto ? "Подсветка профиля применится к клавиатуре через пару секунд." : "Подсветка профиля применяется к клавиатуре.";
         if (!lightingOnly)
             return layerActive ? "Кнопки уже переключены (через ПК); подсветка в клавиатуре прежняя — нажмите «Записать»."
                                : "Кнопки и подсветка в клавиатуре прежние — нажмите «Записать».";
-        if (source == SwitchSource.Auto) return "Подсветка в клавиатуре прежняя: при автопереключении программа в клавиатуру не пишет — нажмите «Записать».";
         if (!writeConfirmed) return "Подсветка в клавиатуре прежняя — нажмите «Записать» (после первого подтверждения подсветка будет меняться вместе с профилем).";
+        if (source == SwitchSource.Auto && autoLed != AutoLed.On)
+            return autoLed == AutoLed.Cap ? $"Подсветка в клавиатуре прежняя: за час подсветка менялась автоматически {AutoLightingGate.MaxPerHour} раз (бережём память клавиатуры) — нажмите «Записать»."
+                                  : "Подсветка в клавиатуре прежняя: смена подсветки при автопереключении выключена (⋯ у профилей) — нажмите «Записать».";
         return "Подсветка в клавиатуре прежняя — нажмите «Записать».";
     }
 }

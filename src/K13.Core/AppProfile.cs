@@ -246,6 +246,8 @@ public sealed class ProfileStoreData
     public string ActiveProfile { get; set; } = "";
     public List<AppSwitchRule> AppRules { get; set; } = new();
     public bool AutoSwitch { get; set; } = true;
+    /// <summary>1.0.3: an auto-switch also applies the profile lighting to the keypad (LED-only write, debounced, rate-limited).</summary>
+    public bool AutoSwitchLighting { get; set; } = true;
     /// <summary>v5.4: profile used when the active program matches no rule ("" = keep the current profile).</summary>
     public string FallbackProfile { get; set; } = "";
     /// <summary>v5.5: small on-screen notice when the profile changes by itself (program switch or keypad key).</summary>

@@ -105,7 +105,7 @@ public partial class MainWindow
             DockPanel.SetDock(ok, Dock.Right);
             hint.Children.Add(ok);
             hint.Children.Add(new TextBlock { Text = "\uE946", FontFamily = Icons, FontSize = 12, Foreground = R("MutedBrush"), Margin = new Thickness(0, 1, 8, 0), VerticalAlignment = VerticalAlignment.Top });
-            hint.Children.Add(new TextBlock { Text = Layer.Active ? "При смене профиля сразу меняются кнопки (через ПК) и действия на ПК. Подсветка в клавиатуре — только по «Записать»."
+            hint.Children.Add(new TextBlock { Text = Layer.Active ? "При смене профиля сразу меняются кнопки (через ПК) и действия на ПК, через пару секунд — подсветка (после первого «Записать»)."
                                                                  : "При смене профиля сразу меняются действия на ПК. Кнопки — тоже, если включить «Кнопки по профилю» (в ⋯); иначе они в клавиатуре и меняются по «Записать».",
                 FontSize = 12, Foreground = R("MutedBrush"), TextWrapping = TextWrapping.Wrap });
             AutoHintHost.Children.Add(hint);
@@ -156,6 +156,12 @@ public partial class MainWindow
         m.Items.Add(fb);
         if (d.AutoSwitch)
             m.Items.Add(Make(_fg.Engine.Paused ? "\uE768" : "\uE769", _fg.Engine.Paused ? "Продолжить автопереключение" : "Пауза автопереключения", () => SetAutoPaused(!_fg.Engine.Paused)));
+        // 1.0.3: lighting follows the auto-switch (LED-only write after ~2.5 s of a stable profile, rate-limited)
+        var autoLed = Make(d.AutoSwitchLighting ? check : "", "Менять подсветку при автопереключении", () => SetAutoSwitchLighting(!d.AutoSwitchLighting), d.AutoSwitch);
+        autoLed.Tag = "autoled";
+        autoLed.ToolTip = $"Подсветка нового профиля записывается в клавиатуру, если профиль не менялся {AutoLightingGate.Stable.TotalSeconds:0.#} с: только блок подсветки, с резервной копией и проверкой. " +
+                          $"Не чаще раза в {AutoLightingGate.MinInterval.TotalSeconds:0} с и не больше {AutoLightingGate.MaxPerHour} раз в час — бережём память клавиатуры. Работает после первого подтверждённого «Записать».";
+        m.Items.Add(autoLed);
 
         // «Уведомление при смене» ▸
         var toast = Make("\uEA8F", "Уведомление при смене", null, true, d.SwitchToast ? SwitchToastLogic.PlacementName(d.ToastPlacement).ToLowerInvariant() : "выключено");
@@ -194,8 +200,9 @@ public partial class MainWindow
     private const string AutoSwitchHelp =
         "Профиль включается сам, когда вы переходите в программу из его списка «Включать в программах» (на карточке профиля). Профиль для остальных программ, пауза и уведомление — в ⋯ рядом с «Новый».\n\n" +
         "Сразу меняются действия на ПК: кольцо, сочетания, запуск программ и ссылок, макросы на компьютере.\n\n" +
-        "Кнопки меняются вместе с профилем, если включены «Кнопки по профилю» (через ПК). Иначе кнопки, как и подсветка, хранятся в самой клавиатуре и меняются только по «Записать» — " +
-        "автопереключение в клавиатуру никогда не пишет (частая запись изнашивает её память).";
+        "Кнопки меняются вместе с профилем, если включены «Кнопки по профилю» (через ПК). Иначе кнопки хранятся в самой клавиатуре и меняются только по «Записать».\n\n" +
+        "Подсветка меняется через пару секунд после смены профиля, если отличается только она (⋯ → «Менять подсветку при автопереключении», после первого «Записать»). " +
+        "Чтобы не изнашивать память клавиатуры, программа ждёт, пока профиль не перестанет меняться, пишет не чаще раза в 10 с и не больше 30 раз в час.";
 
     /// <summary>Label column + control, the same height and spacing for every setting.</summary>
     private FrameworkElement SettingRow(string label, params UIElement[] controls)
