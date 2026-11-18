@@ -495,6 +495,20 @@ public partial class MainWindow
     internal string EditorText() => SmokeTest.AllText(this);
     internal string DemoActiveProfile => _profile.Name;
     internal void DemoActivate(string name) => ActivateProfile(name, "проверка");
+    /// <summary>1.0.2 smoke: a switch the user makes (profile card) and the status line after it.</summary>
+    internal void DemoSwitchByUser(string name) => ActivateProfile(name, "вручную");
+    internal string DemoStatus => StatusText.Text;
+    /// <summary>1.0.2 smoke: a copy of a profile that differs only in lighting.</summary>
+    internal void DemoLightingCopy(string from, string name)
+    {
+        var src = _store.Find(from);
+        if (src?.Device == null) return;
+        var d = src.Device.Clone();
+        d.Led.Colors[0] = new ColorSlot { R = d.Led.Colors[0].R == 15 ? 0 : 15, G = 0, B = 0, X = d.Led.Colors[0].X };
+        d.Led.ColorIndex = 1; d.Led.Brightness = d.Led.Brightness == 0 ? 1 : 0;
+        _store.Data.Profiles.Add(new AppProfile { Name = name, Device = d });
+        RefreshAll();
+    }
     internal void DemoRemoveProfile(string name) { _store.Data.Profiles.RemoveAll(p => p.Name == name); RefreshAll(); }
 
     internal void DemoHookBlocked(string? name) { _hookBlockedBy = name; _missedFg = name; RefreshModeBanner(); }

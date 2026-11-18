@@ -210,8 +210,15 @@ public partial class MainWindow : Window
         if (reason != null)
         {
             Log($"Профиль «{p.Name}» ({_activeWhy}).");
-            StatusText.Text = auto ? $"Профиль «{p.Name}» — {_activeWhy}. " + DeviceNote() : $"Профиль «{p.Name}» ({reason})";
             var source = auto ? SwitchSource.Auto : reason == "действие клавиши" ? SwitchSource.KeypadKey : reason == "трей" ? SwitchSource.Tray : SwitchSource.Manual;
+            // 1.0.2: lighting follows a switch made by the user (same live LED-only path as editing the lighting)
+            bool userSwitch = reason is "вручную" or "трей" or "действие клавиши" && ProfileSwitchLighting.AppliesLive(source);
+            bool ledOnly = LightingOnlyPending(), ledDiff = ledOnly || ProfileSwitchLighting.LightingDiffers(DeviceTarget, _deviceImage);
+            bool apply = changed && userSwitch && ledOnly && ScheduleLiveLighting();
+            if (apply) Log($"[led] профиль «{p.Name}»: подсветка отличается от клавиатуры — применяю (только подсветка).");
+            else if (ledDiff && _deviceImage != null) Log($"[led] профиль «{p.Name}»: подсветка в клавиатуре прежняя ({(ledOnly ? "" : "отличаются и другие блоки; ")}{(auto ? "автопереключение не пишет" : !_store.Data.WriteConfirmed ? "запись ещё не подтверждена" : "нужно «Записать»")}).");
+            string note = ProfileSwitchLighting.Note(ledOnly, ledDiff, apply, _store.Data.WriteConfirmed, source, Layer.Active);
+            StatusText.Text = (auto ? $"Профиль «{p.Name}» — {_activeWhy}." : $"Профиль «{p.Name}» ({reason}).") + (note.Length > 0 ? " " + note : "");
             bool toasted = MaybeToast(p, source, changed);
             if (!IsVisible && !auto && !toasted) _tray?.Balloon("Профиль: " + p.Name, "Действия на ПК переключены.");
         }
@@ -235,25 +242,16 @@ public partial class MainWindow : Window
     // ───────────────────────────── lighting applies live (≈0.2 s write, LED-only changes, debounced)
     private System.Windows.Threading.DispatcherTimer? _ledTimer;
 
-    private bool LightingOnlyPending()
-    {
-        if (_deviceImage == null) return false;
-        try
-        {
-            K13MemoryCodec.Encode(K13Mode.PrepareTarget(DeviceTarget, _deviceImage), _deviceImage, out var plan);
-            var diff = K13Protocol.DiffPlan(plan, _deviceImage);
-            int bs = K13MemoryCodec.ReadBase(_deviceImage);
-            return diff.Count > 0 && diff.All(b => b.Address >= bs && b.Address + b.Data.Length <= bs + 0x20);
-        }
-        catch { return false; }
-    }
+    private bool LightingOnlyPending() => ProfileSwitchLighting.LightingOnlyPending(DeviceTarget, _deviceImage);
 
-    private void ScheduleLiveLighting()
+    /// <summary>Starts the debounced LED-only write; false when it will not run (not confirmed yet, offline, other blocks differ).</summary>
+    private bool ScheduleLiveLighting()
     {
-        if (_offline || !_connected || !_store.Data.WriteConfirmed || !LightingOnlyPending()) return;
+        if (_offline || !_connected || !_store.Data.WriteConfirmed || !LightingOnlyPending()) return false;
         _ledTimer ??= new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
         _ledTimer.Tick -= LedTimer_Tick; _ledTimer.Tick += LedTimer_Tick;
         _ledTimer.Stop(); _ledTimer.Start();
+        return true;
     }
 
     private async void LedTimer_Tick(object? sender, EventArgs e)

@@ -471,6 +471,22 @@ public static class SmokeTest
                 if (!rs.Keys.Any(k => k.Column == 3 && k.Code == 0x3A) || rs.Scheme != PcLayerState.ChordScheme) throw new InvalidOperationException("перехватчик не ждёт Scroll Lock + F1 для кнопки");
                 w.DemoSetKey(3, was);
             });
+            // 1.0.2: profiles with different lighting — after a switch the app says the keypad lighting differs and «Записать» is enabled
+            Step($"{th}: 1.0.2 подсветка при смене профиля", () =>
+            {
+                string prev = w.DemoActiveProfile; bool wasLayer = w.LayerState.Active;
+                w.DemoPcLayer(true);
+                w.DemoLightingCopy("Основной", "Свет-смоук");
+                w.DemoSwitchByUser("Основной");
+                w.DemoKeypadHolds("Основной");
+                w.DemoSwitchByUser("Свет-смоук");
+                Render(w, 0);
+                if (!w.DemoStatus.Contains("Подсветка в клавиатуре прежняя") || !w.DemoStatus.Contains("«Записать»")) throw new InvalidOperationException("после смены профиля нет подсказки про подсветку: «" + w.DemoStatus + "»");
+                if (!w.WriteNoteShown.StartsWith("Нужно записать")) throw new InvalidOperationException("подпись у «Записать» после смены подсветки: «" + w.WriteNoteShown + "»");
+                w.DemoSwitchByUser("Основной");
+                if (w.DemoStatus.Contains("Подсветка")) throw new InvalidOperationException("подсказка про подсветку без причины: «" + w.DemoStatus + "»");
+                w.DemoActivate(prev); w.DemoRemoveProfile("Свет-смоук"); w.DemoPcLayer(wasLayer); w.DemoKeypadHolds("Основной");
+            });
             // v5.10: restore from a backup = a new profile, the keypad changes only via «Записать»
             Step($"{th}: v5.10 восстановление из резервной копии", () =>
             {
