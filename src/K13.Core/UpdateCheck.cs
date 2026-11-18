@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Vorotex.K13;
 
-/// <summary>v5.10: «есть ли новая версия» — GitHub Releases of lle1ya/vorotex-k13-studio. Notify only: the program never downloads or installs anything.</summary>
+/// <summary>v5.10: «есть ли новая версия» — GitHub Releases of lle1ya/vorotex-k13-studio. Only the check; downloading/installing is UpdateInstall (1.1.0), after the user confirms.</summary>
 public static class UpdateCheck
 {
     public const string Repo = "lle1ya/vorotex-k13-studio";
@@ -72,7 +72,7 @@ public static class UpdateCheck
     public static bool IsRateLimit(int status) => status is 403 or 429;
 
     /// <summary>Tries the API first; on rate limit (403/429), any other HTTP error, an unusable answer or an exception it
-    /// asks the release page redirect. Transport is injected (tests); the program never downloads anything.</summary>
+    /// asks the release page redirect. Transport is injected (tests); nothing is downloaded here.</summary>
     /// <param name="api">GET <see cref="ApiUrl"/> → (status, body).</param>
     /// <param name="redirect">HEAD <see cref="LatestPage"/> without following redirects → (status, Location).</param>
     public static async Task<Outcome> ResolveAsync(Func<Task<(int Status, string? Body)>> api, Func<Task<(int Status, string? Location)>> redirect)

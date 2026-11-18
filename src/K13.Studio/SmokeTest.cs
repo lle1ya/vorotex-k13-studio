@@ -549,6 +549,47 @@ public static class SmokeTest
                 w.SetCheckUpdates(on);
                 if (MainWindow.CurrentVersion < new Version(0, 5, 10)) throw new InvalidOperationException("версия сборки не поднята");
             });
+            // 1.1.0: «Скачать и обновить» — offer dialog, progress window with cancel, kind detection, portable swap on Windows file rules
+            Step($"{th}: 1.1.0 окно «Скачать и обновить»", () =>
+            {
+                var r = new UpdateCheck.Release("v9.9.9", new Version(9, 9, 9), UpdateCheck.ReleasesPage + "/tag/v9.9.9", "v9.9.9");
+                foreach (var kind in new[] { UpdateInstall.Kind.Installed, UpdateInstall.Kind.Portable })
+                {
+                    var d = MainWindow.UpdateOfferDialog(null, r, kind, out var ans);
+                    var t = AllText(d);
+                    foreach (var must in new[] { "v9.9.9", "Скачать и обновить", "Открыть страницу", "Позже", "контрольную сумму", "Профили" })
+                        if (!t.Contains(must)) throw new InvalidOperationException($"в окне обновления ({kind}) нет «{must}»");
+                    if (kind == UpdateInstall.Kind.Installed && !t.Contains("ярлыки остаются")) throw new InvalidOperationException("не сказано про ярлыки");
+                    if (kind == UpdateInstall.Kind.Portable && !t.Contains("переносная")) throw new InvalidOperationException("не сказано, что копия переносная");
+                    if (Find<Button>(d).FirstOrDefault(b => b.IsDefault)?.Content as string != "Скачать и обновить") throw new InvalidOperationException("по умолчанию должно быть «Скачать и обновить»");
+                    if (ans() != MessageBoxResult.Cancel) throw new InvalidOperationException("без нажатия окно не должно ничего запускать");
+                    Dialog(d);
+                }
+                int cancelled = 0;
+                var (pw, pt, pb) = MainWindow.UpdateProgressWindow(null, "Скачивание v9.9.9", () => cancelled++);
+                pt.Text = "Скачано " + UpdateInstall.ProgressText(5 << 20, 20 << 20);
+                if (!AllText(pw).Contains("Отмена")) throw new InvalidOperationException("нет кнопки «Отмена»");
+                pw.Left = -32000; pw.Top = -32000; pw.ShowActivated = false; pw.WindowStartupLocation = WindowStartupLocation.Manual;
+                pw.Show(); Pump();
+                Find<Button>(pw).First(b => b.Content as string == "Отмена").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                pw.Close();
+                if (cancelled != 1) throw new InvalidOperationException($"«Отмена» сработала {cancelled} раз");
+                if (MainWindow.UpdateKind() != UpdateInstall.Kind.Portable) throw new InvalidOperationException("копия без записи установщика должна считаться переносной");
+            });
+            Step($"{th}: 1.1.0 замена переносного файла (правила Windows)", () =>
+            {
+                var dir = Path.Combine(Path.GetTempPath(), "k13swap-" + Environment.ProcessId);
+                Directory.CreateDirectory(dir);
+                try
+                {
+                    string exe = Path.Combine(dir, "VorotexK13Studio.exe"), dl = Path.Combine(dir, "dl.exe");
+                    File.WriteAllText(exe, "old"); File.WriteAllText(dl, "new");
+                    using (var locked = new FileStream(exe, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))   // like a running exe
+                        UpdateInstall.Swap(UpdateInstall.PlanSwap(exe, dl), (a, b) => File.Move(a, b), File.Exists, File.Delete);
+                    if (File.ReadAllText(exe) != "new" || File.ReadAllText(exe + ".old") != "old") throw new InvalidOperationException("файл не заменён");
+                }
+                finally { try { Directory.Delete(dir, true); } catch { } }
+            });
             // v5.10.1: the expected keypad content is what «Записать» writes — no false warnings; stale ones clear on Game
             Step($"{th}: v5.10.1 нет ложных предупреждений, устаревшие снимаются", () =>
             {

@@ -125,6 +125,7 @@ public partial class MainWindow : Window
         WireDragDrop();
         if (!offline && !_store.Data.WelcomeShown) Loaded += (_, _) => ShowWelcome(true);
         if (!offline) Loaded += (_, _) => ScheduleUpdateCheck();
+        if (!offline) Loaded += (_, _) => AfterStartUpdateTasks(App.StartArgs);
         if (startMinimized) { WindowState = WindowState.Minimized; Loaded += (_, _) => Hide(); }
         Log($"Запуск v{typeof(App).Assembly.GetName().Version} (PID {Environment.ProcessId}, {Environment.ProcessPath}). Запись в клавиатуру: включена (с подтверждением, бэкапом и проверкой).");
     }
@@ -453,7 +454,7 @@ public partial class MainWindow : Window
         if (_newer is { } nw) Item("\uE896", $"Открыть страницу версии {nw.Tag}", (_, _) => OpenReleasePage(nw.Url));
         Item("\uE895", "Проверить обновления сейчас", async (_, _) => await CheckUpdatesAsync(manual: true), !_offline);
         Item(_store.Data.CheckUpdates ? "\uE73E" : "", "Проверять обновления (раз в день)", (_, _) => SetCheckUpdates(!_store.Data.CheckUpdates))
-            .ToolTip = "Раз в день программа спрашивает GitHub, нет ли новой версии, и только сообщает. Ничего не скачивает и не устанавливает.";
+            .ToolTip = "Раз в день программа спрашивает GitHub, нет ли новой версии, и сообщает. Скачивает и устанавливает только после вашего «Скачать и обновить» (с проверкой контрольной суммы).";
         m.Items.Add(new Separator());
         Item("\uE7E8", "Выход", (_, _) => ExitApp());
         return m;
@@ -1081,6 +1082,7 @@ public partial class MainWindow : Window
             if (!_exitPending) { _exitPending = true; Log("Выход после завершения обмена с клавиатурой…"); StatusText.Text = "Выход после завершения обмена с клавиатурой…"; }
             return;
         }
+        if (!RunPendingUpdate()) return;      // 1.1.0: start the installer / swap the portable exe; on failure keep running
         if (_recording) ToggleRecording();
         _exiting = true;
         _poll.Stop(); _anim.Stop(); _ledTimer?.Stop(); _autoLedTimer?.Stop();

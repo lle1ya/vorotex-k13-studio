@@ -174,8 +174,16 @@ public partial class App : Application
             return;
         }
 
+        // 1.1.0: started by the previous copy after a portable update — wait until it has exited (it holds the single-instance mutex)
+        StartArgs = e.Args;
+        int wp = Array.IndexOf(e.Args, "--wait-pid");
+        if (wp >= 0 && wp + 1 < e.Args.Length && int.TryParse(e.Args[wp + 1], out int pid))
+        {
+            try { using var old = System.Diagnostics.Process.GetProcessById(pid); old.WaitForExit(30000); } catch (ArgumentException) { } catch (InvalidOperationException) { }
+        }
+
         // One running copy only: two keyboard hooks would open the ring twice. A second start just shows the first window.
-        _single = new Mutex(true, @"Local\VorotexK13Studio.Single", out bool first);
+        _single = new Mutex(true, UpdateInstall.Mutex, out bool first);   // the installer waits for this name (1.1.0)
         _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\VorotexK13Studio.Show");
         if (!first)
         {
@@ -196,6 +204,7 @@ public partial class App : Application
     }
 
     private static Mutex? _single;
+    public static string[] StartArgs { get; private set; } = Array.Empty<string>();
     private static EventWaitHandle? _showEvent;
 
     public static bool IsDark { get; private set; }
