@@ -471,6 +471,17 @@ public static class SmokeTest
                 if (!rs.Keys.Any(k => k.Column == 3 && k.Code == 0x3A) || rs.Scheme != PcLayerState.ChordScheme) throw new InvalidOperationException("перехватчик не ждёт Scroll Lock + F1 для кнопки");
                 w.DemoSetKey(3, was);
             });
+            // 1.0.5: Roll± chips keep a margin from the keypad body edge (body 8…250) and stay below the stick module (…170)
+            Step($"{th}: 1.0.5 Roll± не у самого края", () =>
+            {
+                foreach (var id in new[] { DeviceView.RollUp, DeviceView.RollDown })
+                {
+                    var z = DeviceView.Zones[id];
+                    if (250 - z.Bottom < 14) throw new InvalidOperationException($"Roll ({id}) у края: снизу {250 - z.Bottom} px");
+                    if (z.Top < 172) throw new InvalidOperationException($"Roll ({id}) заходит на модуль стика: {z.Top}");
+                }
+                if (DeviceView.Zones[DeviceView.RollDown].Top < DeviceView.Zones[DeviceView.RollUp].Bottom + 2) throw new InvalidOperationException("Roll+ и Roll− слиплись");
+            });
             // 1.0.2: profiles with different lighting — after a switch the app says the keypad lighting differs and «Записать» is enabled
             Step($"{th}: 1.0.2 подсветка при смене профиля", () =>
             {

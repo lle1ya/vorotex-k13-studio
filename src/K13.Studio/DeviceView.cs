@@ -42,7 +42,8 @@ public sealed class DeviceView : Viewbox
         foreach (var (id, rs) in KeyShapes) { var b = rs[0]; foreach (var r in rs) b.Union(r); z[id] = b; }
         z[15] = Chip(0, -1); z[14] = Chip(0, 1); z[12] = Chip(-1, 0); z[13] = Chip(1, 0);
         z[StickPress] = new Rect(StickC.X - 15, StickC.Y - 15, 30, 30);
-        z[RollUp] = new Rect(382, 186, 48, 28); z[RollDown] = new Rect(382, 220, 48, 28);
+        // 1.0.5: Roll± raised (was 186/220, 28 high — 2 px from the body edge); bottom now 18 px from the edge, like the key well
+        z[RollUp] = new Rect(382, 176, 48, 26); z[RollDown] = new Rect(382, 206, 48, 26);
         return z;
         static Rect Chip(int dx, int dy) => new(StickC.X + dx * StickChipDist - 14, StickC.Y + dy * StickChipDist - 14, 28, 28);
     }
@@ -169,9 +170,9 @@ public sealed class DeviceView : Viewbox
         Place(wellShade, 26, 26);
         // brand
         var brand = new TextBlock { Text = "K13", FontFamily = Ui, FontWeight = FontWeights.SemiBold, FontSize = 13, Foreground = new SolidColorBrush(C(0x40FFFFFF)), IsHitTestVisible = false };
-        Place(brand, 482, 206);
+        Place(brand, 482, 188);
         var brand2 = new TextBlock { Text = "VOROTEX", FontFamily = Ui, FontSize = 6.5, Foreground = new SolidColorBrush(C(0x30FFFFFF)), IsHitTestVisible = false };
-        Place(brand2, 478, 224);
+        Place(brand2, 478, 206);
     }
 
     private void Place(UIElement e, double x, double y) { Canvas.SetLeft(e, x); Canvas.SetTop(e, y); _canvas.Children.Add(e); }
@@ -367,12 +368,12 @@ public sealed class DeviceView : Viewbox
     // ───────────────────────────── wheel
     private void DrawWheel()
     {
-        var housing = new Rectangle { Width = 34, Height = 70, RadiusX = 9, RadiusY = 9, Fill = V((0, 0xFF07080A), (1, 0xFF131417)), Stroke = V((0, 0xA0000000), (1, 0x28FFFFFF)), StrokeThickness = 1.2 };
-        Place(housing, 434, 178);
+        var housing = new Rectangle { Width = 34, Height = 62, RadiusX = 9, RadiusY = 9, Fill = V((0, 0xFF07080A), (1, 0xFF131417)), Stroke = V((0, 0xA0000000), (1, 0x28FFFFFF)), StrokeThickness = 1.2 };
+        Place(housing, 434, 173);
         // drawn at its real size (no ScaleTransform → no moiré/banding on the ridges)
-        const double W = 26, H = 62;
+        const double W = 26, H = 54;
         var root = new Canvas { Width = W, Height = H, Background = Brushes.Transparent };
-        Canvas.SetLeft(root, 438); Canvas.SetTop(root, 182);
+        Canvas.SetLeft(root, 438); Canvas.SetTop(root, 177);
         var sel = new Rectangle { Width = W + 6, Height = H + 6, RadiusX = 9, RadiusY = 9, Stroke = new SolidColorBrush(Cyan), StrokeThickness = 2.2, Visibility = Visibility.Collapsed, IsHitTestVisible = false,
             Effect = new DropShadowEffect { BlurRadius = 14, ShadowDepth = 0, Color = Cyan } };
         Canvas.SetLeft(sel, -3); Canvas.SetTop(sel, -3);
