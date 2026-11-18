@@ -56,17 +56,23 @@ public partial class MainWindow
         if (m != _hwMode)
         {
             Log($"[mode] режим клавиатуры: {K13Mode.Name(_hwMode)} → {K13Mode.Name(m)} ({why}; статус байт 3 = {(st.Raw.Length > 3 ? st.Raw[3].ToString("X2") : "—")})");
+            var was = _hwMode;
             _hwMode = m;
+            OnHwModeChanged(was, m);   // 1.3.0: lighting for Normal / Game
+            RefreshModeLightPanel();
             if (m != HwMode.Game) _selfGame = false;
             if (m == HwMode.Game) ClearKeypadWarnings("режим Game");
             UpdateConn(); RefreshModeBanner();
         }
     }
 
-    /// <summary>Every 3rd poll (≈6 s) while the window is visible — so a stick press (Normal ↔ Game) shows up.</summary>
+    /// <summary>Every 3rd poll (≈6 s) while the window is visible — so a stick press (Normal ↔ Game) shows up.
+    /// 1.3.0: with «Подсветка в режиме Normal» set — every poll (2 s), also in the tray (status read only, nothing is written).</summary>
     private async Task PollHwMode()
     {
-        if (++_modeTick % 3 != 0 || !IsVisible || WindowState == WindowState.Minimized || _bisecting) return;
+        if (_bisecting) return;
+        if (ModeLightingOn) { await RefreshHwMode("опрос"); return; }
+        if (++_modeTick % 3 != 0 || !IsVisible || WindowState == WindowState.Minimized) return;
         await RefreshHwMode("опрос");
     }
 

@@ -17,14 +17,15 @@ public static class K13RememberMode
 
     public static string Describe(byte? b) => b is not byte v ? "неизвестно" : $"{(IsOn(v) ? "включено" : "выключено")} (0x000F = {v:X2})";
 
-    /// <summary>The value read is one this feature knows: 0x91 or 0x93 (everything except bit 1 as on the known units).</summary>
-    public static bool IsKnownPattern(byte b) => (b & ~Bit & 0xFF) == Expected;
+    /// <summary>The value read is one this feature knows: 0x91 or 0x93 (everything except bit 1 as on the known units).
+    /// 1.3.0: also 0x81 / 0x83 — the blue mode indicator switched off (bit 4, <see cref="K13ModeIndicator"/>).</summary>
+    public static bool IsKnownPattern(byte b) => (b & ~(Bit | K13ModeIndicator.Bit) & 0xFF) == (Expected & ~K13ModeIndicator.Bit);
 
     /// <summary>Target byte for on/off: only bit 1 changes; null + reason when the read value is not the known pattern.</summary>
     public static (byte? Target, string? Error) Target(byte current, bool enable)
     {
         if (!IsKnownPattern(current))
-            return (null, $"В ячейке 0x000F прочитано 0x{current:X2}, а ожидалось 0x91 или 0x93. Это незнакомая прошивка или ошибка чтения — программа ничего не записывает.");
+            return (null, $"В ячейке 0x000F прочитано 0x{current:X2}, а ожидалось 0x91 или 0x93 (0x81 или 0x83 с выключенным индикатором). Это незнакомая прошивка или ошибка чтения — программа ничего не записывает.");
         return ((byte)(enable ? current | Bit : current & ~Bit), null);
     }
 
@@ -45,19 +46,20 @@ public static class K13RememberMode
     /// <summary>Backup (full verified read) → read 0x0008–0x000F → check → write ONE byte at 0x000F (07 18 03 / 09 / 01, 07 18 11, 07 18 00)
     /// → read back and verify (0x0008–0x000E unchanged). The caller opens the write gate only after the user confirmed.</summary>
     /// <param name="decide">gets the current byte, returns the target (or an error).</param>
-    public static Result Run(K13Device dev, Func<byte, (byte? Target, string? Error)> decide, Action<string> log, string? backupFolder = null)
+    public static Result Run(K13Device dev, Func<byte, (byte? Target, string? Error)> decide, Action<string> log, string? backupFolder = null,
+        byte allowedBits = Bit, Func<byte, string>? done = null, string what = "«Запоминать режим»", string backupTag = "k13-remember-before")
     {
         var st = dev.GetStatus();
         log($"[remember] статус: {st.Hex}");
         var img = dev.ReadImageVerified();
-        var backup = BackupStore.Save(img, backupFolder, "k13-remember-before", st);
+        var backup = BackupStore.Save(img, backupFolder, backupTag, st);
         int baseAddr = st.Base > 0 ? st.Base : K13Layout.DefaultBase;
         byte? baseFlags = baseAddr < img.Length ? img[baseAddr] : null;
         log($"[remember] резервная копия перед изменением: {backup}; 0x0008–0x000F = {Convert.ToHexString(img, BlockAddress, 8)}; BASE+0 = {(baseFlags is byte bf ? bf.ToString("X2") : "—")}");
         var model = K13Model.Detect(img);
         if (!K13Model.WriteAllowed(model))
         {
-            log($"[model] {K13Model.Name(model)}: заводская таблица 0x0020 = {K13Model.FactoryRowHex(img)} — «Запоминать режим» не записывается.");
+            log($"[model] {K13Model.Name(model)}: заводская таблица 0x0020 = {K13Model.FactoryRowHex(img)} — {what} не записывается.");
             return new(false, false, img[Address], img[Address], baseFlags, backup, K13Model.Refusal(model));
         }
         var block = dev.ReadBlocks(new[] { (BlockAddress, 8) })[0];
@@ -67,7 +69,8 @@ public static class K13RememberMode
         var (target, err) = decide(cur);
         if (target is not byte t) { log("[remember] отказ: " + err); return new(false, false, cur, cur, baseFlags, backup, err ?? "Отменено."); }
         if (t == cur) { log($"[remember] 0x000F уже 0x{cur:X2} — запись не нужна."); return new(true, false, cur, cur, baseFlags, backup, $"Ничего не нужно менять: 0x000F уже 0x{cur:X2}."); }
-        if ((t ^ cur) != Bit) return new(false, false, cur, cur, baseFlags, backup, "Внутренняя проверка: меняться может только бит 1. Ничего не записано.");
+        if (((t ^ cur) & ~allowedBits & 0xFF) != 0)
+            return new(false, false, cur, cur, baseFlags, backup, $"Внутренняя проверка: меняться может только {(allowedBits == Bit ? "бит 1" : $"маска 0x{allowedBits:X2}")}. Ничего не записано.");
         log($"[remember] запись 0x000F: {cur:X2} → {t:X2} (один байт, 07 18 03 / 09 / 01, затем 07 18 11, 07 18 00)");
         dev.Apply(new[] { Plan(t) });
         // v5.9.1: the first read after a write may echo the written byte into index 0 (0x0008 read as 93) — stable read, discard first
@@ -87,7 +90,7 @@ public static class K13RememberMode
         if (diffs.Count > 0)
             return new(false, true, cur, got, baseAfter, backup, "Проверка после записи не прошла: " + string.Join("; ", diffs) +
                 $". Сделайте «Прочитать с клавиатуры», чтобы проверить ещё раз. Резервная копия: {backup}. Сохраните диагностику и пришлите нам.");
-        return new(true, true, cur, got, baseAfter, backup, $"Записано и проверено: 0x000F = 0x{got:X2} — «запоминать режим» {(IsOn(got) ? "включено" : "выключено")}.");
+        return new(true, true, cur, got, baseAfter, backup, done?.Invoke(got) ?? $"Записано и проверено: 0x000F = 0x{got:X2} — «запоминать режим» {(IsOn(got) ? "включено" : "выключено")}.");
     }
 
     /// <summary>Exact byte differences after the write: 0x000F vs the target, 0x0008–0x000E vs the bytes read before.</summary>
@@ -103,4 +106,25 @@ public static class K13RememberMode
         }
         return d;
     }
+}
+
+/// <summary>1.3.0, EXPERIMENTAL: the blue mode indicator between Tab and 9 = factory flag MODE_LED_EN (0x000F bits 5–4, value 01 on the K13;
+/// the burn tool calls it «WinLock LED becomes the mode indicator», docs/ANALYSIS-burn-tool.md §2.2). Only bit 4 is changed: 0x91 → 0x81.
+/// Not verified on hardware: with the bit cleared the LED should act as a Win-Lock LED (the K13 has no Win-Lock key — so it stays dark).
+/// There is no known brightness setting for this LED — it is a single on/off LED, not part of the RGB lighting.</summary>
+public static class K13ModeIndicator
+{
+    public const byte Bit = 0x10;
+    public static bool IsOn(byte b) => (b & Bit) != 0;
+    public static string Describe(byte? b) => b is not byte v ? "неизвестно" : $"{(IsOn(v) ? "включён" : "выключен")} (0x000F = {v:X2})";
+
+    public static (byte? Target, string? Error) Target(byte current, bool on)
+    {
+        if (!K13RememberMode.IsKnownPattern(current))
+            return (null, $"В ячейке 0x000F прочитано 0x{current:X2}, а ожидалось 0x91/0x93 (или 0x81/0x83). Это незнакомая прошивка или ошибка чтения — программа ничего не записывает.");
+        return ((byte)(on ? current | Bit : current & ~Bit), null);
+    }
+
+    public static string Done(byte got) =>
+        $"Записано и проверено: 0x000F = 0x{got:X2} — синий индикатор режима {(IsOn(got) ? "включён" : "выключен")}. Переподключите USB, чтобы клавиатура перечитала настройку.";
 }

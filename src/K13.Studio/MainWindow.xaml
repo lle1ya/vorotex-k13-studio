@@ -148,6 +148,7 @@
                 </Grid>
                 <Button x:Name="LightMoreBtn" Style="{StaticResource LinkButton}" Content="Дополнительно ▾" HorizontalAlignment="Left" Margin="0,16,0,8" Click="LightMore_Click"/>
                 <StackPanel x:Name="ParamsPanel" Visibility="Collapsed"/>
+                <StackPanel x:Name="ModeLightPanel" Margin="0,12,0,0"/>
               </StackPanel>
             </Grid>
           </StackPanel>

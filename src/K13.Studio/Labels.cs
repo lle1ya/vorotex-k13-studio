@@ -46,6 +46,7 @@ public static class Labels
                 HostActionKind.Text => "вставка текста",
                 HostActionKind.KeyCombo => $"сочетание {a.Value}",
                 HostActionKind.SwitchProfile => $"профиль «{a.Value}»",
+                HostActionKind.Scroll or HostActionKind.MouseMove => (PointerSpec.From(a)?.Title ?? a.ToString()).ToLowerInvariant(),
                 _ => a.ToString(),
             };
             return b.Tap.Kind == HostActionKind.None ? "удержание: " + what : what;
@@ -82,6 +83,7 @@ public static class Labels
                     HostActionKind.SwitchProfile => ("⇄", b.Tap.Value),
                     HostActionKind.Ring => ("◎", "Кольцо"),
                     HostActionKind.PlayMacro => ("⏺", b.Tap.ToString()),
+                    HostActionKind.Scroll or HostActionKind.MouseMove => ("🖱", PointerSpec.From(b.Tap)?.Short ?? b.Tap.ToString()),
                     _ => ("", KeyCatalog.Name(code)),
                 };
         }

@@ -30,7 +30,7 @@ public class V59Tests
     }
 
     [Theory]
-    [InlineData(0x00)] [InlineData(0xFF)] [InlineData(0x81)] [InlineData(0x99)] [InlineData(0x90)] [InlineData(0xB1)]
+    [InlineData(0x00)] [InlineData(0xFF)] [InlineData(0x11)] [InlineData(0x99)] [InlineData(0x90)] [InlineData(0xB1)]
     public void UnknownPatternIsRefused(byte cur)
     {
         var (t, err) = K13RememberMode.Target(cur, true);

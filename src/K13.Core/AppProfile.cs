@@ -3,7 +3,8 @@ using System.Text.Json.Serialization;
 
 namespace Vorotex.K13;
 
-public enum HostActionKind { None, KeyCombo, Text, LaunchProgram, OpenUrl, SwitchProfile, Ring, PlayMacro }
+/// <summary>1.3.0: Scroll / MouseMove = «Прокрутка и курсор» (PointerSpec in Value/Arguments), executed on the PC.</summary>
+public enum HostActionKind { None, KeyCombo, Text, LaunchProgram, OpenUrl, SwitchProfile, Ring, PlayMacro, Scroll, MouseMove }
 
 /// <summary>A host-side action executed by the background mapper.</summary>
 public sealed class HostAction
@@ -22,6 +23,7 @@ public sealed class HostAction
         HostActionKind.SwitchProfile => "Профиль: " + Value,
         HostActionKind.Ring => "Кольцо действий",
         HostActionKind.PlayMacro => "Макрос " + (int.TryParse(Value, out var n) ? n + 1 : 0) + " (через ПК)",
+        HostActionKind.Scroll or HostActionKind.MouseMove => PointerSpec.From(this)?.Title ?? Kind.ToString(),
         _ => Kind.ToString()
     };
 }
@@ -248,6 +250,9 @@ public sealed class ProfileStoreData
     public bool AutoSwitch { get; set; } = true;
     /// <summary>1.0.3: an auto-switch also applies the profile lighting to the keypad (LED-only write, debounced, rate-limited).</summary>
     public bool AutoSwitchLighting { get; set; } = true;
+    /// <summary>1.3.0: lighting while the keypad is in Normal ("" = the same as Game, i.e. the active profile; <see cref="ModeLighting.Off"/>;
+    /// otherwise the name of the profile whose lighting is used). Applied by the running app when it sees the mode change.</summary>
+    public string NormalLighting { get; set; } = "";
     /// <summary>v5.4: profile used when the active program matches no rule ("" = keep the current profile).</summary>
     public string FallbackProfile { get; set; } = "";
     /// <summary>v5.5: small on-screen notice when the profile changes by itself (program switch or keypad key).</summary>

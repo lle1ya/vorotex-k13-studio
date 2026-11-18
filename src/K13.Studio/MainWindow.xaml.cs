@@ -216,7 +216,7 @@ public partial class MainWindow : Window
             var source = auto ? SwitchSource.Auto : reason == "действие клавиши" ? SwitchSource.KeypadKey : reason == "трей" ? SwitchSource.Tray : SwitchSource.Manual;
             // 1.0.2: lighting follows a switch made by the user (same live LED-only path as editing the lighting)
             bool userSwitch = reason is "вручную" or "трей" or "действие клавиши" && ProfileSwitchLighting.AppliesLive(source);
-            bool ledOnly = LightingOnlyPending(), ledDiff = ledOnly || ProfileSwitchLighting.LightingDiffers(DeviceTarget, _deviceImage);
+            bool ledOnly = LightingOnlyPending(), ledDiff = ledOnly || ProfileSwitchLighting.LightingDiffers(KeypadTarget, _deviceImage);
             bool ledPart = LightingPending();                                  // 1.1.1: lighting can be applied alone even if other blocks differ
             if (changed) _autoLed.Cancel();                                   // any newer switch replaces a pending auto write
             bool apply = changed && userSwitch && ledPart && ScheduleLiveLighting();
@@ -255,9 +255,10 @@ public partial class MainWindow : Window
     // ───────────────────────────── lighting applies live (≈0.2 s write, LED-only changes, debounced)
     private System.Windows.Threading.DispatcherTimer? _ledTimer;
 
-    private bool LightingOnlyPending() => ProfileSwitchLighting.LightingOnlyPending(DeviceTarget, _deviceImage);
+    private bool LightingOnlyPending() => ProfileSwitchLighting.LightingOnlyPending(KeypadTarget, _deviceImage);
     /// <summary>1.1.1: the keypad image with only the profile's lighting (null = nothing to apply live).</summary>
-    private K13DeviceConfig? LightingTarget() => ProfileSwitchLighting.LightingDiffers(DeviceTarget, _deviceImage) ? ProfileSwitchLighting.LightingPart(DeviceTarget, _deviceImage) : null;
+    /// 1.3.0: in Normal with «Подсветка в режиме Normal» set — that lighting (<see cref="KeypadTarget"/>).
+    private K13DeviceConfig? LightingTarget() { var kt = KeypadTarget; return ProfileSwitchLighting.LightingDiffers(kt, _deviceImage) ? ProfileSwitchLighting.LightingPart(kt, _deviceImage) : null; }
     private bool LightingPending() => LightingTarget() != null;
 
     private string OtherPendingNames()
@@ -266,7 +267,7 @@ public partial class MainWindow : Window
         try
         {
             int bs = K13MemoryCodec.ReadBase(_deviceImage);
-            return string.Join(", ", PcLayerHealth.PendingWrite(DeviceTarget, _deviceImage)
+            return string.Join(", ", PcLayerHealth.PendingWrite(KeypadTarget, _deviceImage)
                 .Where(b => !(b.Address >= bs && b.Address + b.Data.Length <= bs + ProfileSwitchLighting.LightingSpan))
                 .Select(b => b.Purpose));
         }
@@ -409,6 +410,7 @@ public partial class MainWindow : Window
             RefreshLed();
             RefreshMacros();
             RefreshHostSummary();
+            RefreshModeLightPanel();
             RefreshDirty();
         }
         finally { _loading = false; }
@@ -465,6 +467,9 @@ public partial class MainWindow : Window
         // v5.9: experimental factory flag «remember mode» (EEPROM 0x000F bit 1)
         Item("\uE7BA", RememberMenuText(), (_, _) => ShowRememberDialog())
             .ToolTip = "Заводской флаг клавиатуры: помнить последний режим (Normal или Game) после переподключения USB, даже без программы. Откроется окно с объяснением; запись — только после подтверждения.";
+        // 1.3.0: experimental factory flag MODE_LED_EN (0x000F bit 4) — the blue mode indicator between Tab and 9
+        Item("\uE781", IndicatorMenuText(), (_, _) => ShowIndicatorDialog())
+            .ToolTip = "Заводской флаг: синий индикатор режима Game между Tab и 9. Яркость не настраивается; выключение — эксперимент (бит 4 ячейки 0x000F), только после подтверждения.";
         m.Items.Add(new Separator());
         if (ShowTech)
         {
@@ -889,7 +894,7 @@ public partial class MainWindow : Window
     /// <summary>True while <see cref="_deviceImage"/> was read (or written+verified) since the keypad was last connected.</summary>
     private bool _imageFresh;
 
-    internal async Task<bool> WriteDevice(bool quiet = false, K13DeviceConfig? target = null)
+    internal async Task<bool> WriteDevice(bool quiet = false, K13DeviceConfig? target = null, bool keepModeFlags = false)
     {
         if (_busy || _offline || !_connected) return false;
         if (quiet && !_store.Data.WriteConfirmed) return false;
@@ -898,7 +903,7 @@ public partial class MainWindow : Window
             if (!quiet) MessageBox.Show(this, K13Model.Refusal(_modelNoted), Title, MessageBoxButton.OK, MessageBoxImage.Warning);
             return false;
         }
-        var what = target ?? DeviceTarget; // v5.6: in «через ПК» mode the mapped keys are written as their F14–F24 codes
+        var what = target ?? KeypadTarget; // v5.6: in «через ПК» mode the mapped keys are written as their F14–F24 codes
         try { K13MemoryCodec.Validate(what); }
         catch (Exception ex) { MessageBox.Show(this, "Профиль содержит ошибку: " + FriendlyError.Text(ex), Title); return false; }
         if (!_store.Data.WriteConfirmed)
@@ -933,7 +938,7 @@ public partial class MainWindow : Window
             {
                 using var dev = K13Device.OpenFirst() ?? throw new IOException("Клавиатура не найдена.");
                 K13WriteGate.Unlock(K13WriteGate.ConfirmationPhrase);
-                try { return K13Writer.WriteProfile(dev, cfg, m => { lock (lines) lines.Add(m); App.Log("[write] " + m); }, progress, cachedImage: cached, acceptedHeader: accepted); }
+                try { return K13Writer.WriteProfile(dev, cfg, m => { lock (lines) lines.Add(m); App.Log("[write] " + m); }, progress, cachedImage: cached, acceptedHeader: accepted, keepModeFlags: keepModeFlags); }
                 finally { K13WriteGate.Lock(); }
             });
             var r = await Run(_store.Data.AcceptedHeader);
@@ -1036,7 +1041,7 @@ public partial class MainWindow : Window
             if (_deviceImage == null) { tip = "Клавиатура ещё не прочитана"; fill = (Brush)FindResource("MutedBrush"); }
             else
             {
-                K13MemoryCodec.Encode(K13Mode.PrepareTarget(DeviceTarget, _deviceImage), _deviceImage, out var plan);
+                K13MemoryCodec.Encode(K13Mode.PrepareTarget(KeypadTarget, _deviceImage), _deviceImage, out var plan);
                 var diff = K13Protocol.DiffPlan(plan, _deviceImage);
                 tip = diff.Count == 0 ? "Профиль совпадает с клавиатурой" : $"Профиль отличается от клавиатуры: {diff.Count} блок(ов) по 8 байт — нажмите «Записать».";
                 dirty = diff.Count > 0;
@@ -1061,7 +1066,7 @@ public partial class MainWindow : Window
             K13MemoryCodec.Validate(DeviceTarget);
             var baseImg = _deviceImage ?? DefaultImage;
             if (_deviceImage == null) sb.AppendLine("⚠ Клавиатура не прочитана — сравнение со встроенным образом от 12.11.2026.\n");
-            K13MemoryCodec.Encode(K13Mode.PrepareTarget(DeviceTarget, baseImg), baseImg, out var plan);
+            K13MemoryCodec.Encode(K13Mode.PrepareTarget(KeypadTarget, baseImg), baseImg, out var plan);
             var diff = K13Protocol.DiffPlan(plan, baseImg);
             sb.AppendLine($"Полный план родного приложения: {plan.Count} блоков по 8 байт. Отличающихся блоков: {diff.Count}.");
             sb.AppendLine();
@@ -1126,6 +1131,7 @@ public partial class MainWindow : Window
         _exiting = true;
         _poll.Stop(); _anim.Stop(); _ledTimer?.Stop(); _autoLedTimer?.Stop();
         MacroPlayer.StopAll();                 // v5.3: release keys a playing macro is holding
+        PointerDriver.Stop("выход из программы");
         try { _ringOverlay?.Close(); } catch (InvalidOperationException) { }
         try { _toast?.Close(); } catch (InvalidOperationException) { }
         _fg.Dispose(); _mapper?.Dispose(); _k13Keys?.Dispose(); _tray?.Dispose(); _recorder.Dispose();

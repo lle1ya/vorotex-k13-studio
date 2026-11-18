@@ -26,6 +26,7 @@ public static class SmokeTest
         {
             steps++;
             int before = Unhandled;
+            try { File.AppendAllText(Path.Combine(folder, "progress.txt"), name + "\n"); } catch { }   // 1.3.0: last step before a native crash
             try { a(); Pump(); if (Unhandled != before) throw new InvalidOperationException("необработанное исключение в диспетчере (см. studio.log)"); lines.Add("OK   " + name); }
             catch (Exception ex) { fails++; lines.Add("FAIL " + name + " — " + ex.GetType().Name + ": " + ex.Message); App.Log("[smoke] " + name + ": " + ex); }
         }
@@ -615,6 +616,96 @@ public static class SmokeTest
                 if (w.DemoModelNoted != KeypadModel.K13 || w.ModeBannerText.Contains("K12")) throw new InvalidOperationException("K13 не распознана");
                 w.DemoModel(null, connected: false);
             });
+            // 1.3.0: «Прокрутка и курсор» (horizontal scroll for Excel, cursor) — PC actions, step / start-stop, all four stick tilts at once
+            Step($"{th}: 1.3.0 прокрутка и курсор", () =>
+            {
+                var was = StickTilts.Columns.ToDictionary(c => c, c => w.KeyAt(c));
+                int hostBefore = w.Host.Keys.Count;
+                w.ShowPage(0); w.SelectControl(13); w.OpenTile("pointer"); Render(w, 0);
+                var t = AllText(w);
+                foreach (var must in new[] { "Прокрутка и курсор", "Прокрутка →", "Курсор ↑", "За нажатие", "Старт/стоп", "на все 4 наклона стика", "короткое нажатие", "Excel" })
+                    if (!t.Contains(must)) throw new InvalidOperationException($"в плитке «Прокрутка и курсор» нет «{must}»");
+                if (th == "light") Shot(w, Path.Combine(folder, "pointer-tile.png"));
+                var err = w.AssignPointerToStick(PointerKind.Scroll, PointerMode.Step, 3);
+                if (err != null) throw new InvalidOperationException("стик → прокрутка: " + err);
+                var dirs = StickTilts.Columns.Select(c => w.PointerOf(w.KeyAt(c))).ToList();
+                if (dirs.Any(d => d == null || d.Kind != PointerKind.Scroll || d.Amount != 3)) throw new InvalidOperationException("не все наклоны получили прокрутку");
+                if (w.PointerOf(w.KeyAt(12))!.Dir != PointerDir.Left || w.PointerOf(w.KeyAt(13))!.Dir != PointerDir.Right || w.PointerOf(w.KeyAt(15))!.Dir != PointerDir.Up)
+                    throw new InvalidOperationException("направления наклонов перепутаны");
+                w.OpenTile(null); w.SelectControl(13); Render(w, 0);
+                if (!AllText(w).Contains("Прокр. →")) throw new InvalidOperationException("на схеме нет подписи «Прокр. →»");
+                // the driver: step = one SendInput, start/stop runs until the same press
+                var outs = new System.Collections.Concurrent.ConcurrentQueue<PointerOut>();
+                PointerDriver.SendOverride = o => outs.Enqueue(o);
+                try
+                {
+                    PointerDriver.Tap(new PointerSpec(PointerKind.Scroll, PointerDir.Right, PointerMode.Step, 3));
+                    if (!outs.TryDequeue(out var o1) || o1.HWheel != 360) throw new InvalidOperationException("шаг прокрутки вправо ≠ 3 щелчка горизонтального колеса");
+                    var mv = new PointerSpec(PointerKind.Move, PointerDir.Right, PointerMode.Toggle, 4);
+                    PointerDriver.Tap(mv);
+                    System.Threading.Thread.Sleep(300);
+                    if (!PointerDriver.IsRunning) throw new InvalidOperationException("курсор не поехал");
+                    PointerDriver.Tap(mv);
+                    if (PointerDriver.IsRunning) throw new InvalidOperationException("повторное нажатие не остановило курсор");
+                    int dx = outs.Sum(o => o.Dx);
+                    if (dx <= 0 || outs.Any(o => o.Dy != 0)) throw new InvalidOperationException($"курсор двигался не вправо ({dx})");
+                    PointerDriver.Tap(mv); PointerDriver.Stop("проверка");
+                    if (PointerDriver.IsRunning) throw new InvalidOperationException("Stop не остановил");
+                }
+                finally { PointerDriver.SendOverride = null; PointerDriver.Stop("проверка"); }
+                foreach (var (c, code) in was) w.DemoSetKey(c, code);
+                w.Host.Keys.RemoveAll(k => PointerSpec.From(k.Tap) != null);
+                if (w.Host.Keys.Count > hostBefore) throw new InvalidOperationException("остались лишние привязки");
+                w.SelectControl(-1);
+            });
+            // 1.3.0: two looped macros from different buttons play at the same time; each button stops its own
+            Step($"{th}: 1.3.0 два зацикленных макроса", () =>
+            {
+                var sent = new System.Collections.Concurrent.ConcurrentQueue<byte>();
+                var a = new MacroSlot { Events = { new MacroEvent { Code = 0x68, Down = true }, new MacroEvent { Code = 0x68, Down = false, Delay = 2 } } };
+                a.RepeatMode = MacroRepeatMode.Toggle;
+                var b = a.Clone(); b.Events[0].Code = b.Events[1].Code = 0x69;
+                MacroPlayer.Play(a, 0); MacroPlayer.Play(b, 1);
+                System.Threading.Thread.Sleep(200);
+                if (!MacroPlayer.IsPlayingKey(0) || !MacroPlayer.IsPlayingKey(1)) throw new InvalidOperationException("второй макрос остановил первый");
+                MacroPlayer.Play(a, 0);                       // the same button again = stop only this one
+                System.Threading.Thread.Sleep(100);
+                if (MacroPlayer.IsPlayingKey(0) || !MacroPlayer.IsPlayingKey(1)) throw new InvalidOperationException("кнопка 1 не остановила свой макрос / остановила чужой");
+                MacroPlayer.Stop("отпускание");               // releasing the hold code does not stop a looped macro
+                if (!MacroPlayer.IsPlayingKey(1)) throw new InvalidOperationException("отпускание кода удержания остановило зацикленный макрос");
+                MacroPlayer.StopAll(1000);
+                if (MacroPlayer.IsPlaying) throw new InvalidOperationException("StopAll не остановил всё");
+            });
+            // 1.3.0: lighting for Normal (the app rewrites the one lighting block on a mode change); blue indicator = experimental flag
+            Step($"{th}: 1.3.0 подсветка Normal/Game и индикатор", () =>
+            {
+                Render(w, 1);
+                var t = AllText(w);
+                foreach (var must in new[] { "Подсветка в режиме Normal", "Как в Game (одна подсветка)", "одна подсветка на оба режима", "Синий индикатор между Tab и 9" })
+                    if (!t.Contains(must)) throw new InvalidOperationException($"на странице подсветки нет «{must}»");
+                if (th == "light") Shot(w, Path.Combine(folder, "mode-lighting.png"));
+                int mode = w.Cfg.Led.Mode;
+                w.SetNormalLighting(ModeLighting.Off);
+                if (!w.ModeLightingOn) throw new InvalidOperationException("настройка не включилась");
+                w.DemoHwMode(HwMode.Normal);
+                if (w.KeypadTarget.Led.Mode != 0) throw new InvalidOperationException("в Normal цель записи не «выключена»");
+                w.DemoHwMode(HwMode.Game);
+                if (w.KeypadTarget.Led.Mode != mode) throw new InvalidOperationException("в Game цель записи — не подсветка профиля");
+                Render(w, 1);
+                if (!AllText(w).Contains("в Normal — выбранная здесь")) throw new InvalidOperationException("нет пояснения про Normal/Game");
+                w.SetNormalLighting("");
+                w.DemoHwMode(HwMode.Normal);
+                if (w.KeypadTarget.Led.Mode != mode) throw new InvalidOperationException("без настройки Normal должен быть как Game");
+                w.DemoHwMode(null);
+                if (!AllText(w.MainMenu()).Contains("Синий индикатор режима")) throw new InvalidOperationException("в меню нет «Синий индикатор режима»");
+                var d = w.IndicatorDialog(0x91, true, out var ans);
+                var dt = AllText(d);
+                foreach (var must in new[] { "ВКЛЮЧЁН", "0x000F", "MODE_LED_EN", "НЕ ПРОВЕРЕНО", "яркость у него не настраивается", "0x0000–0x0007", "Выключить индикатор" })
+                    if (!dt.Contains(must)) throw new InvalidOperationException($"в окне индикатора нет «{must}»");
+                if (ans() == MessageBoxResult.Yes) throw new InvalidOperationException("окно индикатора без нажатия не должно ничего записывать");
+                Dialog(d);
+                if (th == "light") ShotWindow(w.IndicatorDialog(0x91, true, out _), Path.Combine(folder, "indicator-dialog.png"));
+            });
             // 1.0.3: lighting on auto-switch — setting in the profiles ⋯ menu (on by default), auto switch offline gives an honest note
             Step($"{th}: 1.0.3 подсветка при автопереключении", () =>
             {
@@ -783,6 +874,19 @@ public static class SmokeTest
                 if (d is T t) yield return t;
                 foreach (var x in Find<T>(d)) yield return x;
             }
+    }
+
+    /// <summary>1.3.0: the main window as PNG (×1.5, like the README screenshots).</summary>
+    private static void Shot(MainWindow w, string path)
+    {
+        Pump(); w.UpdateLayout();
+        var root = (FrameworkElement)VisualTreeHelper.GetChild(w, 0);
+        const double sc = 1.5;
+        var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(root.ActualWidth * sc), (int)Math.Ceiling(root.ActualHeight * sc), 96 * sc, 96 * sc, PixelFormats.Pbgra32);
+        rtb.Render(root);
+        var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+        using var fs = File.Create(path); enc.Save(fs);
     }
 
     /// <summary>1.2.0: shows a window off-screen, saves it as PNG (×1.5, like the README screenshots), closes it.</summary>

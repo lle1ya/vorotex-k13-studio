@@ -267,7 +267,7 @@ public sealed class HostMapper : IDisposable
             foreach (var o in outs) Do(o, null);
             _routedDown.Clear();
         }
-        Post(() => MacroPlayer.Stop("клавиатура отключена"));
+        Post(() => { MacroPlayer.StopEverything("клавиатура отключена"); PointerDriver.Stop("клавиатура отключена"); });
         Diag("клавиатура отключена — удержания сброшены");
     }
 
@@ -328,7 +328,8 @@ public sealed class HostMapper : IDisposable
                 var m = l.Cfg.Macros[o.Slot].Clone(); bool held = o.Kind == PcOutKind.StartMacroHeld;
                 if (o.Kind == PcOutKind.StartMacroLoop) m.RepeatMode = MacroRepeatMode.Toggle; // v5.9.4: second press stops (MacroPlayer.Play)
                 // v5.9.7: start / heartbeat / stop all go through the same ordered worker (was: UI thread — a busy UI could delay the stop)
-                Post(() => { if (held) MacroPlayer.PlayWhileHeld(m); else MacroPlayer.Play(m); });
+                int slotKey = o.Slot;
+                Post(() => { if (held) MacroPlayer.PlayWhileHeld(m); else MacroPlayer.Play(m, slotKey); });
                 break;
             case PcOutKind.StopMacro: Post(() => MacroPlayer.Stop("отпускание")); break;
             case PcOutKind.Alive: Post(MacroPlayer.KeepAlive); break;
@@ -504,6 +505,8 @@ public sealed class HostMapper : IDisposable
     public void Execute(HostAction a, string why)
     {
         if (a.Kind == HostActionKind.None) return;
+        // 1.3.0: any other action of the keypad stops a running «старт/стоп» scroll or cursor
+        if (a.Kind is not (HostActionKind.Scroll or HostActionKind.MouseMove)) PointerDriver.Stop("нажата другая кнопка с действием");
         try
         {
             Log?.Invoke($"{why}: {a}");
@@ -521,8 +524,11 @@ public sealed class HostMapper : IDisposable
                     Process.Start(new ProcessStartInfo(a.Value) { UseShellExecute = true })?.Dispose(); break;
                 case HostActionKind.SwitchProfile: SwitchProfileRequested?.Invoke(a.Value); break;
                 case HostActionKind.Ring: Ring?.TriggerDown(_settings.Ring); Ring?.TriggerUp(0); break;
+                case HostActionKind.Scroll or HostActionKind.MouseMove:
+                    if (PointerSpec.From(a) is { } ps) PointerDriver.Tap(ps, Log);
+                    break;
                 case HostActionKind.PlayMacro:
-                    if (int.TryParse(a.Value, out int slot) && MacroProvider?.Invoke(slot) is { IsUsed: true } m) MacroPlayer.Play(m);
+                    if (int.TryParse(a.Value, out int slot) && MacroProvider?.Invoke(slot) is { IsUsed: true } m) MacroPlayer.Play(m, slot);
                     break;
             }
         }
@@ -544,34 +550,47 @@ public interface IRingHost
     void OnKey(ushort vk, bool down);
 }
 
-/// <summary>Replays a keypad macro on the PC with SendInput (keys + mouse buttons + wheel).</summary>
+/// <summary>Replays a keypad macro on the PC with SendInput (keys + mouse buttons + wheel).
+/// 1.3.0: every button (macro slot) has its own playback — two looped macros from different buttons run at the same time and
+/// each stops with its own button. Only «пока зажата» (the one hold code) stays a single play.</summary>
 public static class MacroPlayer
 {
-    private static System.Threading.CancellationTokenSource? _playing;
-    private static System.Threading.Tasks.Task? _task;
+    private sealed record Play_(System.Threading.CancellationTokenSource Cts, System.Threading.Tasks.Task Task);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, Play_> _plays = new();
+    /// <summary>Key of the «пока зажата» play (fed by the hold code; one at a time by design).</summary>
+    public const int HeldKey = -100;
+    /// <summary>Key for callers that do not know the slot (one shared play, the old behaviour).</summary>
+    public const int AnyKey = -1;
 
     /// <summary>Plays the macro the full saved number of times (same value as on the keypad); «по кругу» repeats
-    /// until triggered again. Triggering it again while it is still playing stops it.</summary>
-    public static void Play(MacroSlot m)
+    /// until triggered again. Triggering THE SAME button (<paramref name="key"/> = macro slot) again while it plays stops it;
+    /// other buttons start their own macros alongside (1.3.0).</summary>
+    public static void Play(MacroSlot m, int key = AnyKey)
     {
-        var prev = System.Threading.Interlocked.Exchange(ref _playing, null);
-        if (prev != null) { prev.Cancel(); return; }
+        if (_plays.TryRemove(key, out var prev)) { Cancel(prev.Cts); App.Log($"[macro] слот {key + 1}: повторное нажатие — стоп."); return; }
         if (m.Events.Count == 0) return;
         var cts = new System.Threading.CancellationTokenSource();
-        _playing = cts;
         var events = m.Events.Select(e => e.Clone()).ToList();
         int passes = MacroSequencer.Passes(m.RepeatMode, m.Repeat);
-        _task = System.Threading.Tasks.Task.Run(() =>
+        var gate = new System.Threading.ManualResetEventSlim(false);
+        var task = new System.Threading.Tasks.Task(() =>
         {
-            try { MacroSequencer.Run(events, passes, Send, cts.Token); }
+            try { gate.Wait(); MacroSequencer.Run(events, passes, Send, cts.Token); }
             catch (Exception ex) { App.Log("Макрос: " + ex.Message); }
             finally
             {
-                System.Threading.Interlocked.CompareExchange(ref _playing, null, cts);
+                if (_plays.TryGetValue(key, out var cur) && cur.Cts == cts) _plays.TryRemove(new KeyValuePair<int, Play_>(key, cur));
                 cts.Dispose();
             }
         });
+        _plays[key] = new Play_(cts, task);
+        if (passes == int.MaxValue && _plays.Count > 1) App.Log($"[macro] слот {key + 1} по кругу; одновременно играют: {string.Join(", ", _plays.Keys.Select(Name))}.");
+        task.Start(); gate.Set();
     }
+
+    private static string Name(int key) => key == HeldKey ? "«пока зажата»" : key == AnyKey ? "без слота" : $"слот {key + 1}";
+
+    private static void Cancel(System.Threading.CancellationTokenSource c) { try { c.Cancel(); } catch (ObjectDisposedException) { } }
 
     /// <summary>v5.9.7 safety stop: a «пока зажата» play fed by keypad taps (<see cref="KeepAlive"/>) stops by itself when no
     /// tap came for this long — even if the release was never detected (lost timer, router state, anything).</summary>
@@ -583,28 +602,27 @@ public static class MacroPlayer
     /// <summary>v5.6: «пока зажата» through the PC — plays in a loop until <see cref="Stop"/> (key released).</summary>
     public static void PlayWhileHeld(MacroSlot m)
     {
-        var prev = System.Threading.Interlocked.Exchange(ref _playing, null);
-        try { prev?.Cancel(); } catch (ObjectDisposedException) { }
+        if (_plays.TryRemove(HeldKey, out var prev)) Cancel(prev.Cts);
         System.Threading.Interlocked.Exchange(ref _lastAlive, 0); _stopReason = null; _stopAsked = 0;
         if (m.Events.Count == 0) return;
         var cts = new System.Threading.CancellationTokenSource();
-        _playing = cts;
         var events = m.Events.Select(e => e.Clone()).ToList();
         long started = Environment.TickCount64;
         var watch = new System.Threading.Timer(_ =>
         {
             long last = System.Threading.Interlocked.Read(ref _lastAlive);
             if (last == 0 || Environment.TickCount64 - last <= WatchdogMs) return;
-            if (System.Threading.Interlocked.CompareExchange(ref _playing, null, cts) == cts)
+            if (_plays.TryGetValue(HeldKey, out var cur) && cur.Cts == cts && _plays.TryRemove(new KeyValuePair<int, Play_>(HeldKey, cur)))
             {
                 _stopReason = $"страховка: {Environment.TickCount64 - last} мс нет сигналов от K13"; _stopAsked = Environment.TickCount64;
-                try { cts.Cancel(); } catch (ObjectDisposedException) { }
+                Cancel(cts);
             }
         }, null, 50, 50);
-        _task = System.Threading.Tasks.Task.Run(() =>
+        var gate = new System.Threading.ManualResetEventSlim(false);
+        var task = new System.Threading.Tasks.Task(() =>
         {
             int passes = 0;
-            try { passes = MacroSequencer.Run(events, int.MaxValue, Send, cts.Token); }
+            try { gate.Wait(); passes = MacroSequencer.Run(events, int.MaxValue, Send, cts.Token); }
             catch (Exception ex) { App.Log("Макрос: " + ex.Message); }
             finally
             {
@@ -613,34 +631,49 @@ public static class MacroPlayer
                 if (last != 0)
                     App.Log($"[hold] макрос «пока зажата» остановлен ({_stopReason ?? "?"}): играл {now - started} мс, проходов {passes}; " +
                             $"после последнего сигнала K13 {now - last} мс, после команды остановки {(_stopAsked > 0 ? now - _stopAsked : -1)} мс");
-                System.Threading.Interlocked.CompareExchange(ref _playing, null, cts); cts.Dispose();
+                if (_plays.TryGetValue(HeldKey, out var cur) && cur.Cts == cts) _plays.TryRemove(new KeyValuePair<int, Play_>(HeldKey, cur));
+                cts.Dispose();
             }
         });
+        _plays[HeldKey] = new Play_(cts, task);
+        task.Start(); gate.Set();
     }
 
-    public static bool IsPlaying => System.Threading.Volatile.Read(ref _playing) != null;
+    public static bool IsPlaying => !_plays.IsEmpty;
+    public static bool IsHeldPlaying => _plays.ContainsKey(HeldKey);
+    public static int PlayingCount => _plays.Count;
+    public static bool IsPlayingKey(int key) => _plays.ContainsKey(key);
 
     /// <summary>v5.9.7: a keypad tap of the held key arrived — keeps the current «пока зажата» play alive (arms its watchdog).</summary>
     public static void KeepAlive()
     {
-        if (System.Threading.Volatile.Read(ref _playing) != null) System.Threading.Interlocked.Exchange(ref _lastAlive, Environment.TickCount64);
+        if (_plays.ContainsKey(HeldKey)) System.Threading.Interlocked.Exchange(ref _lastAlive, Environment.TickCount64);
     }
 
-    /// <summary>Stops a playing macro without waiting (its held keys are released by the sequencer).</summary>
+    /// <summary>Stops the «пока зажата» play (the hold code was released) without waiting; its held keys are released by the sequencer.
+    /// 1.3.0: looped macros of other buttons keep playing.</summary>
     public static void Stop(string? reason = null)
     {
-        var prev = System.Threading.Interlocked.Exchange(ref _playing, null);
-        if (prev != null && reason != null) { _stopReason = reason; _stopAsked = Environment.TickCount64; }
-        try { prev?.Cancel(); } catch (ObjectDisposedException) { }
+        if (!_plays.TryRemove(HeldKey, out var prev)) return;
+        if (reason != null) { _stopReason = reason; _stopAsked = Environment.TickCount64; }
+        Cancel(prev.Cts);
     }
 
-    /// <summary>v5.3: stops a playing macro and waits (briefly) until its held keys are released — called on exit,
-    /// otherwise a key pressed by the macro could stay down after the app is gone.</summary>
+    /// <summary>1.3.0: stops every playing macro without waiting (keypad unplugged, PC actions switched off).</summary>
+    public static void StopEverything(string reason)
+    {
+        foreach (var k in _plays.Keys.ToList())
+            if (_plays.TryRemove(k, out var p)) { if (k == HeldKey) { _stopReason = reason; _stopAsked = Environment.TickCount64; } Cancel(p.Cts); }
+    }
+
+    /// <summary>v5.3: stops all playing macros and waits (briefly) until their held keys are released — called on exit,
+    /// otherwise a key pressed by a macro could stay down after the app is gone.</summary>
     public static void StopAll(int waitMs = 1500)
     {
-        var prev = System.Threading.Interlocked.Exchange(ref _playing, null);
-        try { prev?.Cancel(); } catch (ObjectDisposedException) { }
-        try { _task?.Wait(waitMs); } catch (AggregateException) { }
+        var all = _plays.Values.ToList();
+        _plays.Clear();
+        foreach (var p in all) Cancel(p.Cts);
+        try { System.Threading.Tasks.Task.WaitAll(all.Select(p => p.Task).ToArray(), waitMs); } catch (AggregateException) { } catch (ObjectDisposedException) { }
     }
 
     private static int _sendFailLogged;

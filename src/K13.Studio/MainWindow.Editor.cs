@@ -65,7 +65,7 @@ public partial class MainWindow
         RefreshLayout();
     }
 
-    private void ResetPending() { _captureKey = _captureCombo = false; _pendingCode = null; _pendingCombo = null; _pendingHost = null; _captureText = null; }
+    private void ResetPending() { _captureKey = _captureCombo = false; _pendingCode = null; _pendingCombo = null; _pendingHost = null; _captureText = null; _ptPending = null; }
 
     private void LayoutBackground_Click(object sender, MouseButtonEventArgs e)
     {
@@ -297,6 +297,7 @@ public partial class MainWindow
             return Labels.ComboOf(m) != null ? "combo" : "macro";
         }
         if (code is >= 0x68 and <= 0x73 && host.Keys.Any(k => k.TriggerVk == 0x7C + (code - 0x68) && k.Tap.Kind == HostActionKind.Ring)) return "ring";
+        if (code is >= 0x68 and <= 0x73 && host.Keys.Any(k => k.TriggerVk == 0x7C + (code - 0x68) && k.Tap.Kind is HostActionKind.Scroll or HostActionKind.MouseMove)) return "pointer";
         if (code is >= 0x68 and <= 0x73 && host.Keys.Any(k => k.TriggerVk == 0x7C + (code - 0x68) && k.Tap.Kind != HostActionKind.None)) return "app";
         return KeyCatalog.Get(code).Category switch
         {
@@ -315,6 +316,7 @@ public partial class MainWindow
         ("app",   "\uE8A7", "Запустить программу или сайт", "Открыть программу, сайт или вставить текст"),
         ("ring",  "\uE71D", "Кольцо действий",              "Круговое меню у курсора: копировать, скриншот, плеер…"),
         ("mouse", "\uE962", "Кнопка мыши",                  "Щелчок левой/правой/средней или автокликер"),
+        ("pointer", "\uE8AB", "Прокрутка и курсор",          "Прокрутка влево/вправо (Excel), движение курсора — через ПК"),
         ("macro", "\uE768", "Макрос",                       "Несколько нажатий подряд одной кнопкой"),
         ("light", "\uE706", "Управление подсветкой",        "Сменить эффект, цвет или яркость"),
         ("off",   "\uE711", "Отключить",                    "Кнопка не будет ничего делать"),
@@ -424,6 +426,7 @@ public partial class MainWindow
             case "app": done = AppEditor(code); break;
             case "macro": done = MacroPicker(code); break;
             case "mouse": done = MouseEditor(code); break;
+            case "pointer": done = PointerEditor(code); break;
             case "diag":
                 EditorHost.Children.Add(T("Нажатие двух направлений сразу (например ↑ и →) будет работать как отдельная кнопка-диагональ. " +
                                           "По умолчанию диагонали — Home, PgUp, End, PgDn; их можно поменять в «⋯ → Действия на компьютере».", 13, bottom: 8));

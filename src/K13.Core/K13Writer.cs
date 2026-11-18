@@ -40,7 +40,7 @@ public static class K13Writer
 
     public static K13WriteResult WriteProfile(K13Device dev, K13DeviceConfig cfg, Action<string> log,
         IProgress<(string Stage, double Fraction)>? progress = null, bool programmingMode = false, string? backupFolder = null,
-        byte[]? cachedImage = null, string? acceptedHeader = null)
+        byte[]? cachedImage = null, string? acceptedHeader = null, bool keepModeFlags = false)
     {
         var sw = Stopwatch.StartNew();
         var times = new List<string>();
@@ -118,6 +118,11 @@ public static class K13Writer
         }
 
         // ---- 2. plan and write
+        if (keepModeFlags && cfg.Base < before.Length && cfg.Led.Flags != before[cfg.Base])
+        {   // 1.3.0: lighting for Normal/Game — BASE+0 (bit 7 = mode) is written back as read, the write never asks for another mode
+            log($"Флаги BASE+0 оставляю как в клавиатуре: {before[cfg.Base]:X2} (смена подсветки по режиму).");
+            cfg = cfg.Clone(); cfg.Led.Flags = before[cfg.Base];
+        }
         cfg = K13Mode.PrepareTarget(cfg, before, log); // v5.7.5 tilts never FF; v5.8 KEYSMODE bit = Game, device bits 5–4 kept
         var target = K13MemoryCodec.Encode(cfg, before, out var plan);
         var diff = K13Protocol.DiffPlan(plan, before);
