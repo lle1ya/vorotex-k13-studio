@@ -44,6 +44,7 @@ public partial class MainWindow
         if (!ModeLightingOn || _offline || !_connected) return false;
         if (_busy) { _modeLedTimer?.Start(); return false; }
         if (!_store.Data.WriteConfirmed) { Log("[mode-led] запись в клавиатуру ещё не подтверждена (первое «Записать») — подсветку по режиму не меняю."); return false; }
+        if (FactoryBlocksQuiet()) return false;   // 1.3.1
         if (LightingTarget() is not { } t) { App.Log("[mode-led] подсветка в клавиатуре уже нужная — не пишу."); return false; }
         long now = Environment.TickCount64;
         if (!_modeLedGate.CanWrite(now))

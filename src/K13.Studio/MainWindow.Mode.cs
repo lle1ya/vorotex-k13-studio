@@ -59,6 +59,8 @@ public partial class MainWindow
             var was = _hwMode;
             _hwMode = m;
             OnHwModeChanged(was, m);   // 1.3.0: lighting for Normal / Game
+            TesterModeText();          // 1.3.1: the open «Проверка кнопок» follows the mode at once
+            if ((_tester != null || _testerForce) && _testerMode != null && was != HwMode.Unknown) TesterLine($"Режим: {K13Mode.Name(was)} → {K13Mode.Name(m)}");
             RefreshModeLightPanel();
             if (m != HwMode.Game) _selfGame = false;
             if (m == HwMode.Game) ClearKeypadWarnings("режим Game");
@@ -71,12 +73,12 @@ public partial class MainWindow
     private async Task PollHwMode()
     {
         if (_bisecting) return;
-        if (ModeLightingOn) { await RefreshHwMode("опрос"); return; }
+        if (ModeLightingOn || _tester != null) { await RefreshHwMode("опрос"); return; }   // 1.3.1: also while «Проверка кнопок» is open
         if (++_modeTick % 3 != 0 || !IsVisible || WindowState == WindowState.Minimized) return;
         await RefreshHwMode("опрос");
     }
 
-    private string ModeSuffix() => !_connected ? "" : _hwMode switch
+    private string ModeSuffix() => !_connected ? "" : (FactoryOnKeypad ? " · " + FactoryStateText.Replace("На клавиатуре", "на клавиатуре") : "") + _hwMode switch
     {
         HwMode.Game => _selfGame ? " · режим Game (ваши назначения, запомнен клавиатурой)" : " · режим Game (ваши назначения)",
         HwMode.Normal => " · режим Normal (заводские клавиши)",

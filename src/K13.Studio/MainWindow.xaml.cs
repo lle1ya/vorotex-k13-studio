@@ -232,6 +232,7 @@ public partial class MainWindow : Window
             bool capHit = auto && apply && _autoLed.CapReached(DateTime.Now);
             string note = ProfileSwitchLighting.Note(ledOnly, ledDiff, apply, _store.Data.WriteConfirmed, source, Layer.Active, !autoOn ? AutoLed.Off : capHit ? AutoLed.Cap : AutoLed.On);
             StatusText.Text = (auto ? $"Профиль «{p.Name}» — {_activeWhy}." : $"Профиль «{p.Name}» ({reason}).") + (note.Length > 0 ? " " + note : "");
+            if (FactoryLock) StatusText.Text = $"Профиль «{p.Name}» выбран на ПК. {FactoryStateText} — профиль в неё не записан; записать — «Применить профиль».";
             bool toasted = MaybeToast(p, source, changed);
             if (!IsVisible && !auto && !toasted) _tray?.Balloon("Профиль: " + p.Name, "Действия на ПК переключены.");
         }
@@ -258,7 +259,7 @@ public partial class MainWindow : Window
     private bool LightingOnlyPending() => ProfileSwitchLighting.LightingOnlyPending(KeypadTarget, _deviceImage);
     /// <summary>1.1.1: the keypad image with only the profile's lighting (null = nothing to apply live).</summary>
     /// 1.3.0: in Normal with «Подсветка в режиме Normal» set — that lighting (<see cref="KeypadTarget"/>).
-    private K13DeviceConfig? LightingTarget() { var kt = KeypadTarget; return ProfileSwitchLighting.LightingDiffers(kt, _deviceImage) ? ProfileSwitchLighting.LightingPart(kt, _deviceImage) : null; }
+    private K13DeviceConfig? LightingTarget() { if (FactoryLock) return null; var kt = KeypadTarget; return ProfileSwitchLighting.LightingDiffers(kt, _deviceImage) ? ProfileSwitchLighting.LightingPart(kt, _deviceImage) : null; }
     private bool LightingPending() => LightingTarget() != null;
 
     private string OtherPendingNames()
@@ -689,6 +690,7 @@ public partial class MainWindow : Window
         else if (!present && _connected)
         {
             _connected = false; _devicePath = null; _imageFresh = false; _hwMode = HwMode.Unknown; _selfGame = false;
+            TesterModeText();   // 1.3.1
             _modelNoted = KeypadModel.NotRead;
             Log("Клавиатура отключена.");
             _autoLed.Cancel(); _autoLedTimer?.Stop();
@@ -898,6 +900,8 @@ public partial class MainWindow : Window
     {
         if (_busy || _offline || !_connected) return false;
         if (quiet && !_store.Data.WriteConfirmed) return false;
+        if (quiet && FactoryBlocksQuiet()) return false;   // 1.3.1: factory state — nothing automatic
+        if (!quiet && target == null && FactoryLock && !ConfirmApplyOverFactory()) { Log("[factory] «Применить профиль» отменено."); return false; }
         if (_modelNoted is KeypadModel.K12Likely or KeypadModel.Unknown)
         {   // 1.2.0: never write a keypad that is not a K13 (the writer checks it on the keypad too)
             if (!quiet) MessageBox.Show(this, K13Model.Refusal(_modelNoted), Title, MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1050,6 +1054,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { tip = "Ошибка в профиле: " + FriendlyError.Text(ex); fill = (Brush)FindResource("ErrBrush"); }
         SyncDot.Fill = fill;
+        SyncFactoryFlag(); RefreshWriteBtnText();
+        if (FactoryLock) tip = $"{FactoryStateText}. Профиль «{_profile.Name}» на ПК, в клавиатуру не записан — «Применить профиль» запишет его (с резервной копией и проверкой).";
         RefreshModeBanner();
         WriteBtn.ToolTip = "Записать настройки профиля в клавиатуру.\nПеред записью сохраняется резервная копия, после — проверка чтением; при ошибке всё возвращается как было.\n\n" + tip;
         WriteBtn.IsEnabled = !_offline && _connected && !_busy && (dirty || _deviceImage == null);

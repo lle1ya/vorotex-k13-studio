@@ -9,6 +9,7 @@ namespace Vorotex.Studio;
 /// read-back, automatic restore on mismatch). Lighting and the service area are not touched. PROTOCOL §41.</summary>
 public partial class MainWindow
 {
+    /// <summary>1.2.0 created a profile with this name after the reset; 1.3.1 no longer does (existing ones stay — user data).</summary>
     internal const string FactoryProfileName = "Заводские назначения";
 
     internal string FactoryDialogText(K13FactoryAssignments.Plan plan) =>
@@ -49,20 +50,20 @@ public partial class MainWindow
         bool ok = await WriteDevice(target: plan.Target);
         if (!ok) { Log("[factory] запись не выполнена — профили не изменены."); return false; }
         if (Layer.Active) { _store.Data.PcLayer = new PcLayerState(); Log("[factory] «Кнопки по профилю (через ПК)» выключены."); }
-        AddFactoryProfile(plan.Target);
-        StatusText.Text = "Заводские назначения записаны и проверены. Создан профиль «" + _profile.Name + "»; остальные профили не изменены.";
+        AfterFactoryWrite();
         return true;
     }
 
-    /// <summary>The PC side after a successful write: a new active profile equal to what the keypad now holds.</summary>
-    internal string AddFactoryProfile(K13DeviceConfig target)
+    /// <summary>1.3.1: no separate profile any more (1.2.0 created «Заводские назначения»; existing ones are left alone). The keypad
+    /// shows the factory state, the PC profiles stay as they are and are written only by «Применить профиль».</summary>
+    internal void AfterFactoryWrite()
     {
-        var name = _store.UniqueName(FactoryProfileName);
-        _store.Data.Profiles.Add(new AppProfile { Name = name, Device = target.Clone() });
+        _store.Data.KeypadFactory = true; _factoryAutoLogged = _factoryQuietLogged = false;
+        _autoLedTimer?.Stop(); _ledTimer?.Stop(); _modeLedTimer?.Stop();
         SaveStore();
-        ActivateProfile(name, "заводские назначения");
-        PushMapper(); RefreshAll(); RefreshDirty();
-        return name;
+        PushMapper(); RefreshAll(); RefreshDirty(); UpdateConn();
+        Log($"[factory] {FactoryStateText}. Профиль «{_profile.Name}» и остальные профили не изменены и в клавиатуру не пишутся до «Применить профиль».");
+        StatusText.Text = $"Заводские назначения записаны и проверены. {FactoryStateText}. Профиль «{_profile.Name}» остался на ПК — чтобы записать его, нажмите «Применить профиль».";
     }
 
     // ───────────────────────────── 1.2.0: which keypad is connected (K13 / K12 share VID/PID)

@@ -35,7 +35,7 @@
                 ToolTipService.ShowOnDisabled="True">
           <StackPanel Orientation="Horizontal">
             <TextBlock Text="&#xE898;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" VerticalAlignment="Center" Margin="0,0,8,0"/>
-            <TextBlock Text="Записать"/>
+            <TextBlock x:Name="WriteBtnText" Text="Записать"/>
             <Ellipse x:Name="SyncDot" Width="8" Height="8" Fill="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="10,1,0,0" Stroke="White" StrokeThickness="1"/>
           </StackPanel>
         </Button>

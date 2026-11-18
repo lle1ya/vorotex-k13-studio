@@ -253,6 +253,9 @@ public sealed class ProfileStoreData
     /// <summary>1.3.0: lighting while the keypad is in Normal ("" = the same as Game, i.e. the active profile; <see cref="ModeLighting.Off"/>;
     /// otherwise the name of the profile whose lighting is used). Applied by the running app when it sees the mode change.</summary>
     public string NormalLighting { get; set; } = "";
+    /// <summary>1.3.1: the keypad holds the factory assignments (after «Вернуть заводские назначения» or as last seen in its memory).
+    /// Used only while no keypad image is known; with an image the state is taken from the image itself.</summary>
+    public bool KeypadFactory { get; set; }
     /// <summary>v5.4: profile used when the active program matches no rule ("" = keep the current profile).</summary>
     public string FallbackProfile { get; set; } = "";
     /// <summary>v5.5: small on-screen notice when the profile changes by itself (program switch or keypad key).</summary>

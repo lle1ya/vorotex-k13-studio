@@ -228,6 +228,9 @@ public partial class MainWindow
         var kp = KeypadCfg;
         if (_connected && _modelNoted is KeypadModel.K12Likely or KeypadModel.Unknown)   // 1.2.0
             return Banner(true, K13Model.Banner(_modelNoted), "Проверка кнопок", () => { ShowTester(); return Task.CompletedTask; });
+        if (FactoryLock)   // 1.3.1
+            return Banner(true, FactoryBannerText() + (_connected ? "" : " (по последнему известному состоянию клавиатуры)"),
+                _connected && !_offline ? "Применить профиль…" : null, _connected && !_offline ? async () => await WriteDevice() : null);
         if (Layer.Active)
         {
             if (Layer.Legacy)

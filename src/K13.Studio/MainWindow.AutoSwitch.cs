@@ -28,6 +28,7 @@ public partial class MainWindow
             if (_activeWhy != d.Reason) { _activeWhy = d.Reason; BuildAutoSwitchCard(); }
             return;
         }
+        if (FactoryBlocksAuto(d.Profile)) return;   // 1.3.1: factory state — auto-switching suspended until «Применить профиль»
         App.Log($"[auto] {proc} «{Trim(title, 60)}» → {d.Profile} ({d.Reason})");
         _autoFallback = d.IsFallback;
         ActivateProfile(d.Profile, "авто", d.Reason, auto: true);

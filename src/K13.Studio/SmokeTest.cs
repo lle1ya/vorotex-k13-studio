@@ -598,15 +598,11 @@ public static class SmokeTest
             {
                 var plan = K13FactoryAssignments.Build(K13MemoryCodec.Decode(MainWindow.DefaultImage), MainWindow.DefaultImage);
                 var txt = w.FactoryDialogText(plan);
-                foreach (var must in new[] { "сброс до заводских", "Не меняется", "Подсветка", "резервную копию", "проверкой чтением", "Заводские назначения" })
+                foreach (var must in new[] { "сброс до заводских", "Не меняется", "Подсветка", "резервную копию", "проверкой чтением", "Применить профиль" })
                     if (!txt.Contains(must)) throw new InvalidOperationException($"в окне заводских назначений нет «{must}»");
                 var d = w.BuildFactoryDialog(out var ans);
                 if (ans() == MessageBoxResult.Yes) throw new InvalidOperationException("без нажатия окно не должно ничего записывать");
                 Dialog(d);
-                string prev = w.DemoActiveProfile;
-                string name = w.AddFactoryProfile(plan.Target);
-                if (w.DemoActiveProfile != name || w.KeyAt(0) != 0x59 || w.KeyAt(16) != 0xF4) throw new InvalidOperationException("профиль «Заводские назначения» не такой");
-                w.DemoActivate(prev); w.DemoRemoveProfile(name);
                 var k12 = (byte[])MainWindow.DefaultImage.Clone();
                 for (int c = 0; c < 18; c++) k12[0x20 + c * 8] = c < K13Model.K12FactoryRow.Length ? K13Model.K12FactoryRow[c] : (byte)0xFF;
                 w.DemoModel(k12, connected: true);
@@ -615,6 +611,58 @@ public static class SmokeTest
                 w.DemoModel(MainWindow.DefaultImage, connected: true);
                 if (w.DemoModelNoted != KeypadModel.K13 || w.ModeBannerText.Contains("K12")) throw new InvalidOperationException("K13 не распознана");
                 w.DemoModel(null, connected: false);
+            });
+            // 1.3.1: after «Вернуть заводские назначения» — no new profile; «На клавиатуре — заводские назначения» until «Применить профиль»;
+            // nothing automatic is written and auto-switching waits
+            Step($"{th}: 1.3.1 заводское состояние", () =>
+            {
+                int profilesBefore = w.ProfileNames.Count();
+                string prev = w.DemoActiveProfile;
+                var plan = K13FactoryAssignments.Build(K13MemoryCodec.Decode(MainWindow.DefaultImage), MainWindow.DefaultImage);
+                var fimg = K13MemoryCodec.Encode(plan.Target, MainWindow.DefaultImage);
+                if (!K13FactoryAssignments.IsFactoryImage(fimg)) throw new InvalidOperationException("заводской образ не распознан");
+                bool wasLayer = w.LayerState.Active; w.DemoPcLayer(false);
+                byte k0 = w.KeyAt(0);
+                if (w.KeyAt(0) == K13Layout.FactoryColumnCodes[0]) w.DemoSetKey(0, 0x04);   // make sure the active profile differs from factory
+                w.DemoModel(fimg, connected: true); w.DemoKeypadImage(fimg); w.AfterFactoryWrite(); Render(w, 0);
+                if (w.ProfileNames.Count() != profilesBefore || w.DemoActiveProfile != prev) throw new InvalidOperationException("после заводских назначений создан/выбран другой профиль");
+                if (!w.FactoryOnKeypad || !w.FactoryLock) throw new InvalidOperationException("заводское состояние не распознано");
+                if (!w.ModeBannerText.Contains("На клавиатуре — заводские назначения") || !w.ModeBannerText.Contains("Применить профиль")) throw new InvalidOperationException("нет плашки заводского состояния: " + w.ModeBannerText);
+                if (w.WriteButtonText != "Применить профиль") throw new InvalidOperationException("кнопка записи не «Применить профиль»: " + w.WriteButtonText);
+                if (w.DemoLightingPending) throw new InvalidOperationException("в заводском состоянии запланирована запись подсветки");
+                if (!w.ApplyOverFactoryText().Contains("Сейчас на клавиатуре заводские назначения")) throw new InvalidOperationException("нет подтверждения «Применить профиль»");
+                var dlg = w.BuildApplyOverFactory(out var ans);
+                if (ans() == MessageBoxResult.Yes) throw new InvalidOperationException("без нажатия «Применить профиль» не должно ничего записывать");
+                Dialog(dlg);
+                if (th == "light") Shot(w, Path.Combine(folder, "factory-state.png"));
+                var other = w.ProfileNames.FirstOrDefault(n => n != prev);
+                if (other != null)
+                {
+                    w.DemoAutoDecided(other);
+                    if (w.DemoActiveProfile != prev) throw new InvalidOperationException("автопереключение сработало в заводском состоянии");
+                    w.DemoActivate(other);   // manual choice: PC side only
+                    if (w.DemoActiveProfile != other || w.DemoLightingPending) throw new InvalidOperationException("ручной выбор профиля в заводском состоянии пишет в клавиатуру");
+                    w.DemoActivate(prev);
+                }
+                // a profile with the factory assignments itself is simply «in sync» — no lock
+                w.DemoKeypadImage(K13MemoryCodec.Encode(w.DemoTarget, MainWindow.DefaultImage));   // keypad now holds the profile («Применить профиль» done)
+                if (w.FactoryOnKeypad || w.FactoryLock || w.WriteButtonText != "Записать" || w.ModeBannerText.Contains("заводские назначения")) throw new InvalidOperationException("после записи профиля заводское состояние не снялось");
+                w.DemoSetKey(0, k0);
+                w.DemoModel(null, connected: false); w.DemoKeypadImage(null); w.DemoFactoryFlag(false);
+                w.DemoPcLayer(wasLayer);
+            });
+            // 1.3.1: «Проверка кнопок» follows Normal/Game at once (stick press switches the mode while the window is open)
+            Step($"{th}: 1.3.1 режим в проверке кнопок", () =>
+            {
+                var tw = w.BuildTesterWindow();
+                w.DemoTester(true);
+                w.DemoHwMode(HwMode.Normal);
+                if (!w.TesterModeLabel.Contains("Normal")) throw new InvalidOperationException("в проверке кнопок не Normal: " + w.TesterModeLabel);
+                w.DemoHwMode(HwMode.Game);
+                if (!w.TesterModeLabel.Contains("Game")) throw new InvalidOperationException("режим в проверке кнопок не обновился: " + w.TesterModeLabel);
+                if (!w.DemoTesterState.Text.Contains("Режим: Normal → Game")) throw new InvalidOperationException("в журнале проверки нет смены режима");
+                w.DemoHwMode(null);
+                w.DemoTester(false); tw.Close();
             });
             // 1.3.0: «Прокрутка и курсор» (horizontal scroll for Excel, cursor) — PC actions, step / start-stop, all four stick tilts at once
             Step($"{th}: 1.3.0 прокрутка и курсор", () =>

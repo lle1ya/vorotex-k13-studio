@@ -134,6 +134,9 @@ public partial class MainWindow
     }
 
     /// <summary>Raw Input key from the keypad (before routing).</summary>
+    private long _testerModeAt;
+    internal string TesterModeLabel => _testerMode?.Text ?? "";
+
     internal void TesterKey(ushort vk, bool down)
     {
         if (_tester == null && !_testerForce) return;
@@ -141,6 +144,7 @@ public partial class MainWindow
         if (_testerLast.Vk == vk && _testerLast.Down == down && now - _testerLast.At < 80 && vk is >= 0xA6 and <= 0xB7) return;   // media key seen twice (keyboard + consumer)
         if (down && _testerDown.ContainsKey(vk)) return;   // auto-repeat
         _testerLast = (vk, down, now);
+        if (down && _tester != null && now - _testerModeAt > 700) { _testerModeAt = now; _ = RefreshHwMode("проверка кнопок"); }   // 1.3.1: mode right after a press
         var routed = RoutedState;
         if (routed.Active && vk == PcLayerPlanner.ChordPrefixVk) { if (down) _scrollLockAt = now; return; }
         List<int> cols;

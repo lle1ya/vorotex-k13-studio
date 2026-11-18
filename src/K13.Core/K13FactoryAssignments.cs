@@ -47,9 +47,27 @@ public static class K13FactoryAssignments
         {
             "Подсветка — заводские значения неизвестны, поэтому она остаётся как есть (её можно поменять на вкладке «Подсветка»)",
             "«Запоминать режим» и служебная область клавиатуры (тип памяти, VID/PID) — не трогаются",
-            "Профили на компьютере, их действия, кольцо и макросы — остаются; создаётся новый профиль «Заводские назначения»",
+            "Профили на компьютере (например «Основной») — остаются на ПК и в клавиатуру не пишутся, пока вы не нажмёте «Применить профиль»",
         };
         return new Plan(t, fromKeypad, resets, keeps, changed);
+    }
+
+    /// <summary>1.3.1: the assignments a factory reset writes are what the keypad holds: keys 0–17 = the factory table, wheel Vol−/Vol+,
+    /// Fn layer off, no macros. Lighting and the other rows do not count (a reset does not touch them).</summary>
+    public static bool IsFactory(K13DeviceConfig c)
+    {
+        var keys = K13Layout.FactoryColumnCodes;
+        for (int col = 0; col < keys.Length; col++) if (c.GetKey(col) != keys[col]) return false;
+        if (c.WheelFirst != 0 || c.WheelSecond != 1) return false;
+        if (c.Fn.Any(b => b != 0xFF)) return false;
+        return c.Macros.All(m => !m.IsUsed);
+    }
+
+    /// <summary>1.3.1: a K13 image (the model check is part of it) that holds the factory assignments.</summary>
+    public static bool IsFactoryImage(byte[]? image)
+    {
+        if (image == null || K13Model.Detect(image) != KeypadModel.K13) return false;
+        try { return IsFactory(K13MemoryCodec.Decode(image)); } catch { return false; }
     }
 
     /// <summary>True when nothing outside the known-factory parts differs between <paramref name="before"/> and the plan's target.</summary>
