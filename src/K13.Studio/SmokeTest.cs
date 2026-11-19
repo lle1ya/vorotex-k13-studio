@@ -706,6 +706,38 @@ public static class SmokeTest
                 if (w.DemoTesterIsK12View || !MainWindow.KeyboardCannotPress(t13)) throw new InvalidOperationException("окно проверки K13: схема/кнопки не те");
                 w.DemoTester(false); t13.Close();
             });
+            // 1.3.4: read-only model check on connect — no cached K13 image and no automatic writes unless the keypad is a K13
+            Step($"{th}: 1.3.4 проверка модели при подключении", () =>
+            {
+                string prev = w.DemoActiveProfile; bool wasLayer = w.LayerState.Active;
+                w.DemoPcLayer(true);
+                w.DemoLightingCopy("Основной", "Свет-134");
+                w.DemoSwitchByUser("Основной");
+                w.DemoModelCheck(KeypadModel.K13);
+                w.DemoKeypadHolds("Основной");
+                w.DemoSwitchByUser("Свет-134");
+                if (!w.ConnText.Text.Contains(" · K13")) throw new InvalidOperationException("в шапке нет модели K13: " + w.ConnText.Text);
+                if (!w.DemoLightingPending || w.ModelBlocksAuto) throw new InvalidOperationException("K13: подсветка при смене профиля не запланирована");
+                foreach (var (m, head, banner) in new (KeypadModel?, string, string)[] {
+                    (KeypadModel.K12Likely, "K12 (только просмотр)", "K12"),
+                    (KeypadModel.Unknown, "незнакомая модель", ""),
+                    (null, "модель не проверена", "Модель клавиатуры не проверена") })
+                {
+                    w.DemoKeypadHolds("Основной");   // a cached K13 image from before
+                    w.DemoModelCheck(m); Render(w, 0);
+                    if (w.DemoHasImage) throw new InvalidOperationException($"{m}: использован прежний образ K13");
+                    if (!w.ConnText.Text.Contains(head)) throw new InvalidOperationException($"{m}: шапка «{w.ConnText.Text}»");
+                    if (banner != "" && !w.ModeBannerText.Contains(banner)) throw new InvalidOperationException($"{m}: плашка «{w.ModeBannerText}»");
+                    if (!w.ModelBlocksAuto || w.DemoLightingPending || w.FactoryOnKeypad) throw new InvalidOperationException($"{m}: автоматическая запись не выключена");
+                    if (th == "light" && m == null) Shot(w, Path.Combine(folder, "model-unchecked.png"));
+                }
+                // a successful «Прочитать» after a failed check: K13 → automatic writes allowed again
+                w.DemoModelCheck(null);
+                w.DemoModel(MainWindow.DefaultImage, connected: true);
+                if (w.ConnectModelCheck != MainWindow.ModelCheck.K13 || w.ModelBlocksAuto) throw new InvalidOperationException("после чтения K13 запись осталась выключенной");
+                w.DemoSwitchByUser("Основной"); w.DemoActivate(prev); w.DemoRemoveProfile("Свет-134"); w.DemoPcLayer(wasLayer);
+                w.DemoModel(null, connected: false); w.DemoKeypadImage(null); w.DemoHwMode(null);
+            });
             // 1.3.0: «Прокрутка и курсор» (horizontal scroll for Excel, cursor) — PC actions, step / start-stop, all four stick tilts at once
             Step($"{th}: 1.3.0 прокрутка и курсор", () =>
             {

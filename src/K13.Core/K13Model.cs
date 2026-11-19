@@ -17,6 +17,54 @@ public static class K13Model
     public static readonly (int Addr, int Len)[] SignatureBlocks =
         { (FactoryTable + 5 * K13Layout.KeymapRows, 8), (FactoryTable + 12 * K13Layout.KeymapRows, 8), (FactoryTable + 16 * K13Layout.KeymapRows, 8) };
 
+    /// <summary>1.3.4: the connect-time model check on an open device. Reads 24 bytes with 07 18 00 / 07 18 05 + GetFeature /
+    /// 07 18 01 only and switches OFF the session end on Dispose — no 07 18 11 (settings reload = backlight blink, mode back to
+    /// Normal, §35), no 07 18 00 zero, no 07 20. Throws IOException when the keypad does not answer.</summary>
+    public static (KeypadModel Model, List<byte[]> Blocks) ReadSignature(K13Device dev)
+    {
+        dev.EndSessionOnDispose = false;
+        var blocks = dev.ReadBlocks(SignatureBlocks);
+        return (DetectSignature(blocks), blocks);
+    }
+
+    /// <summary>1.3.4: newest saved full image in <paramref name="folder"/> that is a K13 (K12 / unknown / damaged / prewrite / prerestore skipped).</summary>
+    public static (byte[] Image, string File)? LastKnownK13(string folder)
+    {
+        try
+        {
+            if (!Directory.Exists(folder)) return null;
+            foreach (var f in new DirectoryInfo(folder).GetFiles("*.bin")
+                .Where(x => x.Length >= K13Layout.MinImageLength && !x.Name.Contains("prewrite") && !x.Name.Contains("prerestore"))
+                .OrderByDescending(x => x.LastWriteTimeUtc))
+            {
+                try
+                {
+                    var img = File.ReadAllBytes(f.FullName);
+                    K13MemoryCodec.Decode(img); // sanity
+                    if (Detect(img) == KeypadModel.K13) return (img, f.FullName);
+                }
+                catch { }
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    /// <summary>1.3.4: the model from the three signature blocks alone (read-only check on connect, 24 bytes).
+    /// Row 0 of columns 5/12/16 must match one model exactly and rows 1–7 must be FF; anything else (or a short answer) = Unknown.</summary>
+    public static KeypadModel DetectSignature(IReadOnlyList<byte[]>? blocks)
+    {
+        if (blocks == null || blocks.Count != SignatureBlocks.Length || blocks.Any(b => b == null || b.Length != K13Layout.KeymapRows)) return KeypadModel.Unknown;
+        if (blocks.Any(b => b.Skip(1).Any(x => x != 0xFF))) return KeypadModel.Unknown;
+        var row = blocks.Select(b => b[0]).ToArray();
+        int[] cols = { 5, 12, 16 };
+        byte[] k13 = cols.Select(c => K13Layout.FactoryColumnCodes[c]).ToArray();
+        byte[] k12 = cols.Select(c => c < K12FactoryRow.Length ? K12FactoryRow[c] : (byte)0xFF).ToArray();
+        if (row.SequenceEqual(k13)) return KeypadModel.K13;
+        if (row.SequenceEqual(k12)) return KeypadModel.K12Likely;
+        return KeypadModel.Unknown;
+    }
+
     public static byte[]? FactoryRow(byte[]? image)
     {
         if (image == null || image.Length < FactoryTable + Columns * K13Layout.KeymapRows) return null;

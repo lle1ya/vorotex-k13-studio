@@ -226,6 +226,9 @@ public partial class MainWindow
     private FrameworkElement? BuildModeBanner()
     {
         var kp = KeypadCfg;
+        if (_connected && _modelCheck == ModelCheck.Failed)   // 1.3.4
+            return Banner(true, "Модель клавиатуры не проверена — короткое чтение после подключения не удалось. Пока программа ничего не записывает в клавиатуру автоматически (подсветка при смене профиля и по режиму). Нажмите «Прочитать».",
+                _offline ? null : "Прочитать", _offline ? null : async () => { await ReadDevice(auto: false); });
         if (_connected && _modelNoted is KeypadModel.K12Likely or KeypadModel.Unknown)   // 1.2.0
             return Banner(true, K13Model.Banner(_modelNoted), "Проверка кнопок", () => { ShowTester(); return Task.CompletedTask; });
         if (FactoryLock)   // 1.3.1
@@ -495,6 +498,7 @@ public partial class MainWindow
     {
         if (m == null) { _connected = _deviceImage != null; _hwMode = HwMode.Unknown; _kpForeignVk = 0; _kpUnexpectedVk = 0; UpdateConn(); RefreshModeBanner(); return; }
         _connected = true;
+        if (_modelCheck == ModelCheck.NotChecked) _modelCheck = ModelCheck.K13;   // smoke: a K13 unless a step says otherwise
         var raw = new byte[21]; raw[0] = K13Layout.ReportId; raw[3] = (byte)(m == HwMode.Game ? 0xC0 : 0x40);
         SetHwMode(new K13Status(raw), "проверка");
     }

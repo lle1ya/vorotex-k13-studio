@@ -44,7 +44,7 @@ public partial class MainWindow
         if (!ModeLightingOn || _offline || !_connected) return false;
         if (_busy) { _modeLedTimer?.Start(); return false; }
         if (!_store.Data.WriteConfirmed) { Log("[mode-led] запись в клавиатуру ещё не подтверждена (первое «Записать») — подсветку по режиму не меняю."); return false; }
-        if (FactoryBlocksQuiet()) return false;   // 1.3.1
+        if (ModelBlocksQuiet() || FactoryBlocksQuiet()) return false;   // 1.3.4 / 1.3.1
         if (LightingTarget() is not { } t) { App.Log("[mode-led] подсветка в клавиатуре уже нужная — не пишу."); return false; }
         long now = Environment.TickCount64;
         if (!_modeLedGate.CanWrite(now))
@@ -138,6 +138,7 @@ public partial class MainWindow
             }
             catch (Exception ex) { Log("[indicator] чтение 0x000F не удалось: " + ex.Message); canWrite = false; }
         }
+        if (canWrite && _modelCheck != ModelCheck.K13) { canWrite = false; Log("[indicator] запись недоступна: " + ModelCheckText() + "."); }   // 1.3.4
         var cur = canWrite ? _rememberByte : RememberState.Value;
         if (ConnectedModel is KeypadModel.K12Likely or KeypadModel.Unknown) canWrite = false;
         IndicatorDialog(cur, canWrite && cur != null, out var answer).ShowDialog();

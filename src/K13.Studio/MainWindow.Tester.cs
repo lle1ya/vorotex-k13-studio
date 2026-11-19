@@ -14,7 +14,7 @@ public partial class MainWindow
     private DeviceView? _testerView;
     private K12View? _testerK12;   // 1.3.3: read-only K12 schematic when the read memory is a K12
     /// <summary>1.3.3: the read memory is a K12 — the tester names its keys by the K12 layout (read-only; writes stay blocked).</summary>
-    private bool TesterIsK12 => K12Layout.IsK12(_deviceImage);
+    private bool TesterIsK12 => K12Layout.IsK12(_deviceImage) || _deviceImage == null && _modelCheck == ModelCheck.K12;   // 1.3.4: also from the connect check
     private ListBox? _testerLog;
     private TextBlock? _testerMode;
     private readonly Dictionary<ushort, List<int>> _testerDown = new();
@@ -86,7 +86,7 @@ public partial class MainWindow
     private void TesterModeText()
     {
         if (_testerMode == null) return;
-        var model = K13Model.Detect(_deviceImage);
+        var model = TesterIsK12 ? KeypadModel.K12Likely : K13Model.Detect(_deviceImage);
         if (model == KeypadModel.K12Likely)
         {
             _testerMode.Text = (_hwMode switch
@@ -258,6 +258,7 @@ public partial class MainWindow
     internal void DemoModel(byte[]? img, bool connected)
     {
         _connected = connected; _modelNoted = KeypadModel.NotRead;
+        if (!connected) ResetModelCheck();
         NoteModel(img);
         if (img == null) _modelNoted = KeypadModel.NotRead;
         RefreshModeBanner();

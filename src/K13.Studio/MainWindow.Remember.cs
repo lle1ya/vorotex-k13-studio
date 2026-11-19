@@ -128,6 +128,7 @@ public partial class MainWindow
             }
             catch (Exception ex) { Log("[remember] чтение 0x000F не удалось: " + ex.Message); canWrite = false; }
         }
+        if (canWrite && _modelCheck != ModelCheck.K13) { canWrite = false; Log("[remember] запись недоступна: " + ModelCheckText() + "."); }   // 1.3.4
         var cur = canWrite ? _rememberByte : RememberState.Value;
         RememberDialog(cur, canWrite, out var answer).ShowDialog();
         var a = answer();

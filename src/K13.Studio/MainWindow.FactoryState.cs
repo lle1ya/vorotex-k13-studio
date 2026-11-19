@@ -12,7 +12,7 @@ public partial class MainWindow
     private bool _factoryAutoLogged, _factoryQuietLogged;
 
     /// <summary>The keypad holds the factory assignments: from its memory image when one is known, else the stored flag.</summary>
-    internal bool FactoryOnKeypad => KeypadCfg is { } kp ? K13Model.Detect(_deviceImage) == KeypadModel.K13 && K13FactoryAssignments.IsFactory(kp) : _store.Data.KeypadFactory;
+    internal bool FactoryOnKeypad => _connected && _modelCheck is ModelCheck.K12 or ModelCheck.Unknown ? false : KeypadCfg is { } kp ? K13Model.Detect(_deviceImage) == KeypadModel.K13 && K13FactoryAssignments.IsFactory(kp) : _store.Data.KeypadFactory;
 
     /// <summary>Factory state that differs from the active profile — the profile is NOT on the keypad and is written only by «Применить профиль».
     /// (A profile that itself has the factory assignments, e.g. «Заводские назначения» from 1.2.0, is simply «in sync».)</summary>

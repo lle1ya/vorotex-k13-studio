@@ -89,7 +89,7 @@ public static class K12Layout
             for (int c = 0; c < row.Length; c++)
                 if (row[c] != KeyCatalog.Disabled && !l.Contains(c) && KeyCatalog.ToVirtualKey(row[c]) == vk) l.Add(c);
         }
-        if (mode != HwMode.Game) Scan(NormalRow(img));
+        if (mode != HwMode.Game) Scan(NormalRow(img) ?? K13Model.K12FactoryRow);   // 1.3.4: model known from the connect check, memory not read
         if (mode != HwMode.Normal) Scan(GameRow(img) ?? GameAfterReset);
         // knob turn: Normal = volume (firmware); Game = the wheel byte
         if (mode != HwMode.Game) { if (vk == 0xAF) l.Add(KnobRight); if (vk == 0xAE) l.Add(KnobLeft); }

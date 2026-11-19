@@ -71,6 +71,7 @@ public partial class MainWindow
 
     internal void NoteModel(byte[]? img)
     {
+        ModelFromImage(img);   // 1.3.4
         var m = K13Model.Detect(img);
         if (m == KeypadModel.NotRead || m == _modelNoted) return;
         _modelNoted = m;

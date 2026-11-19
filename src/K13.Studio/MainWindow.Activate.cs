@@ -21,6 +21,7 @@ public partial class MainWindow
     private void OnConnectedAsync()
     {
         if (_bisecting) { Log("[bisect] клавиатура подключена — ничего не отправляю (идёт тест)."); return; }
+        if (_modelCheck != ModelCheck.K13) { Log("[replug] проверка после переподключения не предлагается: " + ModelCheckText() + "."); return; }
         AskReplugCheck();
     }
 

@@ -259,7 +259,7 @@ public partial class MainWindow : Window
     private bool LightingOnlyPending() => ProfileSwitchLighting.LightingOnlyPending(KeypadTarget, _deviceImage);
     /// <summary>1.1.1: the keypad image with only the profile's lighting (null = nothing to apply live).</summary>
     /// 1.3.0: in Normal with «Подсветка в режиме Normal» set — that lighting (<see cref="KeypadTarget"/>).
-    private K13DeviceConfig? LightingTarget() { if (FactoryLock) return null; var kt = KeypadTarget; return ProfileSwitchLighting.LightingDiffers(kt, _deviceImage) ? ProfileSwitchLighting.LightingPart(kt, _deviceImage) : null; }
+    private K13DeviceConfig? LightingTarget() { if (FactoryLock || ModelBlocksAuto) return null; var kt = KeypadTarget; return ProfileSwitchLighting.LightingDiffers(kt, _deviceImage) ? ProfileSwitchLighting.LightingPart(kt, _deviceImage) : null; }
     private bool LightingPending() => LightingTarget() != null;
 
     private string OtherPendingNames()
@@ -677,21 +677,20 @@ public partial class MainWindow : Window
             catch (Exception ex) { Log("Статус: " + ex.Message); }
             UpdateConn();
             _kpForeignVk = 0;
-            Dispatcher.BeginInvoke(OnConnectedAsync, DispatcherPriority.Background); // v5.7.4: activate (read-type frames), then v5.7.3 replug question
-            // v4.5: NO automatic memory read on connect. Our read session left the firmware in its transfer state and the
-            // keypad stopped typing until replug (13.11.2026 15:50). Show the last known image instead; read on demand / before a write.
-            if (_deviceImage == null && LoadLastKnownImage() is { } last)
-            {
-                _deviceImage = last.Image; _imageFresh = false;
-                Log($"Память клавиатуры не читается автоматически. Для сравнения взят последний известный образ: {last.File}");
-                RefreshDirty();
-            }
+            // v4.5: NO automatic full memory read on connect (13.11.2026 15:50: a read session left the firmware in its transfer state).
+            // 1.3.4 exception (owner's approval 19.11.2026): 24 bytes of the built-in table tell a K13 from a K12 before anything
+            // automatic; the last known K13 image is used only when the keypad is a K13 (MainWindow.ModelCheck.cs).
+            ResetModelCheck();
+            await CheckModelOnConnect("подключение");
+            Dispatcher.BeginInvoke(OnConnectedAsync, DispatcherPriority.Background); // v5.7.3 replug question (K13 only)
         }
+        else if (present && _connected && _modelCheck is ModelCheck.Failed or ModelCheck.NotChecked && _modelCheckTries < 3)
+            await CheckModelOnConnect($"повторная проверка ({_modelCheckTries + 1}/3)");
         else if (!present && _connected)
         {
             _connected = false; _devicePath = null; _imageFresh = false; _hwMode = HwMode.Unknown; _selfGame = false;
             TesterModeText();   // 1.3.1
-            _modelNoted = KeypadModel.NotRead;
+            _modelNoted = KeypadModel.NotRead; ResetModelCheck();
             Log("Клавиатура отключена.");
             _autoLed.Cancel(); _autoLedTimer?.Stop();
             try { _mapper?.KeypadGone(); } catch (Exception ex) { Log("Сброс удержаний: " + ex.Message); }
@@ -700,21 +699,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Newest backup image (auto/read/postwrite/restore) – the last known keypad memory, used until the user reads or writes.</summary>
-    private static (byte[] Image, string File)? LoadLastKnownImage()
-    {
-        try
-        {
-            var folders = new[] { BackupStore.DefaultFolder };
-            var f = folders.Where(Directory.Exists).SelectMany(d => new DirectoryInfo(d).GetFiles("*.bin"))
-                .Where(x => x.Length >= K13Layout.MinImageLength && !x.Name.Contains("prewrite") && !x.Name.Contains("prerestore"))
-                .OrderByDescending(x => x.LastWriteTimeUtc).FirstOrDefault();
-            if (f == null) return null;
-            var img = File.ReadAllBytes(f.FullName);
-            K13MemoryCodec.Decode(img); // sanity
-            return (img, f.FullName);
-        }
-        catch { return null; }
-    }
+    private static (byte[] Image, string File)? LoadLastKnownImage() => K13Model.LastKnownK13(BackupStore.DefaultFolder);   // 1.3.4: K13 images only
 
     /// <summary>Sends only the session-end frames (07 18 11, 07 18 00, 07 20) – brings a "silent" keypad back without replugging.</summary>
     private async void Unstick_Click(object sender, RoutedEventArgs e)
@@ -741,7 +726,7 @@ public partial class MainWindow : Window
     private void UpdateConn()
     {
         ConnDot.Fill = (Brush)FindResource(_connected ? "OkBrush" : "ErrBrush");
-        ConnText.Text = _busy ? "Обмен с клавиатурой…" : _connected ? "Клавиатура подключена" + ModeSuffix() : "Клавиатура не найдена";
+        ConnText.Text = _busy ? "Обмен с клавиатурой…" : _connected ? "Клавиатура подключена" + ModelSuffix() + ModeSuffix() : "Клавиатура не найдена";
         ConnText.ToolTip = _connected ? ModeExplain : null;
     }
 
@@ -901,6 +886,7 @@ public partial class MainWindow : Window
     {
         if (_busy || _offline || !_connected) return false;
         if (quiet && !_store.Data.WriteConfirmed) return false;
+        if (quiet && ModelBlocksQuiet()) return false;     // 1.3.4: only a keypad verified as K13 in this connection
         if (quiet && FactoryBlocksQuiet()) return false;   // 1.3.1: factory state — nothing automatic
         if (!quiet && target == null && FactoryLock && !ConfirmApplyOverFactory()) { Log("[factory] «Применить профиль» отменено."); return false; }
         if (_modelNoted is KeypadModel.K12Likely or KeypadModel.Unknown)
@@ -972,6 +958,7 @@ public partial class MainWindow : Window
             Log($"Запись: {r.Message} Время {secs:0.0} с [{r.Timing}]" + (r.BackupAfter != null ? " Проверка: " + r.BackupAfter : ""));
             if (r.After != null) { _deviceImage = r.After; _imageFresh = r.Ok; } else _imageFresh = false;
             if (r.Model != null) { _imageFresh = true; NoteModel(r.After); }   // 1.2.0: refused — not a K13
+            else if (r.Ok && r.After != null) ModelFromImage(r.After);           // 1.3.4: verified write = K13
             StatusText.Text = r.Message + $" ({secs:0.0} с)";
             if (r.Ok && !r.NothingToDo)
             {
