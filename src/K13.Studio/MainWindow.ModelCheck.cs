@@ -5,7 +5,8 @@ namespace Vorotex.Studio;
 /// <summary>1.3.4 (owner's approval 19.11.2026): a READ-ONLY model check on every connect (and at start with the keypad present).
 /// The K13 and the K12 have the same USB ids, so after a replug Studio cannot know which one is there; until 1.3.3 it reused the
 /// last K13 image and planned automatic lighting writes for a K12 (diagnostics 19.11 09:40). Now it reads the three signature
-/// blocks of the built-in table (0x0048, 0x0080, 0x00A0 — 24 bytes; frames 07 18 00 / 05 / 01 only, never 07 18 11) before
+/// blocks of the built-in table (0x0048, 0x0080, 0x00A0 — 24 bytes; 07 18 00 / 05 / 01, then since 1.3.5 the full session end
+/// 07 18 11 / 07 18 00 / 07 20 — without it 1.3.4 left both keypads silent) before
 /// anything automatic. Exception to the v4.5 «no automatic read on connect» rule (PROTOCOL §46).
 /// Until it says K13: no cached K13 image, no automatic writes (live/auto/mode lighting), no replug question.</summary>
 public partial class MainWindow
@@ -61,11 +62,11 @@ public partial class MainWindow
             var (model, blocks, frames) = await Task.Run(() =>
             {
                 using var d = K13Device.OpenFirst(500) ?? throw new System.IO.IOException("клавиатура не открылась");
-                var r = K13Model.ReadSignature(d);   // 07 18 00 / 05 / 01 only — no session end (no 07 18 11)
+                var r = K13Model.ReadSignature(d);   // 07 18 00 / 05 / 01, then ALWAYS 07 18 11 / 07 18 00 / 07 20
                 return (r.Model, r.Blocks, d.SentLog.Count);
             });
             m = model;
-            App.Log($"[model] прочитано 24 байта ({frames} кадров 07 18 00/05/01, без 07 18 11): " + string.Join(" ", blocks.Select(b => Convert.ToHexString(b))));
+            App.Log($"[model] прочитано 24 байта ({frames} кадров: чтение 07 18 00/05/01 и завершение сеанса 07 18 11 / 07 18 00 / 07 20): " + string.Join(" ", blocks.Select(b => Convert.ToHexString(b))));
         }
         catch (Exception ex) { err = ex.Message; }
         finally { _busy = false; }
@@ -126,6 +127,29 @@ public partial class MainWindow
         _modelCheck = c; _modelQuietLogged = false;
         Log($"[model] по прочитанной памяти: {ModelCheckText()}.");
         UpdateConn();
+    }
+
+    /// <summary>1.3.5: a session was left without its end (failed end, interrupted read) — send 07 18 11 / 07 18 00 / 07 20 again.</summary>
+    private async Task RecoverOpenSession(string why)
+    {
+        if (_offline || !_connected || _busy || _bisecting) return;
+        _busy = true;
+        try
+        {
+            await Task.Run(() => { using var d = K13Device.OpenFirst(500) ?? throw new System.IO.IOException("клавиатура не открылась"); d.EndSession(); });
+            Log($"[session] {why}: сеанс обмена остался незавершённым — отправлено завершение (07 18 11 / 07 18 00 / 07 20).");
+        }
+        catch (Exception ex) { App.Log($"[session] {why}: завершение сеанса не удалось: {ex.Message}"); }
+        finally { _busy = false; }
+        await StatusAfterSession("после завершения сеанса");
+    }
+
+    /// <summary>Status (GetFeature only) after a session end: 07 18 11 reloads the settings, the mode may differ.</summary>
+    private async Task StatusAfterSession(string why)
+    {
+        if (_offline || !_connected || _busy) return;
+        try { var st = await Task.Run(() => { using var d = K13Device.OpenFirst(500); return d?.GetStatus(); }); if (st != null) SetHwMode(st, why); }
+        catch (Exception ex) { App.Log("[mode] статус " + why + ": " + ex.Message); }
     }
 
     private void ResetModelCheck() { _modelCheck = ModelCheck.NotChecked; _modelCheckTries = 0; _modelQuietLogged = false; }

@@ -17,14 +17,22 @@ public static class K13Model
     public static readonly (int Addr, int Len)[] SignatureBlocks =
         { (FactoryTable + 5 * K13Layout.KeymapRows, 8), (FactoryTable + 12 * K13Layout.KeymapRows, 8), (FactoryTable + 16 * K13Layout.KeymapRows, 8) };
 
-    /// <summary>1.3.4: the connect-time model check on an open device. Reads 24 bytes with 07 18 00 / 07 18 05 + GetFeature /
-    /// 07 18 01 only and switches OFF the session end on Dispose — no 07 18 11 (settings reload = backlight blink, mode back to
-    /// Normal, §35), no 07 18 00 zero, no 07 20. Throws IOException when the keypad does not answer.</summary>
+    /// <summary>The connect-time model check on an open device: 24 bytes with 07 18 00 / 07 18 05 + GetFeature / 07 18 01, then
+    /// ALWAYS the full session end 07 18 11 / 07 18 00 / 07 20 (also when the read fails).
+    /// 1.3.5: 1.3.4 skipped the session end to avoid the backlight blink — both K13 and K12 then stopped typing until replug
+    /// (makers, 19.11.2026; PROTOCOL §47). Throws IOException when the keypad does not answer.</summary>
     public static (KeypadModel Model, List<byte[]> Blocks) ReadSignature(K13Device dev)
     {
-        dev.EndSessionOnDispose = false;
-        var blocks = dev.ReadBlocks(SignatureBlocks);
-        return (DetectSignature(blocks), blocks);
+        dev.EndSessionOnDispose = true;
+        try
+        {
+            var blocks = dev.ReadBlocks(SignatureBlocks);
+            return (DetectSignature(blocks), blocks);
+        }
+        finally
+        {
+            try { dev.EndSession(); } catch (IOException) { /* flag K13Device.SessionLeftOpen stays set — Studio retries */ }
+        }
     }
 
     /// <summary>1.3.4: newest saved full image in <paramref name="folder"/> that is a K13 (K12 / unknown / damaged / prewrite / prerestore skipped).</summary>

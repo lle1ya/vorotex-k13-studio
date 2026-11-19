@@ -17,7 +17,7 @@ public static class K13Activation
         return head;
     }
 
-    /// <summary>Bisect order: from the least to the most likely trigger. The device must be opened with EndSessionOnDispose = false.</summary>
+    /// <summary>Bisect order: from the least to the most likely trigger. The device must be opened with the session end on Dispose switched off.</summary>
     public static IReadOnlyList<ActivationStep> BisectSteps { get; } = new ActivationStep[]
     {
         new("Запрос статуса", "GetFeature (статус, ничего не отправляется)", d => d.GetStatus()),

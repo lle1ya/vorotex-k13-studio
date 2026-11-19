@@ -83,7 +83,7 @@ public class V134Tests
     }
 
     [Fact]
-    public void Connect_check_sends_read_frames_only_and_no_session_end()
+    public void Connect_check_reads_24_bytes_and_writes_nothing()
     {
         foreach (var (f, want) in new[] { ("k13-backup-20261112-171754.bin", KeypadModel.K13), ("k12-reset-20261119-094139.bin", KeypadModel.K12Likely) })
         {
@@ -94,10 +94,9 @@ public class V134Tests
                 var r = K13Model.ReadSignature(dev);
                 Assert.Equal(want, r.Model);
                 Assert.Equal(24, r.Blocks.Sum(b => b.Length));
-            }   // Dispose: nothing more may be sent
-            Assert.All(fake.Frames, fr => Assert.True(fr[0] == 7 && fr[1] == 0x18 && fr[2] is 0x00 or 0x05 or 0x01, Convert.ToHexString(fr)));
-            Assert.DoesNotContain(fake.Frames, fr => fr[2] == 0x11 || fr[1] == 0x20);
-            Assert.Equal(0x01, fake.Frames[^1][2]);   // ends with 07 18 01 (end read)
+            }
+            // reads + the full session end only (1.3.5, see V135Tests); never a write frame
+            Assert.All(fake.Frames, fr => Assert.True(fr[0] == 7 && (fr[1] == 0x18 && fr[2] is 0x00 or 0x05 or 0x01 or 0x11 || fr[1] == 0x20), Convert.ToHexString(fr)));
             Assert.True(fake.Frames.Count < 40, "кадров: " + fake.Frames.Count);
             Assert.Equal(before, mem);
         }

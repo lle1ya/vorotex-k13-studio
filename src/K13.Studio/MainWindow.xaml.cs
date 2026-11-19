@@ -680,14 +680,19 @@ public partial class MainWindow : Window
             // v4.5: NO automatic full memory read on connect (13.11.2026 15:50: a read session left the firmware in its transfer state).
             // 1.3.4 exception (owner's approval 19.11.2026): 24 bytes of the built-in table tell a K13 from a K12 before anything
             // automatic; the last known K13 image is used only when the keypad is a K13 (MainWindow.ModelCheck.cs).
+            // 1.3.5: the check ends with the full session end (07 18 11 / 07 18 00 / 07 20) like every other read — one backlight blink.
             ResetModelCheck();
             await CheckModelOnConnect("подключение");
+            await StatusAfterSession("после проверки модели");   // 07 18 11 reloads the settings — take the mode again
             Dispatcher.BeginInvoke(OnConnectedAsync, DispatcherPriority.Background); // v5.7.3 replug question (K13 only)
         }
         else if (present && _connected && _modelCheck is ModelCheck.Failed or ModelCheck.NotChecked && _modelCheckTries < 3)
             await CheckModelOnConnect($"повторная проверка ({_modelCheckTries + 1}/3)");
+        else if (present && _connected && K13Device.SessionLeftOpen && !_busy && !_bisecting && !_exiting)
+            await RecoverOpenSession("опрос");
         else if (!present && _connected)
         {
+            K13Device.ForgetOpenSession();   // replug resets the firmware
             _connected = false; _devicePath = null; _imageFresh = false; _hwMode = HwMode.Unknown; _selfGame = false;
             TesterModeText();   // 1.3.1
             _modelNoted = KeypadModel.NotRead; ResetModelCheck();
@@ -1129,6 +1134,12 @@ public partial class MainWindow : Window
         try { _ringOverlay?.Close(); } catch (InvalidOperationException) { }
         try { _toast?.Close(); } catch (InvalidOperationException) { }
         _fg.Dispose(); _mapper?.Dispose(); _k13Keys?.Dispose(); _tray?.Dispose(); _recorder.Dispose();
+        // 1.3.5: never exit with a session left open (1.3.4: keypad stayed silent after «Выход» until replug)
+        if (!_offline && _connected && K13Device.SessionLeftOpen)
+        {
+            try { using var d = K13Device.OpenFirst(1000); d?.EndSession(); App.Log("[session] выход: отправлено завершение сеанса (07 18 11 / 07 18 00 / 07 20)."); }
+            catch (Exception ex) { App.Log("[session] выход: завершение сеанса не удалось: " + ex.Message); }
+        }
         SaveStore();
         if (!_offline) Application.Current.Shutdown();
         else Close();

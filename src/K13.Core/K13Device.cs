@@ -89,6 +89,15 @@ public sealed class K13Device : IDisposable
     public bool EndSessionOnDispose { get; set; } = true;
     private bool _touched, _ended;
 
+    /// <summary>1.3.5: set when a session that sent frames was closed WITHOUT the full session end (07 18 11 / 07 18 00 / 07 20) —
+    /// e.g. the end failed or <see cref="EndSessionOnDispose"/> was off. The keypad may then be silent (1.3.4, 19.11.2026: a 24-byte
+    /// read ending with 07 18 01 left both K13 and K12 silent until replug). Cleared by any successful <see cref="EndSession"/>.
+    /// Studio re-sends the session end while this is set (poll, exit).</summary>
+    public static bool SessionLeftOpen => Volatile.Read(ref s_leftOpen) != 0;
+    private static int s_leftOpen;
+    /// <summary>Tests / disconnect: forget the flag (a replug resets the firmware).</summary>
+    public static void ForgetOpenSession() => Volatile.Write(ref s_leftOpen, 0);
+
     private readonly Mutex? _mutex;
     private readonly int _mutexThread;
 
@@ -399,7 +408,8 @@ public sealed class K13Device : IDisposable
                 Pause(f.SleepAfterMs);
             }
             _ended = true;
-            if (first != null) throw first is IOException io ? io : new IOException(first.Message, first);
+            if (first != null) { Volatile.Write(ref s_leftOpen, 1); throw first is IOException io ? io : new IOException(first.Message, first); }
+            Volatile.Write(ref s_leftOpen, 0);
         }
     }
 
@@ -411,8 +421,9 @@ public sealed class K13Device : IDisposable
         _disposed = true;
         if (EndSessionOnDispose && _touched && !_ended)
         {
-            try { EndSession(); } catch (Exception) { /* device unplugged – nothing to end */ }
+            try { EndSession(); } catch (Exception) { /* device unplugged – nothing to end (flag stays set) */ }
         }
+        else if (_touched && !_ended) Volatile.Write(ref s_leftOpen, 1);
         _t.Dispose();
         if (_mutex != null)
         {
