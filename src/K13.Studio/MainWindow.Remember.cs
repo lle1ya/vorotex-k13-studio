@@ -17,6 +17,14 @@ public partial class MainWindow
         _rememberByte is byte b && _rememberFresh ? (b, true)
         : _deviceImage is { Length: > K13RememberMode.Address } img ? (img[K13RememberMode.Address], _imageFresh) : (null, false);
 
+    /// <summary>Smoke: pretend 0x000F was read as <paramref name="b"/>; returns the previous state.</summary>
+    internal (byte? Value, bool Fresh) DemoFlagByte(byte? b, bool fresh = true)
+    {
+        var prev = (_rememberByte, _rememberFresh);
+        _rememberByte = b; _rememberFresh = fresh && b != null;
+        return prev;
+    }
+
     internal string RememberMenuText()
     {
         var (v, fresh) = RememberState;
@@ -30,14 +38,14 @@ public partial class MainWindow
     {
         var (v, fresh) = RememberState;
         string baseFlags = _deviceImage is { } img && BaseAddr < img.Length ? img[BaseAddr].ToString("X2") + $" (бит 7 KEYSMODE = {(img[BaseAddr] >> 7) & 1})" : "—";
-        return $"EEPROM 0x000F: {(v is byte b ? b.ToString("X2") : "—")} — «запоминать режим» (бит 1): {K13RememberMode.Describe(v)}{(v != null && !fresh ? ", по последнему известному образу" : "")}\n" +
+        return $"EEPROM 0x000F: {(v is byte b ? b.ToString("X2") : "—")} — «запоминать режим» (бит 1): {K13RememberMode.Describe(v)}{(v != null && !fresh ? ", по последнему известному образу" : "")}; синий индикатор (бит 4): {K13ModeIndicator.Describe(v)}\n" +
                $"BASE+0 (0x{BaseAddr:X4}): {baseFlags}";
     }
 
-    internal const string RememberExplain =
+    internal string RememberExplain =>
         "В заводском блоке памяти K13 есть флаг «запоминать режим» (ячейка 0x000F, бит 1). Без него (0x91) клавиатура после каждого подключения начинает в режиме Normal.\n\n" +
         "С включённым флагом (0x93) клавиатура помнит последний режим, выбранный стиком, — и Normal, и Game — после переподключения USB, даже без программы. " +
-        "В режиме Game горит синий индикатор между Tab и 9. Проверено производителем VOROTEX 17.11.2026.\n\n" +
+        $"В режиме Game {K13ModeHints.GameShown(RememberState.Value)}. Проверено производителем VOROTEX 17.11.2026.\n\n" +
         "Как программа меняет флаг: сохраняет полную резервную копию памяти, меняет в ячейке только бит 1 (один байт, обычные команды записи), читает обратно и сверяет. " +
         "Байты 0x0000–0x0007 (тип памяти, VID/PID) программа не записывает никогда. Выключить можно здесь же или восстановить ячейку из резервной копии.";
 
@@ -103,7 +111,7 @@ public partial class MainWindow
 
     internal static Window DisableConfirm(Window? owner, byte cur, out Func<MessageBoxResult> answer) =>
         MessageBox.Build(owner,
-            "Выключить запоминание?\n\nКлавиатура снова будет стартовать в Normal (заводские клавиши), режим Game придётся включать стиком или программой.\n\n" +
+            "Выключить запоминание?\n\nКлавиатура снова будет стартовать в Normal (заводские клавиши), режим Game придётся включать нажатием стика.\n\n" +
             $"• Ячейка 0x000F: 0x{cur:X2} → 0x{cur & ~K13RememberMode.Bit:X2} (только бит 1). Перед записью — полная резервная копия, после — проверка.",
             "Выключить запоминание режима", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No, out answer, new[] { "Выключить", "Не выключать" });
 

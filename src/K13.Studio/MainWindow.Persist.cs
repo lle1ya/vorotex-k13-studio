@@ -10,21 +10,26 @@ public partial class MainWindow
 {
     private bool _replugAsked;
 
-    private void ShowWrittenHint(double secs)
+    private void ShowWrittenHint(double secs, bool factory = false)
     {
-        WrittenHintDialog(secs, out var answer).ShowDialog();
+        (factory ? FactoryWrittenDialog(secs, out var answer) : WrittenHintDialog(secs, out answer)).ShowDialog();
         if (answer() == MessageBoxResult.No) SaveDiagnostics();
     }
 
     internal Window WrittenHintDialog(double secs, out Func<MessageBoxResult> answer)
     {
         var text = $"Готово за {secs:0.0} с: настройки записаны и проверены чтением.\n\n" +
-                   "Ваши назначения работают в режиме Game (горит синий индикатор между Tab и 9). После переподключения клавиатура начинает в режиме Normal — " +
+                   $"Ваши назначения работают в режиме Game ({K13ModeHints.GameShown(RememberState.Value)}). После переподключения клавиатура начинает в режиме Normal — " +
                    "с заводскими клавишами; это не сброс. Game включает нажатие центра стика. Чтобы Game оставался после переподключения, включите ⋯ → «Запоминать режим».\n\n" +
                    "Если в режиме Game кнопки делают не то — сохраните диагностику и пришлите нам.";
         return MessageBox.Build(IsLoaded ? this : null, text, Title, MessageBoxButton.YesNo, MessageBoxImage.Information, MessageBoxResult.Yes, out answer,
             new[] { "Понятно", "Сохранить диагностику" });
     }
+
+    /// <summary>1.3.2: the post-write window after «Вернуть заводские назначения».</summary>
+    internal Window FactoryWrittenDialog(double secs, out Func<MessageBoxResult> answer) =>
+        MessageBox.Build(IsLoaded ? this : null, K13ModeHints.FactoryWritten(_profile.Name, secs), "Вернуть заводские назначения", MessageBoxButton.YesNo,
+            MessageBoxImage.Information, MessageBoxResult.Yes, out answer, new[] { "Понятно", "Сохранить диагностику" });
 
     /// <summary>Smoke test: pretend the keypad sent a key its memory cannot produce (0 = reset).</summary>
     internal void SimulateForeignKey(ushort vk) { _kpForeignVk = vk; RefreshModeBanner(); }
@@ -53,8 +58,9 @@ public partial class MainWindow
         {
             ClearKeypadWarnings("память после переподключения совпала");
             Log($"[replug] После переподключения память совпадает с записанным ({pending.Blocks.Count} блок(ов)). Заголовок {head}. Сравнивали с {pending.PostWriteFile}.");
-            Ask("Память после переподключения совпадает с записанным — назначения сохранились.\n\nЕсли кнопки делают заводское (например, Num 1), клавиатура в режиме Normal: нажмите стик " +
-                "(загорится синий индикатор между Tab и 9).");
+            Ask("Память после переподключения совпадает с записанным — назначения сохранились.\n\n" +
+                (FactoryOnKeypad ? "На клавиатуре — заводские назначения: кнопки посылают заводские коды и в Normal, и в Game."
+                                 : $"Если кнопки делают заводское (например, Num 1), клавиатура в режиме Normal: {K13ModeHints.PressStickFor(img.Length > K13RememberMode.Address ? img[K13RememberMode.Address] : null)}."));
         }
         else
         {

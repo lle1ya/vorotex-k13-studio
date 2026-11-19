@@ -272,6 +272,7 @@ public partial class MainWindow
     /// <summary>v5.8: «factory keys» = hardware mode Normal (stick toggles Normal/Game), not a lost layout. v5.10.1: shared by both modes.</summary>
     private FrameworkElement? NormalModeBanner()
     {
+        if (FactoryOnKeypad) return null;   // 1.3.2: factory assignments — Normal and Game send the same factory codes, «ваши назначения в Game» would be wrong
         if (!(_kpForeignVk != 0 && _hwMode != HwMode.Game || _hwMode == HwMode.Normal && _connected && !_offline)) return null;
             string what = _kpForeignVk != 0 ? $"Клавиатура прислала «{VkName(_kpForeignVk)}» — она в режиме Normal (заводские клавиши). " : "Клавиатура в режиме Normal (заводские клавиши). ";
             // 1.0.1: no «Включить Game сейчас» — the read exchange did not switch modes on the makers' K13 (K13ModeHints)
@@ -393,7 +394,7 @@ public partial class MainWindow
                 if (_kpForeignVk != 0) return;
                 _kpForeignVk = vk;
                 Log($"[k13] клавиатура прислала заводскую «{VkName(vk)}» (VK 0x{vk:X2}) — она в режиме Normal (по статусу: {K13Mode.Name(mode)}).");
-                StatusText.Text = string.Format(K13ModeHints.StatusForeignKey, VkName(vk));
+                StatusText.Text = K13ModeHints.StatusForeignKeyFor(VkName(vk), RememberState.Value);
                 RefreshModeBanner();
                 return;
             case KeyVerdict.NotInMemory:

@@ -289,7 +289,7 @@ public sealed class HostMapper : IDisposable
         var outs = _router.Feed(vk, down, l.Cfg, v => _settings.Enabled && IsTrigger(v), timeMs, out bool mine);
         if (!mine)
         {
-            if (down && vk is >= 0x7D and <= 0x87 && _strayLogs++ < 50) Diag($"F{vk - 0x6F} пришёл, но ни одной кнопке «через ПК» не назначен");
+            if (down && vk is >= 0x7D and <= 0x87 && !IsTrigger(vk) && _strayLogs++ < 50) Diag($"F{vk - 0x6F} пришёл, но ни одной кнопке «через ПК» не назначен");
             return false;
         }
         if (vk == PcLayerPlanner.ChordPrefixVk && _router.IsChord)

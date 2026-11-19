@@ -38,7 +38,7 @@ public partial class MainWindow
     private K13Activation.Seen PressAndClassify(string text, out string keys)
     {
         _bisectKeys = new List<ushort>();
-        bool go = AskBisect(text + "\n\nПосмотрите на синий индикатор между Tab и 9 (горит = режим Game). Нажмите проверочную кнопку 2–3 раза, затем «Дальше».");
+        bool go = AskBisect(text + (K13ModeHints.IndicatorOff(RememberState.Value) ? "\n\nСиний индикатор у вас выключен — смотрите на строку режима под названием в Studio. Нажмите" : "\n\nПосмотрите на синий индикатор между Tab и 9 (горит = режим Game). Нажмите") + " проверочную кнопку 2–3 раза, затем «Дальше».");
         var got = _bisectKeys; _bisectKeys = null;
         keys = got.Count == 0 ? "ничего" : string.Join(", ", got.Select(VkName));
         if (!go) throw new OperationCanceledException();

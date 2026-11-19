@@ -9,6 +9,19 @@ namespace Vorotex.K13;
 public static class K13ModeHints
 {
     public const string PressStick = "нажмите центр стика (загорится синий индикатор между Tab и 9)";
+    /// <summary>1.3.2: where to see the mode when the blue indicator is switched off (0x000F bit 4 = 0).</summary>
+    public const string StudioShowsMode = "режим видно в Studio — в строке под названием («режим Game»)";
+
+    /// <summary>1.3.2: the indicator is known to be off — 0x000F read with a known pattern and bit 4 clear (0x81/0x83).</summary>
+    public static bool IndicatorOff(byte? flagByte) => flagByte is byte b && K13RememberMode.IsKnownPattern(b) && !K13ModeIndicator.IsOn(b);
+
+    /// <summary>«как увидеть Game»: the blue LED, or Studio's header when the LED is off.</summary>
+    public static string GameShown(byte? flagByte) =>
+        IndicatorOff(flagByte) ? "синий индикатор у вас выключен — " + StudioShowsMode : "горит синий индикатор между Tab и 9";
+
+    /// <summary>«нажмите центр стика (…)» with the indicator state taken into account.</summary>
+    public static string PressStickFor(byte? flagByte) =>
+        IndicatorOff(flagByte) ? "нажмите центр стика (синий индикатор у вас выключен — " + StudioShowsMode + ")" : PressStick;
     public const string RememberAction = "Запоминать режим…";
     /// <summary>The removed manual action. Kept only so tests can check it never comes back.</summary>
     public const string RemovedManualAction = "Включить Game сейчас";
@@ -21,10 +34,18 @@ public static class K13ModeHints
     /// <summary>Banner text in Normal.</summary>
     public static string NormalBanner(string what, byte? rememberByte)
     {
-        string s = what + "Ваши назначения работают в режиме Game: " + PressStick + ".";
+        string s = what + "Ваши назначения работают в режиме Game: " + PressStickFor(rememberByte) + ".";
         if (OfferRemember(rememberByte)) s += " Чтобы клавиатура сама оставалась в Game после переподключения, включите «Запоминать режим».";
         return s;
     }
 
     public const string StatusForeignKey = "Клавиатура прислала «{0}» — она в режиме Normal. Чтобы включить Game, " + PressStick + ".";
+    public static string StatusForeignKeyFor(string key, byte? flagByte) =>
+        $"Клавиатура прислала «{key}» — она в режиме Normal. Чтобы включить Game, {PressStickFor(flagByte)}.";
+
+    /// <summary>1.3.2: after «Вернуть заводские назначения» — not the usual «ваши назначения работают в Game» (makers 19.11.2026).</summary>
+    public static string FactoryWritten(string profile, double secs) =>
+        $"Заводские назначения записаны и проверены ({secs:0.0} с). Профиль «{profile}» сохранён на ПК.\n\n" +
+        "В клавиатуру он попадёт только по кнопке «Применить профиль». До этого клавиатура работает как с завода — и в Normal, и в Game: " +
+        "кнопки посылают заводские коды (Num 1…), колесо — громкость, макросов нет.";
 }

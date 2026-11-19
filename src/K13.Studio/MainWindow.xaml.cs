@@ -976,7 +976,7 @@ public partial class MainWindow : Window
             {
                 if (r.Written != null && r.After != null && r.BackupAfter != null) { _store.Data.ReplugCheck = PendingReplugCheck.From(r.Written, r.After, r.BackupAfter); _replugAsked = false; SaveStore(); }
                 ClearKeypadWarnings("запись проверена");
-                if (r.KeysChanged) ShowWrittenHint(secs);
+                if (r.KeysChanged) ShowWrittenHint(secs, factory: _factoryWriting);
                 else if (!quiet) StatusText.Text = $"Готово за {secs:0.0} с — подсветка уже обновлена на клавиатуре.";
             }
             else if (!r.Ok) MessageBox.Show(this, r.Message, Title, MessageBoxButton.OK, MessageBoxImage.Warning);

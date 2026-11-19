@@ -30,6 +30,15 @@ public partial class MainWindow
         if (!f) { _factoryAutoLogged = _factoryQuietLogged = false; }
     }
 
+    /// <summary>1.3.2: the write started by «Вернуть заводские назначения» — its success window is the factory one.</summary>
+    private bool _factoryWriting;
+    private async Task<bool> WriteDeviceFactory(K13DeviceConfig target)
+    {
+        _factoryWriting = true;
+        try { return await WriteDevice(target: target); }
+        finally { _factoryWriting = false; }
+    }
+
     internal const string FactoryStateText = "На клавиатуре — заводские назначения";
 
     internal string FactoryBannerText() =>

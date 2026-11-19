@@ -11,8 +11,10 @@ public enum PointerDir { Left, Right, Up, Down }
 public sealed record PointerSpec(PointerKind Kind, PointerDir Dir, PointerMode Mode, int Amount)
 {
     public const int MinAmount = 1, MaxAmount = 10;
-    /// <summary>Default: scroll 3 notches per press; cursor 4 (step = 4×10 px, toggle = speed 4).</summary>
-    public static int DefaultAmount(PointerKind k) => k == PointerKind.Scroll ? 3 : 4;
+    /// <summary>Default for NEW assignments: scroll 3 notches per press; cursor 3 (step = 3×10 px, toggle = speed 3) — 1.3.2, makers found 4 a bit fast.</summary>
+    public static int DefaultAmount(PointerKind k) => 3;
+    /// <summary>What a saved action without an explicit amount meant before 1.3.2 (saved actions keep their speed).</summary>
+    public static int SavedFallbackAmount(PointerKind k) => k == PointerKind.Scroll ? 3 : 4;
 
     public static string DirKey(PointerDir d) => d switch { PointerDir.Left => "left", PointerDir.Right => "right", PointerDir.Up => "up", _ => "down" };
     public static string Arrow(PointerDir d) => d switch { PointerDir.Left => "←", PointerDir.Right => "→", PointerDir.Up => "↑", _ => "↓" };
@@ -37,7 +39,7 @@ public sealed record PointerSpec(PointerKind Kind, PointerDir Dir, PointerMode M
         if (dir is not PointerDir d) return null;
         var args = (a.Arguments ?? "").Trim().ToLowerInvariant();
         var mode = args.StartsWith("toggle", StringComparison.Ordinal) ? PointerMode.Toggle : PointerMode.Step;
-        int amount = DefaultAmount(kind);
+        int amount = SavedFallbackAmount(kind);
         int colon = args.IndexOf(':');
         if (colon >= 0 && int.TryParse(args[(colon + 1)..], out int n)) amount = n;
         return new PointerSpec(kind, d, mode, Math.Clamp(amount, MinAmount, MaxAmount));

@@ -47,7 +47,7 @@ public partial class MainWindow
         Log($"[factory] заводские назначения: кнопки {(plan.ChangedColumns.Count == 0 ? "уже заводские" : "меняются: " + string.Join(", ", plan.ChangedColumns.Select(DeviceView.ControlName)))}; " +
             $"колесо {current.WheelFirst}/{current.WheelSecond} → 0/1; макросов было {current.Macros.Count(m => m.IsUsed)}; подсветка не меняется.");
         // 2. the usual confirmed write (own backup, changed blocks, read-back, restore on mismatch)
-        bool ok = await WriteDevice(target: plan.Target);
+        bool ok = await WriteDeviceFactory(plan.Target);
         if (!ok) { Log("[factory] запись не выполнена — профили не изменены."); return false; }
         if (Layer.Active) { _store.Data.PcLayer = new PcLayerState(); Log("[factory] «Кнопки по профилю (через ПК)» выключены."); }
         AfterFactoryWrite();

@@ -218,6 +218,20 @@ public static class SmokeTest
                 var t = AllText(dlg);
                 if (!t.Contains("режиме Normal") || !t.Contains("синий индикатор") || !t.Contains("Сохранить диагностику")) throw new InvalidOperationException("нет подсказки про режимы Normal/Game");
                 dlg.Close();
+                // 1.3.2: after «Вернуть заводские назначения» — a factory-specific window, no «Ваши назначения работают в Game», no indicator
+                var fd = w.FactoryWrittenDialog(1.2, out _);
+                var ft = AllText(fd);
+                if (!ft.Contains("Заводские назначения записаны и проверены") || !ft.Contains($"Профиль «{w.DemoActiveProfile}» сохранён на ПК") || ft.Contains("Ваши назначения работают") || ft.Contains("индикатор"))
+                    throw new InvalidOperationException("окно после заводских назначений не то: " + ft);
+                fd.Close();
+                // 1.3.2: indicator switched off (0x000F = 0x81) — hints do not promise the blue LED
+                var prevFlag = w.DemoFlagByte(0x81);
+                var od = w.WrittenHintDialog(1.2, out _);
+                var ot = AllText(od);
+                if (ot.Contains("горит синий") || !ot.Contains("индикатор у вас выключен")) throw new InvalidOperationException("подсказка обещает синий индикатор, хотя он выключен: " + ot);
+                od.Close();
+                if (!w.DeviceInfo().Contains("синий индикатор (бит 4): выключен")) throw new InvalidOperationException("в сведениях нет состояния индикатора");
+                w.DemoFlagByte(prevFlag.Value, prevFlag.Fresh);
                 Render(w, 0);
                 w.SimulateForeignKey(0x61);
                 try
