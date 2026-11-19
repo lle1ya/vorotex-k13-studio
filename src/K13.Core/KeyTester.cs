@@ -89,6 +89,15 @@ public static class KeyTester
         return k?.Column ?? -1;
     }
 
+    /// <summary>1.3.3: the limits for a K12 (read-only names; Studio does not write a K12).</summary>
+    public static readonly IReadOnlyList<string> LimitsK12 = new List<string>
+    {
+        "Клавиатура сообщает не номер кнопки, а код, который кнопка посылает. Если две кнопки посылают одно и то же, подсветятся обе.",
+        "В режиме Normal кнопки K12 посылают заводские коды (Num 1…Num 0, Num ., Num Enter), в Game — коды из её памяти.",
+        "Поворот регулятора виден как громкость (Normal) или прокрутка (Game). Нажатие регулятора переключает Normal/Game и компьютеру ничего не посылает.",
+        "K12 — только просмотр: Studio не записывает в неё ничего. Назначения K12 меняются в программе производителя.",
+    };
+
     /// <summary>The limits shown under the tester.</summary>
     public static IReadOnlyList<string> Limits(bool layerActive) => new List<string>
     {

@@ -12,6 +12,9 @@ public partial class MainWindow
 {
     private Window? _tester;
     private DeviceView? _testerView;
+    private K12View? _testerK12;   // 1.3.3: read-only K12 schematic when the read memory is a K12
+    /// <summary>1.3.3: the read memory is a K12 — the tester names its keys by the K12 layout (read-only; writes stay blocked).</summary>
+    private bool TesterIsK12 => K12Layout.IsK12(_deviceImage);
     private ListBox? _testerLog;
     private TextBlock? _testerMode;
     private readonly Dictionary<ushort, List<int>> _testerDown = new();
@@ -28,20 +31,25 @@ public partial class MainWindow
         var win = Ui.MakeWindow(IsLoaded ? this : null, "Проверка кнопок", 960, 700);
         var root = new DockPanel { Margin = new Thickness(20) };
         var head = new StackPanel();
-        head.Children.Add(new TextBlock { Text = "Нажимайте кнопки и крутите колесо K13", FontSize = 20, FontWeight = FontWeights.SemiBold });
+        bool k12 = TesterIsK12;
+        head.Children.Add(new TextBlock { Text = k12 ? "Нажимайте кнопки и крутите регулятор K12" : "Нажимайте кнопки и крутите колесо K13", FontSize = 20, FontWeight = FontWeights.SemiBold });
         _testerMode = new TextBlock { FontSize = 12.5, Foreground = R("MutedBrush"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 10) };
         head.Children.Add(_testerMode);
         DockPanel.SetDock(head, Dock.Top);
         root.Children.Add(head);
 
         var limits = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
-        foreach (var l in KeyTester.Limits(RoutedState.Active))
+        foreach (var l in k12 ? KeyTester.LimitsK12 : KeyTester.Limits(RoutedState.Active))
             limits.Children.Add(new TextBlock { Text = "• " + l, FontSize = 12, Foreground = R("MutedBrush"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) });
         var row = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
-        var close = new Button { Content = "Закрыть", Style = (Style)FindResource("AccentButton"), MinWidth = 110, IsCancel = true };
+        // 1.3.3: keypad keys must never press a button here (Enter/Space on a focused «Очистить журнал», Esc on «Закрыть») —
+        // buttons are not focusable and the window swallows key events (the tester listens to the keypad itself, not to WPF keys)
+        var close = new Button { Content = "Закрыть", Style = (Style)FindResource("AccentButton"), MinWidth = 110, Focusable = false };
         close.Click += (_, _) => win.Close();
-        var clear = new Button { Content = "Очистить журнал", Style = (Style)FindResource("GhostButton"), MinWidth = 120, Margin = new Thickness(0, 0, 8, 0) };
-        clear.Click += (_, _) => { _testerLog?.Items.Clear(); _testerLines.Clear(); _testerDown.Clear(); _testerView?.ClearPressed(); };
+        var clear = new Button { Content = "Очистить журнал", Style = (Style)FindResource("GhostButton"), MinWidth = 120, Margin = new Thickness(0, 0, 8, 0), Focusable = false };
+        clear.Click += (_, _) => { _testerLog?.Items.Clear(); _testerLines.Clear(); _testerDown.Clear(); _testerView?.ClearPressed(); _testerK12?.ClearPressed(); };
+        win.PreviewKeyDown += (_, e) => { if (e.Key != System.Windows.Input.Key.System) e.Handled = true; };
+        win.PreviewKeyUp += (_, e) => { if (e.Key != System.Windows.Input.Key.System) e.Handled = true; };
         DockPanel.SetDock(close, Dock.Right); DockPanel.SetDock(clear, Dock.Right);
         row.Children.Add(close); row.Children.Add(clear); row.Children.Add(new TextBlock());
         limits.Children.Add(row);
@@ -52,10 +60,20 @@ public partial class MainWindow
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(11, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(9, GridUnitType.Star) });
-        _testerView = new DeviceView(interactive: false) { ShowSubLabels = false, VerticalAlignment = VerticalAlignment.Top };
-        _testerView.Rebuild(KeypadCfg ?? Cfg, _profile.Host, -1, showDots: false);
-        grid.Children.Add(_testerView);
-        _testerLog = new ListBox { FontSize = 12.5 };
+        if (k12)
+        {
+            _testerView = null;
+            _testerK12 = new K12View { VerticalAlignment = VerticalAlignment.Top };
+            grid.Children.Add(_testerK12);
+        }
+        else
+        {
+            _testerK12 = null;
+            _testerView = new DeviceView(interactive: false) { ShowSubLabels = false, VerticalAlignment = VerticalAlignment.Top };
+            _testerView.Rebuild(KeypadCfg ?? Cfg, _profile.Host, -1, showDots: false);
+            grid.Children.Add(_testerView);
+        }
+        _testerLog = new ListBox { FontSize = 12.5, Focusable = false };
         ScrollViewer.SetHorizontalScrollBarVisibility(_testerLog, ScrollBarVisibility.Disabled);
         Grid.SetColumn(_testerLog, 2);
         grid.Children.Add(_testerLog);
@@ -69,6 +87,16 @@ public partial class MainWindow
     {
         if (_testerMode == null) return;
         var model = K13Model.Detect(_deviceImage);
+        if (model == KeypadModel.K12Likely)
+        {
+            _testerMode.Text = (_hwMode switch
+            {
+                HwMode.Normal => "Режим K12: Normal — кнопки посылают заводские коды (Num 1…, Num Enter, регулятор — громкость).",
+                HwMode.Game => "Режим K12: Game — кнопки посылают коды из её памяти (после сброса: 1…0, Enter, ` ~; регулятор — прокрутка).",
+                _ => _connected ? "Режим K12 неизвестен." : "Клавиатура не подключена.",
+            }) + " Подключена VOROTEX K12: схема и названия кнопок — K12, только просмотр. Запись в K12 заблокирована.";
+            return;
+        }
         string mode = _hwMode switch
         {
             HwMode.Normal => "Режим клавиатуры: Normal — кнопки посылают заводские коды (Num 1…).",
@@ -88,14 +116,14 @@ public partial class MainWindow
         _tester.Closed += (_, _) =>
         {
             _k13Keys?.ListenExtra(false);
-            _tester = null; _testerView = null; _testerLog = null; _testerMode = null; _testerDown.Clear();
+            _tester = null; _testerView = null; _testerK12 = null; _testerLog = null; _testerMode = null; _testerDown.Clear();
             Log($"[tester] проверка кнопок закрыта ({TesterEvents} событий).");
         };
         _tester.Show();
     }
 
-    private static string Who(IReadOnlyCollection<int> cols) =>
-        cols.Count == 0 ? "кнопка не найдена в назначениях" : string.Join(" или ", cols.Select(DeviceView.ControlName));
+    private string Who(IReadOnlyCollection<int> cols) =>
+        cols.Count == 0 ? "кнопка не найдена в назначениях" : string.Join(" или ", cols.Select(c => TesterIsK12 ? K12Layout.ControlName(c) : DeviceView.ControlName(c)));
 
     private void TesterLine(string text)
     {
@@ -114,12 +142,12 @@ public partial class MainWindow
         if (down)
         {
             _testerDown[key] = cols;
-            foreach (var c in cols) _testerView?.SetPressed(c, true);
+            foreach (var c in cols) { _testerView?.SetPressed(c, true); _testerK12?.SetPressed(c, true); }
         }
         else if (_testerDown.Remove(key, out var was))
         {
             var still = _testerDown.Values.SelectMany(x => x).ToHashSet();
-            foreach (var c in was.Where(c => !still.Contains(c))) _testerView?.SetPressed(c, false);
+            foreach (var c in was.Where(c => !still.Contains(c))) { _testerView?.SetPressed(c, false); _testerK12?.SetPressed(c, false); }
         }
     }
 
@@ -145,6 +173,13 @@ public partial class MainWindow
         if (down && _testerDown.ContainsKey(vk)) return;   // auto-repeat
         _testerLast = (vk, down, now);
         if (down && _tester != null && now - _testerModeAt > 700) { _testerModeAt = now; _ = RefreshHwMode("проверка кнопок"); }   // 1.3.1: mode right after a press
+        if (TesterIsK12)
+        {   // 1.3.3: K12 — names by the K12 layout (Normal table 0x0020, Game table from its memory)
+            var k = K12Layout.ControlsFor(vk, _hwMode, _deviceImage);
+            if (down || _testerDown.ContainsKey(vk)) TesterLine($"{(down ? "▼ нажата " : "▲ отпущена")}  {Who(k)} — «{VkName(vk)}»");
+            TesterLight(vk, k, down);
+            return;
+        }
         var routed = RoutedState;
         if (routed.Active && vk == PcLayerPlanner.ChordPrefixVk) { if (down) _scrollLockAt = now; return; }
         List<int> cols;
@@ -160,7 +195,7 @@ public partial class MainWindow
     internal void TesterRouted(int col)
     {
         if (_tester == null && !_testerForce) return;
-        if (col < 0) return;
+        if (col < 0 || TesterIsK12) return;
         TesterLine($"▼ нажата  {DeviceView.ControlName(col)} — через ПК (перехват)");
         TesterFlash(new() { col }, 250);
     }
@@ -190,7 +225,7 @@ public partial class MainWindow
         var kp = KeypadCfg ?? DeviceTarget;
         if (wheel != 0)
         {
-            var cols = KeyTester.ControlsForScroll(wheel > 0, kp);
+            var cols = TesterIsK12 ? K12Layout.ControlsForScroll(wheel > 0, _hwMode, _deviceImage) : KeyTester.ControlsForScroll(wheel > 0, kp);
             TesterLine($"⟳ прокрутка {(wheel > 0 ? "вверх" : "вниз")}  {Who(cols)}");
             TesterFlash(cols);
         }
@@ -203,10 +238,14 @@ public partial class MainWindow
     internal void DemoTester(bool on)
     {
         _testerForce = on; _testerDown.Clear(); _scrollLockAt = 0; _testerLast = default; _consumerDown = 0;
-        if (!on && _tester == null) { _testerView = null; _testerLog = null; _testerMode = null; }
+        if (!on && _tester == null) { _testerView = null; _testerK12 = null; _testerLog = null; _testerMode = null; }
     }
     internal (string Text, IReadOnlyCollection<int> Lit) DemoTesterState => (_testerLog == null ? "" : string.Join("\n", TesterLines), TesterLit);
     internal string? DemoTesterLast { get; private set; }
+    internal bool DemoTesterIsK12View => _testerK12 != null;
+    /// <summary>Smoke: no button in the tester can be pressed from the keyboard (not focusable, not default/cancel).</summary>
+    internal static bool KeyboardCannotPress(Window w) =>
+        SmokeTest.Find<Button>(w).All(b => !b.Focusable && !b.IsDefault && !b.IsCancel);
 
     /// <summary>Smoke: hold assignment cleanup.</summary>
     internal void DemoClearMacro(int slot, int holdColumn)

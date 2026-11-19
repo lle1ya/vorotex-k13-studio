@@ -678,6 +678,34 @@ public static class SmokeTest
                 w.DemoHwMode(null);
                 w.DemoTester(false); tw.Close();
             });
+            // 1.3.3: K12 (read-only names and schematic in «Проверка кнопок»); keypad keys never press the tester's buttons
+            Step($"{th}: 1.3.3 проверка кнопок K12 и Enter", () =>
+            {
+                var k12 = (byte[])MainWindow.DefaultImage.Clone();
+                for (int c = 0; c < 18; c++) k12[0x20 + c * 8] = c < K13Model.K12FactoryRow.Length ? K13Model.K12FactoryRow[c] : (byte)0xFF;
+                for (int c = 0; c < 20; c++) k12[0x128 + c * 8] = c < K12Layout.GameAfterReset.Length ? K12Layout.GameAfterReset[c] : (byte)0xFF;
+                w.DemoModel(k12, connected: true); w.DemoKeypadImage(k12);
+                var tw = w.BuildTesterWindow();
+                if (!MainWindow.KeyboardCannotPress(tw)) throw new InvalidOperationException("кнопку окна проверки можно нажать с клавиатуры (Enter/Esc)");
+                if (!w.DemoTesterIsK12View || !AllText(tw).Contains("регулятор K12")) throw new InvalidOperationException("для K12 не показана схема K12");
+                w.DemoTester(true);
+                w.DemoHwMode(HwMode.Normal);
+                w.OnKeypadRaw(0x60, 0, true);   // Num 0
+                if (!w.DemoTesterState.Lit.Contains(10) || w.DemoTesterLast?.Contains("клавиша VOROTEX") != true) throw new InvalidOperationException("Num 0 на K12 — не «клавиша VOROTEX»: " + w.DemoTesterLast);
+                w.OnKeypadRaw(0x60, 0, false);
+                w.DemoHwMode(HwMode.Game);
+                w.OnKeypadRaw(0xC0, 0, true);   // ` ~
+                if (w.DemoTesterLast?.Contains("клавиша с точкой") != true) throw new InvalidOperationException("` ~ в Game на K12 — не «клавиша с точкой»: " + w.DemoTesterLast);
+                w.OnKeypadRaw(0xC0, 0, false);
+                if (!w.DeviceInfo().Contains("клавиша VOROTEX: Num 0")) throw new InvalidOperationException("в сведениях нет раскладки K12");
+                if (th == "light") { w.OnKeypadRaw(0x30, 0, true); tw.Show(); Shot(tw, Path.Combine(folder, "tester-k12.png")); w.OnKeypadRaw(0x30, 0, false); }
+                w.DemoHwMode(null);
+                w.DemoTester(false); tw.Close();
+                w.DemoModel(null, connected: false); w.DemoKeypadImage(null);
+                var t13 = w.BuildTesterWindow();
+                if (w.DemoTesterIsK12View || !MainWindow.KeyboardCannotPress(t13)) throw new InvalidOperationException("окно проверки K13: схема/кнопки не те");
+                w.DemoTester(false); t13.Close();
+            });
             // 1.3.0: «Прокрутка и курсор» (horizontal scroll for Excel, cursor) — PC actions, step / start-stop, all four stick tilts at once
             Step($"{th}: 1.3.0 прокрутка и курсор", () =>
             {
@@ -939,7 +967,7 @@ public static class SmokeTest
     }
 
     /// <summary>1.3.0: the main window as PNG (×1.5, like the README screenshots).</summary>
-    private static void Shot(MainWindow w, string path)
+    private static void Shot(Window w, string path)
     {
         Pump(); w.UpdateLayout();
         var root = (FrameworkElement)VisualTreeHelper.GetChild(w, 0);

@@ -814,6 +814,7 @@ public partial class MainWindow : Window
         $"Режим: {K13Mode.Name(_hwMode)} (байт 3 статуса, бит 7: 1 = Game, 0 = Normal)\n" +
         $"Образ памяти: {(_deviceImage != null ? $"0x{_deviceImage.Length:X} байт" : "не прочитан")}\n" +
         RememberInfo() + "\n" +
+        (K12Layout.IsK12(_deviceImage) ? K12Layout.Describe(_deviceImage) + "\nK12: биты 0x000F (0x1B на K12) по K13 не проверены; запись в K12 заблокирована.\n" : "") +
         $"Запись: включена (бэкап перед записью, проверка после)\nРезервные копии: {BackupStore.DefaultFolder}";
 
     private async Task<byte[]?> ReadDevice(bool auto, string? prefix = null)
