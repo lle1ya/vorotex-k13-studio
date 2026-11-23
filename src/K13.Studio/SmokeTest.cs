@@ -706,6 +706,27 @@ public static class SmokeTest
                 if (w.DemoTesterIsK12View || !MainWindow.KeyboardCannotPress(t13)) throw new InvalidOperationException("окно проверки K13: схема/кнопки не те");
                 w.DemoTester(false); t13.Close();
             });
+            // 1.3.6: selection / press / hover on the keypad diagram — confined to the control (no glow spilling under neighbours)
+            Step($"{th}: 1.3.6 выделение на схеме", () =>
+            {
+                var dir = Path.Combine(folder, "selection"); Directory.CreateDirectory(dir);
+                var dv = new DeviceView();
+                var host = new Window { Content = dv, Width = 560, Height = 300, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None,
+                    WindowStartupLocation = WindowStartupLocation.Manual, Background = th == "light" ? new SolidColorBrush(Color.FromRgb(0xF3, 0xF4, 0xF6)) : new SolidColorBrush(Color.FromRgb(0x1C, 0x1D, 0x21)) };
+                host.Show(); Pump();
+                var lines = new List<string>();
+                foreach (var id in dv.PartIds.OrderBy(i => i)) lines.Add($"{id}\t{DeviceView.ControlName(id)}\t{dv.SelectionOverflow(id):0.0}");
+                File.WriteAllLines(Path.Combine(dir, $"overflow-{th}.txt"), lines);
+                var spill = dv.PartIds.Where(i => dv.SelectionOverflow(i) > 2.5).Select(DeviceView.ControlName).ToList();
+                if (spill.Count > 0) throw new InvalidOperationException("выделение выходит за кнопку больше чем на 2,5: " + string.Join(", ", spill));
+                void Snap(string name) { Pump(); dv.UpdateLayout(); ShotElement(dv, Path.Combine(dir, $"{th}-{name}.png"), 2); }
+                foreach (var (id, name) in new[] { (5, "key6"), (8, "enter"), (9, "tab"), (11, "key0"), (0, "key1"), (15, "chip-up"), (DeviceView.StickPress, "stick-press"),
+                                                    (DeviceView.JoystickKnob, "stick-ring"), (DeviceView.RollUp, "roll-up"), (DeviceView.WheelBody, "wheel") })
+                { dv.DemoSelect(id); Snap("sel-" + name); }
+                dv.DemoSelect(5); dv.DemoHover(6, true); Snap("sel-key6-hover-key7"); dv.DemoHover(6, false);
+                dv.DemoSelect(-1); dv.SetPressed(5, true); dv.SetPressed(8, true); Snap("pressed-key6-enter"); dv.ClearPressed();
+                host.Close();
+            });
             // 1.3.4: read-only model check on connect — no cached K13 image and no automatic writes unless the keypad is a K13
             Step($"{th}: 1.3.4 проверка модели при подключении", () =>
             {
@@ -999,6 +1020,15 @@ public static class SmokeTest
     }
 
     /// <summary>1.3.0: the main window as PNG (×1.5, like the README screenshots).</summary>
+    private static void ShotElement(FrameworkElement e, string path, double sc)
+    {
+        var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(e.ActualWidth * sc), (int)Math.Ceiling(e.ActualHeight * sc), 96 * sc, 96 * sc, PixelFormats.Pbgra32);
+        rtb.Render(e);
+        var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+        using var fs = File.Create(path); enc.Save(fs);
+    }
+
     private static void Shot(Window w, string path)
     {
         Pump(); w.UpdateLayout();

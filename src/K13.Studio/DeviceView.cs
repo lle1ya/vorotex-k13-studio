@@ -63,6 +63,8 @@ public sealed class DeviceView : Viewbox
     {
         >= 12 and <= 15 => "джойстик " + Legend(id),
         StickPress => "нажатие стика",
+        JoystickKnob => "джойстик",
+        WheelBody => "колесо",
         RollUp => "колесо вверх (Roll+)",
         RollDown => "колесо вниз (Roll−)",
         17 => "скрытая кнопка 17",
@@ -84,6 +86,40 @@ public sealed class DeviceView : Viewbox
         public TextBlock? Sub;
         public TranslateTransform? Lift;
         public UIElement? HoverLayer;
+        /// <summary>1.3.6: cyan tint of the control's own face (moves with the cap), shown with <see cref="Sel"/>.</summary>
+        public UIElement? Tint;
+        public Action? Enter, Leave;
+        public bool Raise = true;   // brought above neighbours while selected/pressed (not the stick ring: the press button sits on it)
+    }
+
+    // smoke: hover / selection states without a mouse, and how far the selection reaches outside the control
+    internal void DemoHover(int id, bool on)
+    {
+        if (!_parts.TryGetValue(id, out var p)) return;
+        (on ? p.Enter : p.Leave)?.Invoke();
+        // the end state of the 130 ms animations, for a still picture
+        if (p.HoverLayer != null) { p.HoverLayer.BeginAnimation(OpacityProperty, null); p.HoverLayer.Opacity = on ? 1 : 0; }
+        if (p.Lift != null) { p.Lift.BeginAnimation(TranslateTransform.YProperty, null); p.Lift.Y = on ? -2 : 0; }
+    }
+    internal void DemoSelect(int id) { foreach (var (k, p) in _parts) { SetSelected(p, k == id); if (k == id) { p.Sel.BeginAnimation(OpacityProperty, null); p.Sel.Opacity = 1; } } }
+    internal IEnumerable<int> PartIds => _parts.Keys;
+    /// <summary>Extra reach (device units) of the selected state over the unselected one: max over the four sides.</summary>
+    internal double SelectionOverflow(int id)
+    {
+        var p = _parts[id];
+        DemoSelect(id); UpdateLayout();
+        // everything that appears with the selection (ring, tint and any halo made of them) vs the control's own box
+        var box = new Rect(0, 0, p.Root.ActualWidth > 0 ? p.Root.ActualWidth : p.Root.Width, p.Root.ActualHeight > 0 ? p.Root.ActualHeight : p.Root.Height);
+        Rect b = Rect.Empty;
+        foreach (var e in new[] { p.Sel, p.Tint }.OfType<UIElement>())
+        {
+            var d = VisualTreeHelper.GetDescendantBounds(e);
+            if (d.IsEmpty) continue;
+            b.Union(e.TransformToAncestor(p.Root).TransformBounds(d));
+        }
+        DemoSelect(-1);
+        // a stroke's descendant bounds include half the pen — that is the real painted extent
+        return b.IsEmpty ? 0 : new[] { box.Left - b.Left, b.Right - box.Right, box.Top - b.Top, b.Bottom - box.Bottom }.Max();
     }
 
     private readonly Canvas _canvas = new() { Width = W, Height = H };
@@ -209,6 +245,8 @@ public sealed class DeviceView : Viewbox
         cap.Children.Add(top);
         var hover = new Path { Data = topGeo, Fill = new SolidColorBrush(C(light ? 0x30FFFFFFu : 0x22FFFFFFu)), Opacity = 0 };
         cap.Children.Add(hover);
+        var tint = TintPath(topGeo, light);
+        cap.Children.Add(tint);
 
         // legend
         var face = topGeo.Bounds;
@@ -248,10 +286,12 @@ public sealed class DeviceView : Viewbox
         cap.Children.Add(badge);
         root.Children.Add(cap);
 
-        var sel = SelectionPath(Shape(rects, o, -3, -3, -3, -3, 10));
-        root.Children.Insert(0, sel);
+        // 1.3.6: a crisp 2-unit ring hugging the key's own outline (radius 8 → 9.25), inside the 4-unit gap between keys —
+        // no blurred glow under the neighbours; above the key's own shadow, below the cap
+        var sel = SelectionPath(Shape(rects, o, -1.25, -1.25, -1.25, -1.25, 9.25));
+        root.Children.Insert(1, sel);
         _canvas.Children.Add(root);
-        Register(id, new Part { Root = root, Sel = sel, Badge = badge, Sub = sub, Lift = lift, HoverLayer = hover });
+        Register(id, new Part { Root = root, Sel = sel, Badge = badge, Sub = sub, Lift = lift, HoverLayer = hover, Tint = tint });
     }
 
     private static Ellipse Badge() => new()
@@ -261,8 +301,14 @@ public sealed class DeviceView : Viewbox
 
     private static Path SelectionPath(Geometry g) => new()
     {
-        Data = g, Stroke = new SolidColorBrush(Cyan), StrokeThickness = 2.4, Fill = new SolidColorBrush(C(0x182EC8FF)), Visibility = Visibility.Collapsed, IsHitTestVisible = false,
-        Effect = new DropShadowEffect { BlurRadius = 16, ShadowDepth = 0, Color = Cyan, Opacity = 1 },
+        Data = g, Stroke = new SolidColorBrush(Cyan), StrokeThickness = 2, StrokeLineJoin = PenLineJoin.Round, Visibility = Visibility.Collapsed, IsHitTestVisible = false,
+    };
+
+    /// <summary>1.3.6: selected face — a light cyan wash and a thin inner cyan edge, clipped to the face itself.</summary>
+    private static Path TintPath(Geometry face, bool light) => new()
+    {
+        Data = face, Fill = new SolidColorBrush(C(light ? 0x222EC8FFu : 0x242EC8FFu)), Stroke = new SolidColorBrush(C(0x902EC8FF)), StrokeThickness = 1,
+        Visibility = Visibility.Collapsed, IsHitTestVisible = false,
     };
 
     // ───────────────────────────── joystick module
@@ -280,8 +326,7 @@ public sealed class DeviceView : Viewbox
         // knob well and outer ring (ring area = "joystick" click target)
         var ringRoot = new Canvas { Width = 92, Height = 92, Background = Brushes.Transparent };
         Canvas.SetLeft(ringRoot, StickC.X - 46); Canvas.SetTop(ringRoot, StickC.Y - 46);
-        var ringSel = new Ellipse { Width = 92, Height = 92, Stroke = new SolidColorBrush(Cyan), StrokeThickness = 2.2, Visibility = Visibility.Collapsed, IsHitTestVisible = false,
-            Effect = new DropShadowEffect { BlurRadius = 14, ShadowDepth = 0, Color = Cyan } };
+        var ringSel = new Ellipse { Width = 92, Height = 92, Stroke = new SolidColorBrush(Cyan), StrokeThickness = 2, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
         ringRoot.Children.Add(ringSel);
         var well = new Ellipse { Width = 84, Height = 84, Fill = new RadialGradientBrush(C(0xFF0A0B0D), C(0xFF1D1F23)) { GradientOrigin = new Point(0.5, 0.35) },
             Stroke = V((0, 0x90000000), (1, 0x26FFFFFF)), StrokeThickness = 1.5 };
@@ -315,15 +360,17 @@ public sealed class DeviceView : Viewbox
         var hoverRing = new Ellipse { Width = 60, Height = 60, Fill = new SolidColorBrush(C(0x18FFFFFF)), Opacity = 0 };
         Canvas.SetLeft(hoverRing, 16); Canvas.SetTop(hoverRing, 16);
         knobGrp.Children.Add(hoverRing);
+        var knobTint = new Ellipse { Width = 60, Height = 60, Fill = new SolidColorBrush(C(0x282EC8FF)), Stroke = new SolidColorBrush(C(0x902EC8FF)), StrokeThickness = 1, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+        Canvas.SetLeft(knobTint, 16); Canvas.SetTop(knobTint, 16);
+        knobGrp.Children.Add(knobTint);
         ringRoot.Children.Add(knobGrp);
         _canvas.Children.Add(ringRoot);
-        Register(JoystickKnob, new Part { Root = ringRoot, Sel = ringSel, Badge = new Ellipse(), Lift = lift, HoverLayer = hoverRing });
+        Register(JoystickKnob, new Part { Root = ringRoot, Sel = ringSel, Badge = new Ellipse(), Lift = lift, HoverLayer = hoverRing, Tint = knobTint, Raise = false });
 
         // centre = stick press (column 16)
         var press = new Canvas { Width = 30, Height = 30, Background = Brushes.Transparent };
         Canvas.SetLeft(press, StickC.X - 15); Canvas.SetTop(press, StickC.Y - 15);
-        var pSel = new Ellipse { Width = 30, Height = 30, Stroke = new SolidColorBrush(Cyan), StrokeThickness = 2.2, Fill = new SolidColorBrush(C(0x302EC8FF)), Visibility = Visibility.Collapsed, IsHitTestVisible = false,
-            Effect = new DropShadowEffect { BlurRadius = 12, ShadowDepth = 0, Color = Cyan } };
+        var pSel = new Ellipse { Width = 30, Height = 30, Stroke = new SolidColorBrush(Cyan), StrokeThickness = 2, Fill = new SolidColorBrush(C(0x302EC8FF)), Visibility = Visibility.Collapsed, IsHitTestVisible = false };
         var dish = new Ellipse { Width = 22, Height = 22, Fill = new RadialGradientBrush(C(0xFF2C2F35), C(0xFF4A4E56)) { GradientOrigin = new Point(0.5, 0.75) },
             Stroke = V((0, 0x70000000), (1, 0x30FFFFFF)), StrokeThickness = 1 };
         Canvas.SetLeft(dish, 4); Canvas.SetTop(dish, 4);
@@ -346,9 +393,10 @@ public sealed class DeviceView : Viewbox
     {
         var root = new Canvas { Width = r.Width, Height = r.Height, Background = Brushes.Transparent };
         Canvas.SetLeft(root, r.X); Canvas.SetTop(root, r.Y);
-        var sel = new Rectangle { Width = r.Width + 6, Height = r.Height + 6, RadiusX = 11, RadiusY = 11, Stroke = new SolidColorBrush(Cyan), StrokeThickness = 2.2,
-            Fill = new SolidColorBrush(C(0x202EC8FF)), Visibility = Visibility.Collapsed, IsHitTestVisible = false, Effect = new DropShadowEffect { BlurRadius = 12, ShadowDepth = 0, Color = Cyan } };
-        Canvas.SetLeft(sel, -3); Canvas.SetTop(sel, -3);
+        // 1.3.6: ring 2 units wide right outside the chip (Roll+ / Roll− are 4 units apart), no glow
+        var sel = new Rectangle { Width = r.Width + 4, Height = r.Height + 4, RadiusX = 11, RadiusY = 11, Stroke = new SolidColorBrush(Cyan), StrokeThickness = 2,
+            Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+        Canvas.SetLeft(sel, -2); Canvas.SetTop(sel, -2);
         var lift = new TranslateTransform();
         var face = new Border
         {
@@ -358,11 +406,13 @@ public sealed class DeviceView : Viewbox
             Child = content, IsHitTestVisible = false,
         };
         var hover = new Border { Width = r.Width, Height = r.Height, CornerRadius = new CornerRadius(9), Background = new SolidColorBrush(C(0x22FFFFFF)), Opacity = 0, RenderTransform = lift, IsHitTestVisible = false };
+        var tint = new Border { Width = r.Width, Height = r.Height, CornerRadius = new CornerRadius(9), Background = new SolidColorBrush(C(0x302EC8FF)), BorderBrush = new SolidColorBrush(C(0x902EC8FF)),
+            BorderThickness = new Thickness(1), RenderTransform = lift, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
         var badge = Badge();
         Canvas.SetLeft(badge, r.Width - 8); Canvas.SetTop(badge, 1);
-        root.Children.Add(sel); root.Children.Add(face); root.Children.Add(hover); root.Children.Add(badge);
+        root.Children.Add(sel); root.Children.Add(face); root.Children.Add(hover); root.Children.Add(tint); root.Children.Add(badge);
         _canvas.Children.Add(root);
-        Register(id, new Part { Root = root, Sel = sel, Badge = badge, Lift = lift, HoverLayer = hover });
+        Register(id, new Part { Root = root, Sel = sel, Badge = badge, Lift = lift, HoverLayer = hover, Tint = tint });
     }
 
     // ───────────────────────────── wheel
@@ -374,9 +424,8 @@ public sealed class DeviceView : Viewbox
         const double W = 26, H = 54;
         var root = new Canvas { Width = W, Height = H, Background = Brushes.Transparent };
         Canvas.SetLeft(root, 438); Canvas.SetTop(root, 177);
-        var sel = new Rectangle { Width = W + 6, Height = H + 6, RadiusX = 9, RadiusY = 9, Stroke = new SolidColorBrush(Cyan), StrokeThickness = 2.2, Visibility = Visibility.Collapsed, IsHitTestVisible = false,
-            Effect = new DropShadowEffect { BlurRadius = 14, ShadowDepth = 0, Color = Cyan } };
-        Canvas.SetLeft(sel, -3); Canvas.SetTop(sel, -3);
+        var sel = new Rectangle { Width = W + 4, Height = H + 4, RadiusX = 9, RadiusY = 9, Stroke = new SolidColorBrush(Cyan), StrokeThickness = 2, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+        Canvas.SetLeft(sel, -2); Canvas.SetTop(sel, -2);   // 1.3.6: inside the 4-unit housing rim, no glow
         root.Children.Add(sel);
         var cyl = new Canvas { Width = W, Height = H, Clip = new RectangleGeometry(new Rect(0, 0, W, H), 7, 7), IsHitTestVisible = false };
         cyl.Children.Add(new Rectangle { Width = W, Height = H, Fill = Hz((0, 0xFF3A3D42), (0.18, 0xFF8C9097), (0.42, 0xFFE4E7EB), (0.55, 0xFFF6F7F9), (0.75, 0xFF9DA1A8), (1, 0xFF3C3F44)) });
@@ -394,8 +443,10 @@ public sealed class DeviceView : Viewbox
         root.Children.Add(cyl);
         var hover = new Rectangle { Width = W, Height = H, RadiusX = 7, RadiusY = 7, Fill = new SolidColorBrush(C(0x26FFFFFF)), Opacity = 0, IsHitTestVisible = false };
         root.Children.Add(hover);
+        var wTint = new Rectangle { Width = W, Height = H, RadiusX = 7, RadiusY = 7, Fill = new SolidColorBrush(C(0x382EC8FF)), Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+        root.Children.Add(wTint);
         _canvas.Children.Add(root);
-        Register(WheelBody, new Part { Root = root, Sel = sel, Badge = new Ellipse(), HoverLayer = hover });
+        Register(WheelBody, new Part { Root = root, Sel = sel, Badge = new Ellipse(), HoverLayer = hover, Tint = wTint });
 
         foreach (var (id, glyph, text) in new[] { (RollUp, "\uE74A", "Roll+"), (RollDown, "\uE74B", "Roll−") })
         {
@@ -438,18 +489,20 @@ public sealed class DeviceView : Viewbox
         if (!_interactive) { p.Root.IsHitTestVisible = false; return; }
         p.Root.Cursor = Cursors.Hand;
         var dur = TimeSpan.FromMilliseconds(130);
-        p.Root.MouseEnter += (_, _) =>
+        p.Enter = () =>
         {
             p.Lift?.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(-2, dur) { EasingFunction = new CubicEase() });
             p.HoverLayer?.BeginAnimation(OpacityProperty, new DoubleAnimation(1, dur));
             Hovered?.Invoke(id);
         };
-        p.Root.MouseLeave += (_, _) =>
+        p.Leave = () =>
         {
             p.Lift?.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(0, dur) { EasingFunction = new CubicEase() });
             p.HoverLayer?.BeginAnimation(OpacityProperty, new DoubleAnimation(0, dur));
             Hovered?.Invoke(null);
         };
+        p.Root.MouseEnter += (_, _) => p.Enter();
+        p.Root.MouseLeave += (_, _) => p.Leave();
         p.Root.MouseLeftButtonDown += (_, e) => { e.Handled = true; p.Lift?.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(60))); };
         p.Root.MouseLeftButtonUp += (_, e) =>
         {
@@ -483,6 +536,8 @@ public sealed class DeviceView : Viewbox
         p.Sel.BeginAnimation(OpacityProperty, null);
         p.Sel.Opacity = 1;
         p.Sel.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        if (p.Tint != null) p.Tint.Visibility = p.Sel.Visibility;
+        if (p.Raise) Panel.SetZIndex(p.Root, on ? 1 : 0);
         if (p.Lift != null) { p.Lift.BeginAnimation(TranslateTransform.YProperty, null); p.Lift.Y = on ? 2 : 0; }
     }
 
@@ -494,8 +549,10 @@ public sealed class DeviceView : Viewbox
     {
         if (sel == (p.Sel.Visibility == Visibility.Visible)) return;
         p.Sel.Visibility = sel ? Visibility.Visible : Visibility.Collapsed;
-        if (sel)
-            p.Sel.BeginAnimation(OpacityProperty, new DoubleAnimation(1, 0.55, TimeSpan.FromMilliseconds(1100)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() });
+        if (p.Tint != null) p.Tint.Visibility = p.Sel.Visibility;
+        if (p.Raise) Panel.SetZIndex(p.Root, sel ? 1 : 0);   // 1.3.6: the selected control above its neighbours' shadows
+        if (sel)   // 1.3.6: a calm breath of the ring only (was 1 → 0.55 on a blurred glow)
+            p.Sel.BeginAnimation(OpacityProperty, new DoubleAnimation(1, 0.7, TimeSpan.FromMilliseconds(1400)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() });
         else p.Sel.BeginAnimation(OpacityProperty, null);
     }
 
